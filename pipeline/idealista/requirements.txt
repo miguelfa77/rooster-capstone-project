@@ -1,0 +1,5 @@
+selenium==4.15.2
+undetected-chromedriver==3.5.4
+fake-useragent==1.4.0
+requests==2.31.0
+
