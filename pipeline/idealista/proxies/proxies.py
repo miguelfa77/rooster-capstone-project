@@ -188,12 +188,16 @@ def main():
         print(f"✓ Proxy is working")
         print(f"Current IP: {manager.current_ip}")
         
+        # Store the first IP before getting a new one
+        first_ip = manager.current_ip
+        
         # Test rotation - get IP again (should be different)
         print("\nTesting rotation (getting IP again)...")
         new_ip = manager.get_current_ip()
         print(f"New IP: {new_ip}")
         
-        if new_ip != manager.current_ip:
+        # Compare with the stored first IP, not the updated current_ip
+        if new_ip and new_ip != first_ip:
             print("✓ IP rotation confirmed!")
         else:
             print("Note: IP may be the same or rotation happens on connection")
