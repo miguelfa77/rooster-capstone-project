@@ -227,6 +227,29 @@ CHAT_OUTPUT_CORRECTED = (
     "Consulta ajustada automáticamente para incluir todos los campos necesarios."
 )
 
+# —— Fallback unificado (chat) ——
+GRACEFUL_FALLBACK_FMT = "{reason}\n\n{suggestion}"
+SYNTH_TIMEOUT_BODY = (
+    "La respuesta tardó demasiado. Prueba una pregunta más concreta o sube el tiempo máximo en ajustes."
+)
+CHAT_TIMEOUT_REASON = "El planificador tardó demasiado en responder."
+CHAT_TIMEOUT_SUGGESTION = (
+    "Prueba con un barrio concreto (p. ej. Ruzafa o Natzaret) o una pregunta más corta."
+)
+CHAT_VALIDATION_FAILED_SUGGESTION = (
+    "Prueba con un barrio de la lista en vivo (p. ej. Ruzafa o Natzaret) o reformula con un solo filtro."
+)
+CHAT_UNEXPECTED_SUGGESTION = (
+    "Reformula la pregunta en una frase o prueba con un ejemplo de barrio."
+)
+CHAT_EXCEPTION_SUGGESTION = "Vuelve a intentarlo en unos segundos; si persiste, recarga la página."
+
+FOLLOW_UP_DEFAULTS = [
+    "Ver más barrios",
+    "Comparar precios",
+    "Mostrar en mapa",
+]
+
 COMBINED_MAP_ALL_FAILED = "No se pudo cargar ninguna capa del mapa combinado."
 
 # —— Fases timeout (si se usan) ——

@@ -1583,6 +1583,21 @@ RENDERERS: dict[str, Any] = {
 }
 
 
+def render_graceful_fallback(reason: str, suggestion: str) -> None:
+    """Unified chat error / empty-state presentation (Spanish copy from caller)."""
+    r = (reason or "").strip()
+    s = (suggestion or "").strip()
+    if not r and not s:
+        return
+    if not r:
+        st.info(s)
+        return
+    if not s:
+        st.info(r)
+        return
+    st.info(UI.GRACEFUL_FALLBACK_FMT.format(reason=r, suggestion=s))
+
+
 def dispatch(intent: str, rows: list[dict[str, Any]], metadata: dict[str, Any], summary: str) -> None:
     """Plain prose first, then visuals, then optional caveat caption."""
     meta = dict(metadata or {})

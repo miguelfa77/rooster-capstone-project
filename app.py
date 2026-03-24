@@ -62,6 +62,7 @@ from agent.agent_pipeline import (
     run_synthesiser,
     stream_canned_text_word_by_word,
     stream_openai_final_response_messages,
+    strip_follow_ups_suffix,
     update_conversation_state,
     use_conversational_fast_path,
 )
@@ -74,7 +75,7 @@ from agent.llm_sql import (
     summarize_conversation_memo,
 )
 from agent import ui_es as UI
-from agent.renderers import dispatch
+from agent.renderers import dispatch, render_graceful_fallback
 
 st.set_page_config(page_title=UI.PAGE_TITLE, page_icon="🏠", layout="wide")
 
@@ -1315,8 +1316,19 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
             st.markdown(msg["content"])
         return
     with st.chat_message("assistant", avatar="🐓"):
+        if msg.get("graceful_fallback"):
+            gf = msg["graceful_fallback"]
+            render_graceful_fallback(
+                str(gf.get("reason", "")),
+                str(gf.get("suggestion", "")),
+            )
+            _render_followup_pills_replay(msg.get("follow_ups") or [])
+            return
         if msg.get("error"):
-            st.error(msg["error"])
+            render_graceful_fallback(
+                str(msg["error"]),
+                UI.CHAT_EXCEPTION_SUGGESTION,
+            )
             return
         if msg.get("empty"):
             if msg.get("empty_narrative"):
@@ -1341,7 +1353,8 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
                     meta.setdefault("metric_label", UI.RANKING_METRIC_DEFAULT)
                 dispatch(intent, rows, meta, "")
             if val_errs:
-                st.caption("Note: " + ". ".join(str(e) for e in val_errs))
+                st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
+            _render_followup_pills_replay(msg.get("follow_ups") or [])
             return
         intent = msg.get("intent", "search")
         if msg.get("is_memo") or intent == "memo":
@@ -1351,6 +1364,7 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
                 {"memo_text": (msg.get("summary") or "").strip(), "geo_key": idx},
                 "",
             )
+            _render_followup_pills_replay(msg.get("follow_ups") or [])
             return
         if intent == "combined_map":
             dispatch(
@@ -1376,6 +1390,7 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
         if intent == "ranking":
             meta["metric_label"] = (msg.get("reasoning_focus") or "").strip() or UI.RANKING_METRIC_DEFAULT
         dispatch(intent, rows or [], meta, msg.get("summary") or "")
+        _render_followup_pills_replay(msg.get("follow_ups") or [])
 
 
 def _dispatch_render_stack_blocks(render_stack: list, geo_key: int) -> None:
@@ -1388,6 +1403,27 @@ def _dispatch_render_stack_blocks(render_stack: list, geo_key: int) -> None:
         if intent == "ranking":
             meta.setdefault("metric_label", UI.RANKING_METRIC_DEFAULT)
         dispatch(intent, rows, meta, "")
+
+
+def _render_followup_pills_interactive(pills: list[str], geo_key: int) -> None:
+    if not pills:
+        return
+    cols = st.columns(len(pills))
+    for i, pill in enumerate(pills):
+        with cols[i]:
+            if st.button(
+                pill,
+                key=f"followup_{geo_key}_{i}",
+                use_container_width=True,
+            ):
+                st.session_state.pending_followup = pill
+                st.rerun()
+
+
+def _render_followup_pills_replay(pills: list[str]) -> None:
+    if not pills:
+        return
+    st.caption(" · ".join(pills))
 
 
 def render_chat() -> None:
@@ -1417,9 +1453,12 @@ def render_chat() -> None:
     for i, msg in enumerate(st.session_state.messages):
         _replay_message(msg, idx=i)
 
+    pending_followup = st.session_state.pop("pending_followup", None)
     user_input = st.chat_input(UI.CHAT_INPUT_PLACEHOLDER)
     if st.session_state.get("ask_auto_submit"):
         user_input = st.session_state.pop("ask_auto_submit")
+    if pending_followup:
+        user_input = pending_followup
 
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
@@ -1450,6 +1489,7 @@ def render_chat() -> None:
                 "error": None,
                 "empty": False,
                 "followups": [],
+                "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
                 "confidence": "high",
                 "interpretation": "",
                 "reasoning_focus": "",
@@ -1483,6 +1523,7 @@ def render_chat() -> None:
                 "error": None,
                 "empty": False,
                 "followups": [],
+                "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
                 "confidence": "high",
                 "interpretation": "",
                 "reasoning_focus": "",
@@ -1530,7 +1571,11 @@ def render_chat() -> None:
                     st.session_state.messages.append({
                         "role": "assistant",
                         "intent": "conversational",
-                        "summary": "Planner timed out. Try a narrower question.",
+                        "summary": "",
+                        "graceful_fallback": {
+                            "reason": UI.CHAT_TIMEOUT_REASON,
+                            "suggestion": UI.CHAT_TIMEOUT_SUGGESTION,
+                        },
                         "render_stack": [],
                         "validation_errors": [],
                         "rows": None,
@@ -1538,6 +1583,7 @@ def render_chat() -> None:
                         "error": None,
                         "empty": False,
                         "followups": [],
+                        "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
                         "confidence": "low",
                         "interpretation": "",
                         "reasoning_focus": "",
@@ -1566,7 +1612,11 @@ def render_chat() -> None:
                     st.session_state.messages.append({
                         "role": "assistant",
                         "agent_turn": True,
-                        "summary": summary_text,
+                        "summary": "",
+                        "graceful_fallback": {
+                            "reason": summary_text,
+                            "suggestion": UI.CHAT_VALIDATION_FAILED_SUGGESTION,
+                        },
                         "render_stack": [],
                         "validation_errors": ve,
                         "intent": "conversational",
@@ -1575,6 +1625,7 @@ def render_chat() -> None:
                         "error": None,
                         "empty": False,
                         "followups": [],
+                        "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
                         "confidence": "high",
                         "interpretation": "",
                         "reasoning_focus": "",
@@ -1626,15 +1677,28 @@ def render_chat() -> None:
                     _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
                 else:
                     _LOG.warning("FC unexpected branch: %s", fc)
-                    openai_precomputed = (
-                        "Lo siento, no pude procesar tu mensaje. ¿Puedes reformular?"
-                    )
-                    stream_kind = "conversational"
-                    plan_for_stream = {
-                        "reasoning": "conversational",
-                        "tool_calls": [],
-                    }
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "intent": "conversational",
+                        "summary": "",
+                        "graceful_fallback": {
+                            "reason": "Lo siento, no pude procesar tu mensaje.",
+                            "suggestion": UI.CHAT_UNEXPECTED_SUGGESTION,
+                        },
+                        "render_stack": [],
+                        "validation_errors": [],
+                        "rows": None,
+                        "sql": None,
+                        "error": None,
+                        "empty": False,
+                        "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
+                        "confidence": "low",
+                        "interpretation": "",
+                        "reasoning_focus": "",
+                        "caveat": "",
+                    })
                     status.update(label=UI.STATUS_DONE, state="complete")
+                    st.rerun()
             except Exception as e:
                 _LOG.exception("Chat pipeline failed: %s", e)
                 status.update(label=UI.STATUS_ERROR, state="error")
@@ -1642,11 +1706,16 @@ def render_chat() -> None:
                     "role": "assistant",
                     "intent": "search",
                     "summary": "",
+                    "graceful_fallback": {
+                        "reason": str(e),
+                        "suggestion": UI.CHAT_EXCEPTION_SUGGESTION,
+                    },
                     "rows": None,
                     "sql": None,
-                    "error": str(e),
+                    "error": None,
                     "empty": False,
                     "followups": [],
+                    "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
                     "confidence": "high",
                     "interpretation": "",
                     "caveat": "",
@@ -1654,12 +1723,13 @@ def render_chat() -> None:
 
         if stream_kind == "conversational" and plan_for_stream is not None:
             response_text = ""
+            follow_ups_save: list[str] = []
+            geo_conv = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
                 if openai_precomputed is not None:
-                    st.write(openai_precomputed)
-                    response_text = openai_precomputed
+                    prose, fus = strip_follow_ups_suffix(openai_precomputed)
                 else:
-                    response_text = run_synthesiser(
+                    raw = run_synthesiser(
                         user_input,
                         plan_for_stream,
                         [],
@@ -1667,9 +1737,15 @@ def render_chat() -> None:
                         model_choice,
                         timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
                         confirmed_visuals=None,
-                        max_tokens_override=CONVERSATIONAL_SYNTH_MAX_TOKENS,
+                        max_tokens_override=CONVERSATIONAL_SYNTH_MAX_TOKENS + 50,
                     )
-                    st.write(response_text)
+                    prose, fus = strip_follow_ups_suffix(raw)
+                if not fus:
+                    fus = list(UI.FOLLOW_UP_DEFAULTS)
+                follow_ups_save = fus
+                st.markdown(prose.replace("**", "").replace("__", ""))
+                response_text = prose
+                _render_followup_pills_interactive(fus, geo_conv)
             st.session_state.conversation_state = update_conversation_state(
                 st.session_state.conversation_state,
                 user_input,
@@ -1687,6 +1763,7 @@ def render_chat() -> None:
                 "error": None,
                 "empty": False,
                 "followups": [],
+                "follow_ups": follow_ups_save,
                 "confidence": "high",
                 "interpretation": "",
                 "reasoning_focus": "",
@@ -1696,19 +1773,23 @@ def render_chat() -> None:
 
         elif stream_kind == "full" and validated_for_stream is not None:
             response_text = ""
+            follow_ups_save: list[str] = []
             geo_key = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
                 try:
                     if openai_fc_final_messages:
-                        stream = stream_openai_final_response_messages(
+                        chunks: list[str] = []
+                        for ch in stream_openai_final_response_messages(
                             openai_fc_final_messages,
                             model_choice,
                             openai_fc_max_tokens,
                             float(timeout_sec),
-                        )
-                        response_text = st.write_stream(stream)
+                        ):
+                            chunks.append(ch)
+                        full_text = "".join(chunks)
+                        prose, fus = strip_follow_ups_suffix(full_text)
                     else:
-                        response_text = run_synthesiser(
+                        raw = run_synthesiser(
                             user_input,
                             validated_for_stream or {},
                             execution_for_stream or [],
@@ -1717,9 +1798,14 @@ def render_chat() -> None:
                             timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
                             confirmed_visuals=confirmed_for_stream,
                         )
-                        st.write(response_text)
+                        prose, fus = strip_follow_ups_suffix(raw)
+                    if not fus:
+                        fus = list(UI.FOLLOW_UP_DEFAULTS)
+                    follow_ups_save = fus
+                    st.markdown(prose.replace("**", "").replace("__", ""))
+                    response_text = prose
                 except Exception:
-                    response_text = run_synthesiser(
+                    raw = run_synthesiser(
                         user_input,
                         validated_for_stream or {},
                         execution_for_stream or [],
@@ -1728,8 +1814,14 @@ def render_chat() -> None:
                         timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
                         confirmed_visuals=confirmed_for_stream,
                     )
-                    st.write(response_text)
+                    prose, fus = strip_follow_ups_suffix(raw)
+                    if not fus:
+                        fus = list(UI.FOLLOW_UP_DEFAULTS)
+                    follow_ups_save = fus
+                    st.markdown(prose.replace("**", "").replace("__", ""))
+                    response_text = prose
                 _dispatch_render_stack_blocks(render_stack_for_stream or [], geo_key)
+                _render_followup_pills_interactive(follow_ups_save, geo_key)
                 if had_output_correction:
                     st.caption(UI.CHAT_OUTPUT_CORRECTED)
                 if val_errs_for_stream:
@@ -1756,6 +1848,7 @@ def render_chat() -> None:
                 "error": None,
                 "empty": False,
                 "followups": [],
+                "follow_ups": follow_ups_save,
                 "confidence": "high",
                 "interpretation": "",
                 "reasoning_focus": "",

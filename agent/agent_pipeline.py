@@ -6,6 +6,7 @@ Pure-Python validation, execution, and renderer overrides.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import random
 import re
@@ -27,6 +28,8 @@ from agent.llm_sql import (
     SUMMARIZE_TIMEOUT_SEC,
     get_pg_engine,
 )
+
+_LOG = logging.getLogger("rooster.agent")
 
 PLANNER_NOTE_OUTPUT_INTENT = """
 === DISPLAY INTENT ===
@@ -307,7 +310,14 @@ The user message includes which visual(s) appear after your text. Your prose MUS
 
 If there was no execution results (conversational tool_calls empty), answer from expertise and conversation context only.
 
-If tools failed or returned 0 rows, say so honestly and suggest what to try next."""
+If tools failed or returned 0 rows, say so honestly and suggest what to try next.
+
+FOLLOW-UP PILLS (required when tools ran and returned something to show):
+After your 3 sentences, output a NEW LINE, then exactly one HTML comment on its own line:
+<!-- FOLLOW_UPS: ["short Spanish action 1", "short Spanish action 2", "short Spanish action 3"] -->
+Use 2-3 strings (max 8 words each), Spanish, specific to what was just shown (not generic chips).
+Examples: after a map → "Ver tabla de estos anuncios"; after a ranking → "Comparar los dos mejores barrios".
+If there is nothing to build on (error-only, or pure chit-chat), use: <!-- FOLLOW_UPS: [] -->"""
 
 
 def _sql_escape(s: str) -> str:
@@ -482,8 +492,76 @@ _DATA_TOOLS_WITH_OUTPUT_INTENT = frozenset(
     }
 )
 
-# One replan attempt after output-completeness issues (total 2 planner calls max).
+# One replan attempt after validation or output-completeness issues (total 2 planner calls max).
 MAX_OUTPUT_CORRECTION_ATTEMPTS = 1
+
+
+def strip_follow_ups_suffix(text: str) -> tuple[str, list[str]]:
+    """
+    Remove trailing <!-- FOLLOW_UPS: ["..."] --> from synthesiser output; return prose + pills.
+    """
+    if not (text or "").strip():
+        return "", []
+    t = text.strip()
+    m = re.search(
+        r"<!--\s*FOLLOW_UPS:\s*(\[[\s\S]*?\])\s*-->\s*\Z",
+        t,
+        re.IGNORECASE,
+    )
+    if not m:
+        return t, []
+    prose = t[: m.start()].strip()
+    try:
+        raw = json.loads(m.group(1))
+    except json.JSONDecodeError:
+        return t, []
+    if not isinstance(raw, list):
+        return t, []
+    out: list[str] = []
+    for x in raw:
+        s = str(x).strip()
+        if s and len(s.split()) <= 12:
+            out.append(s)
+        if len(out) >= 3:
+            break
+    return prose, out
+
+
+def _dedup_params_signature(params: dict[str, Any]) -> str:
+    """Stable fingerprint for render deduplication (excludes display-only keys)."""
+    skip = frozenset({"output_intent", "chart_style"})
+    d = {k: v for k, v in (params or {}).items() if k not in skip}
+    try:
+        return json.dumps(d, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return str(d)
+
+
+def _dedupe_render_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop consecutive duplicate intents with same tool + param fingerprint."""
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for b in blocks:
+        intent = b.get("intent") or ""
+        meta = dict(b.get("meta") or {})
+        if intent == "combined_map":
+            out.append(b)
+            continue
+        tool = (meta.get("tool") or "").strip()
+        dps = (meta.get("dedup_params") or "").strip()
+        key = (intent, tool, dps)
+        if key in seen:
+            _LOG.warning(
+                "Dropping duplicate render block: intent=%s tool=%s params=%s",
+                intent,
+                tool,
+                (dps[:160] + "…") if len(dps) > 160 else dps,
+            )
+            continue
+        seen.add(key)
+        out.append(b)
+    return out
+
 
 # User asked for a visual chart; profile rows are present but planner chose a tabular intent.
 _CHART_REQUEST_RE = re.compile(
@@ -715,6 +793,29 @@ Output intent was: {output_intent}
 
 Generate new tool_calls that fix all problems listed above.
 Do not repeat the same mistake."""
+
+
+def format_validation_plan_correction(
+    errors: list[str],
+    raw_tool_calls: list[dict[str, Any]],
+) -> str:
+    """Build user message block for a replan after validate_plan dropped all tool calls."""
+    err_lines = "\n".join(f"- {e}" for e in (errors or []) if str(e).strip()) or "(no details)"
+    tools_tried = ", ".join(
+        str(c.get("tool") or "?") for c in (raw_tool_calls or []) if isinstance(c, dict)
+    ) or "(none)"
+    return f"""YOUR PREVIOUS TOOL CALLS FAILED VALIDATION — FIX THEM:
+
+Validation errors:
+{err_lines}
+
+Tools you attempted: {tools_tried}
+
+Rules:
+- Every data tool (query_*) MUST include **output_intent** in the JSON arguments (see tool schema).
+- For neighborhood filters, use names from the LIVE DATABASE STATE list (fuzzy match in params).
+
+Generate new tool_calls that satisfy all validation rules. Do not repeat the same mistakes."""
 
 
 def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
@@ -1328,6 +1429,8 @@ def build_synthesiser_messages(
     max_tok = infer_synth_max_tokens(execution_results)
     if max_tokens_override is not None:
         max_tok = max_tokens_override
+    else:
+        max_tok += 50
     user_block = f"""User asked: "{question}"
 
 Plan reasoning: {plan.get("reasoning", "")}
@@ -1341,7 +1444,8 @@ Execution results:
 Conversation state:
 {json.dumps(conversation_state, indent=2, default=str)}
 
-Write your response (3 sentences max, no markdown bold, no raw column names)."""
+Write your response (3 sentences max, no markdown bold, no raw column names).
+Then on a new line append the <!-- FOLLOW_UPS: [...] --> HTML comment as instructed in the system prompt."""
     messages = [
         {"role": "system", "content": SYNTHESISER_SYSTEM_PROMPT},
         {"role": "user", "content": user_block},
@@ -1555,6 +1659,7 @@ def run_openai_function_calling_pipeline(
     model_name = _resolve_synthesiser_model(model)
     correction_hint: str | None = None
     had_output_correction = False
+    had_validation_replan = False
 
     last_first_messages: list[dict[str, str]] | None = None
     last_msg: Any = None
@@ -1581,7 +1686,7 @@ def run_openai_function_calling_pipeline(
             with ThreadPoolExecutor(max_workers=1) as ex:
                 response = ex.submit(_run_first).result(timeout=timeout_sec)
         except FuturesTimeoutError:
-            return {"error": "timeout"}
+            return {"error": "timeout", "had_validation_replan": False}
 
         choice = response.choices[0]
         msg = choice.message
@@ -1599,6 +1704,7 @@ def run_openai_function_calling_pipeline(
                 "validation_failed": False,
                 "validation_errors": [],
                 "had_output_correction": False,
+                "had_validation_replan": False,
             }
 
         raw_plan_calls = openai_tool_calls_to_plan_calls(tcalls)
@@ -1615,6 +1721,7 @@ def run_openai_function_calling_pipeline(
                 "validation_failed": False,
                 "validation_errors": [],
                 "had_output_correction": False,
+                "had_validation_replan": False,
             }
 
         plan: dict[str, Any] = {
@@ -1631,6 +1738,12 @@ def run_openai_function_calling_pipeline(
         ve = validated.get("validation_errors") or []
 
         if plan.get("tool_calls") and not (validated.get("tool_calls") or []):
+            if attempt < MAX_OUTPUT_CORRECTION_ATTEMPTS:
+                correction_hint = format_validation_plan_correction(
+                    ve, raw_plan_calls
+                )
+                had_validation_replan = True
+                continue
             return {
                 "error": None,
                 "conversational_text": None,
@@ -1641,6 +1754,7 @@ def run_openai_function_calling_pipeline(
                 "validation_failed": True,
                 "validation_errors": ve,
                 "had_output_correction": False,
+                "had_validation_replan": had_validation_replan,
             }
 
         execution_results = execute_plan(validated, engine)
@@ -1677,6 +1791,7 @@ def run_openai_function_calling_pipeline(
             "validation_failed": False,
             "validation_errors": [],
             "had_output_correction": had_output_correction,
+            "had_validation_replan": had_validation_replan,
         }
 
     execution_results = last_execution
@@ -1727,7 +1842,8 @@ def run_openai_function_calling_pipeline(
     followup_user = (
         f"Now write the final answer for the user in Rooster's voice (max 3 sentences, no markdown bold). "
         f"The UI will show these visuals after your text: {confirmed}. "
-        f"Match your prose to those visuals. User question was: {user_input!r}"
+        f"Match your prose to those visuals. User question was: {user_input!r}\n"
+        f"Then append the <!-- FOLLOW_UPS: [...] --> line exactly as in the synthesiser system prompt."
     )
     final_messages: list[dict[str, Any]] = [
         *first_messages,
@@ -1735,7 +1851,7 @@ def run_openai_function_calling_pipeline(
         *tool_msgs,
         {"role": "user", "content": followup_user},
     ]
-    max_final = infer_synth_max_tokens(execution_results)
+    max_final = infer_synth_max_tokens(execution_results) + 50
 
     return {
         "error": None,
@@ -1747,6 +1863,7 @@ def run_openai_function_calling_pipeline(
         "validation_failed": False,
         "validation_errors": ve,
         "had_output_correction": had_output_correction,
+        "had_validation_replan": had_validation_replan,
     }
 
 
@@ -1802,7 +1919,9 @@ def run_synthesiser(
         with ThreadPoolExecutor(max_workers=1) as ex:
             return ex.submit(_run).result(timeout=timeout_sec)
     except FuturesTimeoutError:
-        return "The response took too long. Try a narrower question."
+        from agent import ui_es as UI
+
+        return UI.SYNTH_TIMEOUT_BODY
 
 
 def update_conversation_state(
@@ -1913,6 +2032,8 @@ def build_render_stack(
                         "rows_transit": rt,
                         "rows_tourism": ru,
                         "caveat": "",
+                        "tool": "__combined_map__",
+                        "dedup_params": "",
                     },
                 }
             )
@@ -1926,9 +2047,14 @@ def build_render_stack(
             continue
         intent = map_renderer_to_dispatch_intent(ren)
         rows = res.get("rows") or []
-        meta: dict[str, Any] = {"geo_key": geo_key, "caveat": ""}
+        p = res.get("params") or {}
+        meta: dict[str, Any] = {
+            "geo_key": geo_key,
+            "caveat": "",
+            "tool": (res.get("tool") or "") or "",
+            "dedup_params": _dedup_params_signature(p if isinstance(p, dict) else {}),
+        }
         if intent == "chart":
-            p = res.get("params") or {}
             ct = (p.get("chart_type") or "scatter").strip().lower()
             if ct not in ("scatter", "amenity", "floor"):
                 ct = "scatter"
@@ -1940,4 +2066,4 @@ def build_render_stack(
                 if "value" not in r and r.get("investment_score") is not None:
                     r["value"] = r["investment_score"]
         blocks.append({"intent": intent, "rows": rows, "meta": meta})
-    return blocks
+    return _dedupe_render_blocks(blocks)
