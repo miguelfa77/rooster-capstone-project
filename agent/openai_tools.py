@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# Meta tool: not executed against the DB; only sets display intent for decide_renderer.
+OUTPUT_INTENT_TOOL_NAME = "finalize_output_intent"
+
 # Default renderer before decide_renderer() overrides (matches validate_plan defaults).
 DEFAULT_RENDERER_FOR_TOOL: dict[str, str] = {
     "query_listings": "table",
@@ -21,6 +24,40 @@ DEFAULT_RENDERER_FOR_TOOL: dict[str, str] = {
 def get_rooster_openai_tools() -> list[dict[str, Any]]:
     """Return the `tools` argument for `client.chat.completions.create`."""
     return [
+        {
+            "type": "function",
+            "function": {
+                "name": OUTPUT_INTENT_TOOL_NAME,
+                "description": (
+                    "REQUIRED whenever you call any data tool in the same turn. Declares how "
+                    "the UI should present results (table vs map vs chart, etc.). Call once "
+                    "with your batch of data tools — not a database query."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "output_intent": {
+                            "type": "string",
+                            "enum": [
+                                "auto",
+                                "table",
+                                "map",
+                                "chart",
+                                "metrics",
+                                "ranking",
+                                "combined_map",
+                            ],
+                            "description": (
+                                "auto: infer from row shapes; table: tabular; map: geographic; "
+                                "chart: Plotly; metrics: KPI cards; ranking: bar comparisons; "
+                                "combined_map: listings+transit+tourism overlay when multiple map tools apply."
+                            ),
+                        }
+                    },
+                    "required": ["output_intent"],
+                },
+            },
+        },
         {
             "type": "function",
             "function": {

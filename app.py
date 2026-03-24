@@ -53,8 +53,6 @@ from streamlit_folium import st_folium
 from agent.agent_pipeline import (
     CONVERSATIONAL_SYNTH_MAX_TOKENS,
     build_render_stack,
-    decide_renderer,
-    execute_plan,
     extract_neighborhood_names_from_schema,
     format_confirmed_visuals,
     get_live_schema_context,
@@ -65,7 +63,6 @@ from agent.agent_pipeline import (
     stream_canned_text_word_by_word,
     stream_openai_final_response_messages,
     update_conversation_state,
-    validate_plan,
 )
 from agent.llm_sql import (
     DEFAULT_SYNTHESISER_MODEL_OPENAI,

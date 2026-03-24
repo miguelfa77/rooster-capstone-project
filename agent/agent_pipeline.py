@@ -18,14 +18,34 @@ from typing import Any, Iterator
 import pandas as pd
 from sqlalchemy import text
 
-from agent.openai_tools import DEFAULT_RENDERER_FOR_TOOL, get_rooster_openai_tools
+from agent.openai_tools import (
+    DEFAULT_RENDERER_FOR_TOOL,
+    OUTPUT_INTENT_TOOL_NAME,
+    get_rooster_openai_tools,
+)
 from agent.llm_sql import (
     DEFAULT_SYNTHESISER_MODEL_OPENAI,
     SUMMARIZE_TIMEOUT_SEC,
     get_pg_engine,
 )
 
+OUTPUT_INTENT_RULES = """
+OUTPUT INTENT (required for data turns):
+- Whenever you call any tool that fetches data (listings, profiles, transit, tourism, trends, charts), you MUST also call `finalize_output_intent` in the same response with `output_intent` set.
+- Choose `output_intent` from:
+  - `auto` — let the UI pick from row shapes (default when unsure).
+  - `table` — tabular numbers, comparisons, many rows.
+  - `map` — geographic: listings, stops, or tourist apartments on a map; use when the user asks for maps, location, "where", "show on map", walkability.
+  - `chart` — scatter / amenity / floor Plotly charts.
+  - `metrics` — KPI cards, compact stats, single-neighborhood highlights.
+  - `ranking` — bar-style comparisons of neighborhoods or metrics.
+  - `combined_map` — user wants listings + transit + tourism together on one map (call multiple spatial tools when needed).
+- If you only call `finalize_output_intent` without data tools, use `auto` or omit data tools (invalid).
+"""
+
 OPENAI_TOOLS_FIRST_SYSTEM_PREFIX = """You are Rooster's planning assistant for Valencia real estate. You may call the provided functions to fetch real data, or reply briefly without calling tools when no database is needed.
+
+""" + OUTPUT_INTENT_RULES + """
 
 When to call tools:
 - Questions about listings, yields, neighborhoods, transport, tourist apartments, price trends, or charts → call the appropriate function(s).
@@ -312,6 +332,37 @@ def fuzzy_match_neighborhood(user_input: str, valid_names: list[str]) -> dict[st
     return {"name": best_name, "score": best_score}
 
 
+_VALID_OUTPUT_INTENTS = frozenset(
+    {"auto", "table", "map", "chart", "metrics", "ranking", "combined_map"}
+)
+
+
+def normalize_output_intent(raw: Any) -> str:
+    s = raw if raw is not None else "auto"
+    if not isinstance(s, str):
+        s = str(s)
+    s = s.strip().lower()
+    return s if s in _VALID_OUTPUT_INTENTS else "auto"
+
+
+def extract_output_intent_from_openai_tool_calls(tool_calls: list[Any]) -> str:
+    """Read `finalize_output_intent` from OpenAI tool_calls; default auto."""
+    for tc in tool_calls or []:
+        fn = getattr(tc, "function", None)
+        name = getattr(fn, "name", None) if fn else None
+        if name != OUTPUT_INTENT_TOOL_NAME:
+            continue
+        raw_args = getattr(fn, "arguments", None) if fn else None
+        try:
+            args = json.loads(raw_args or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        return normalize_output_intent(args.get("output_intent"))
+    return "auto"
+
+
 def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
     """Validate and correct planner output; pure Python."""
     valid_names = extract_neighborhood_names_from_schema(schema_context)
@@ -372,6 +423,7 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
 
     out = dict(plan)
     out["tool_calls"] = corrected
+    out["output_intent"] = normalize_output_intent(plan.get("output_intent"))
     out["validation_errors"] = errors
     if not plan.get("tool_calls"):
         out["valid"] = len(errors) == 0
@@ -653,20 +705,70 @@ def execute_plan(validated_plan: dict[str, Any], engine) -> list[dict[str, Any]]
     return results
 
 
-def decide_renderer(result: dict[str, Any]) -> str:
-    """Override renderer from actual row count and shape."""
+def decide_renderer(result: dict[str, Any], output_intent: str = "auto") -> str:
+    """Pick UI renderer from planner output_intent first; if auto, use data-shape heuristics."""
+    oi = normalize_output_intent(output_intent)
     tool = result.get("tool")
     rows = result.get("rows") or []
     planned = result.get("renderer") or "table"
     row_count = len(rows)
+
+    def _has_coords() -> bool:
+        return any(
+            r.get("lat") is not None and r.get("lng") is not None for r in rows
+        )
+
     if tool == "query_chart_data":
         return "chart" if row_count > 0 else "empty"
     if row_count == 0:
         return "empty"
+
+    if oi != "auto":
+        if oi == "map":
+            if tool == "query_listings":
+                return "point_map" if _has_coords() else "table"
+            if tool == "query_transit_stops":
+                return "transit_map"
+            if tool == "query_tourist_apartments":
+                return "tourism_map"
+            return planned
+        if oi == "chart":
+            if tool == "query_chart_data":
+                return "chart"
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count == 1 else "bar_chart"
+            return planned
+        if oi == "metrics":
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count <= 6 else "bar_chart"
+            if tool == "query_listings":
+                return "metric_cards" if row_count <= 3 else "table"
+            if tool == "query_price_trends":
+                return "table"
+            return planned
+        if oi == "table":
+            if tool == "query_listings":
+                return "metric_cards" if row_count <= 3 else "table"
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count == 1 else (
+                    "bar_chart" if row_count <= 6 else "table"
+                )
+            if tool == "query_price_trends":
+                return "table"
+            return "table"
+        if oi == "ranking":
+            if tool == "query_neighborhood_profile":
+                return "bar_chart"
+            if tool == "query_listings":
+                return "table"
+            if tool == "query_price_trends":
+                return "table"
+            return planned
+        if oi == "combined_map":
+            return planned
+
     if tool == "query_listings":
-        has_coords = any(
-            r.get("lat") is not None and r.get("lng") is not None for r in rows
-        )
+        has_coords = _has_coords()
         if planned == "point_map" and not has_coords:
             return "table"
         if row_count <= 3 and planned == "table":
@@ -848,6 +950,8 @@ def openai_tool_calls_to_plan_calls(tool_calls: list[Any]) -> list[dict[str, Any
         raw_args = getattr(fn, "arguments", None) if fn else None
         if not isinstance(name, str) or not name:
             continue
+        if name == OUTPUT_INTENT_TOOL_NAME:
+            continue
         try:
             args = json.loads(raw_args or "{}")
         except json.JSONDecodeError:
@@ -955,6 +1059,7 @@ def run_openai_function_calling_pipeline(
         }
 
     raw_plan_calls = openai_tool_calls_to_plan_calls(tcalls)
+    output_intent_fc = extract_output_intent_from_openai_tool_calls(tcalls)
     if not raw_plan_calls:
         text = (getattr(msg, "content", None) or "").strip()
         return {
@@ -970,6 +1075,7 @@ def run_openai_function_calling_pipeline(
 
     plan: dict[str, Any] = {
         "tool_calls": raw_plan_calls,
+        "output_intent": output_intent_fc,
         "reasoning": "openai_function_calling",
         "neighborhood_resolved": None,
         "combine_maps": False,
@@ -993,8 +1099,9 @@ def run_openai_function_calling_pipeline(
         }
 
     execution_results = execute_plan(validated, engine)
+    oi = (validated.get("output_intent") or "auto")
     for res in execution_results:
-        res["renderer"] = decide_renderer(res)
+        res["renderer"] = decide_renderer(res, oi)
 
     confirmed = format_confirmed_visuals(execution_results)
     assistant_msg: dict[str, Any] = {
@@ -1014,6 +1121,17 @@ def run_openai_function_calling_pipeline(
     }
     tool_msgs: list[dict[str, Any]] = []
     for tc in tcalls:
+        fn = getattr(tc, "function", None)
+        tc_name = getattr(fn, "name", None) if fn else None
+        if tc_name == OUTPUT_INTENT_TOOL_NAME:
+            tool_msgs.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps({"ok": True, "output_intent": oi}, default=str),
+                }
+            )
+            continue
         er = next(
             (r for r in execution_results if r.get("tool_call_id") == tc.id),
             None,
