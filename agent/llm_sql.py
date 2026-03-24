@@ -929,6 +929,14 @@ def _fix_round_avg_filter(sql: str) -> str:
     return s
 
 
+def _normalize_database_url_for_sqlalchemy(dsn: str) -> str:
+    """Railway/Heroku use ``postgres://``; SQLAlchemy expects ``postgresql://`` as the dialect name."""
+    dsn = dsn.strip()
+    if dsn.startswith("postgres://"):
+        return "postgresql://" + dsn[len("postgres://") :]
+    return dsn
+
+
 def _get_conn() -> Any:
     dsn = os.getenv("DATABASE_URL")
     if dsn:
@@ -952,7 +960,9 @@ def get_pg_engine():
     """SQLAlchemy engine for pandas ``read_sql*`` (avoids DBAPI2 UserWarning on raw psycopg2)."""
     dsn = os.getenv("DATABASE_URL")
     if dsn:
-        return create_engine(dsn, pool_pre_ping=True)
+        return create_engine(
+            _normalize_database_url_for_sqlalchemy(dsn), pool_pre_ping=True
+        )
     return create_engine(
         URL.create(
             drivername="postgresql+psycopg2",

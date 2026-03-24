@@ -39,6 +39,19 @@ Railway only runs the app; it does **not** run your SQL migrations automatically
 - Run `sql/*.sql` against the Railway Postgres (one-off from your machine using `DATABASE_URL`, or a temporary job).
 - Or use Railway’s **one-off shell** / **Postgres** connect string with `psql`.
 
+### Restore a `pg_dump` from your laptop (paste variables, no URL)
+
+Passwords with `@ : / # %` break `postgresql://…` URLs. Use the helper script and **discrete** `PG*` vars:
+
+1. `cp scripts/railway-restore.env.example scripts/railway-restore.env`
+2. Railway → **Postgres** service → **Variables** — copy **PGHOST** (public proxy host), **PGPORT**, **PGUSER**, **PGPASSWORD**, **PGDATABASE** into `scripts/railway-restore.env` (gitignored).
+3. Place your `pg_dump -Fc` file at the repo root as `rooster.dump`, or set `DUMP_FILE=` in that file.
+4. `bash scripts/railway_pg_restore.sh test` then `bash scripts/railway_pg_restore.sh`
+
+If **`password authentication failed`**: Prefer pasting **`DATABASE_URL`** from the **Postgres** service (Variables / Connect) into `scripts/railway-restore.env` — it matches what Railway expects. If you only set **`POSTGRES_PASSWORD`** in the UI but the data directory was created earlier, the **live password inside Postgres can still be the old one** until you **regenerate credentials**, **reset the DB password** in Railway, or **wipe the volume** and let Postgres init again. Use **`PGSSLMODE=disable`** (or **`DATABASE_URL`** with `sslmode=disable`) for the public TCP proxy unless Railway gives you a TLS URL.
+
+Use a **PostGIS-enabled** Postgres for spatial dumps; the default Railway Postgres plugin may not include PostGIS.
+
 ## 5. Deploy and open the URL
 
 After deploy succeeds, Railway assigns a **public URL** (Settings → Networking / Generate domain). Open it in the browser.
@@ -57,3 +70,4 @@ After deploy succeeds, Railway assigns a **public URL** (Settings → Networking
 - `agent/requirements.txt` — `-r ../requirements.txt` for local installs
 - `Procfile` → `streamlit run app.py` on `0.0.0.0:$PORT`
 - `.streamlit/config.toml` → headless defaults
+- `scripts/railway_pg_restore.sh` + `scripts/railway-restore.env.example` → local restore without pasting passwords into URLs

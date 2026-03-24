@@ -14,6 +14,10 @@ pipeline/idealista/proxies/.env
 proxy.env
 .env.proxy
 
+# Local Railway restore credentials (paste from dashboard)
+scripts/railway-restore.env
+scripts/.pgpass_secret
+
 # Large data directories (not for Git)
 **/data/
 
