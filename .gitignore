@@ -1,0 +1,29 @@
+# Virtual Environment
+/bin
+/lib
+/include
+pyvenv.cfg
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Proxy credentials (local only — never commit)
+pipeline/idealista/proxies/.env
+proxy.env
+.env.proxy
+
+# Large data directories (not for Git)
+**/data/
+
+# Project files/folders
+/interface
+/agent/db
+/agent/.venv
+Joint-Capstone-Guidelines-V1.pdf
+data_re_spain.xlsx
+
+# Miscellaneous
+.DS_Store
+/share

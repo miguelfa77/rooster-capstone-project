@@ -1,0 +1,10 @@
+{
+  "alquiler": {
+    "in_progress": true,
+    "last_completed_page": 14
+  },
+  "venta": {
+    "in_progress": true,
+    "last_completed_page": 49
+  }
+}

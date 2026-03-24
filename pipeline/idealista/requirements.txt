@@ -1,5 +1,14 @@
+# For Selenium-based scraper (RECOMMENDED for Idealista - handles bot detection)
 selenium==4.15.2
 undetected-chromedriver==3.5.4
+selenium-wire==5.1.0  # Required for proxy authentication support
 fake-useragent==1.4.0
-requests==2.31.0
+
+# For requests-html scraper (alternative - renders JavaScript without Selenium)
+# requests-html==0.10.1
+# beautifulsoup4==4.12.2
+
+# For simple requests-based scraper (fastest but gets blocked by Idealista)
+# requests==2.31.0
+# beautifulsoup4==4.12.2
 

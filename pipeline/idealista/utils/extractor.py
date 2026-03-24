@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Dict, Tuple
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
-from utils.logger import Logger
+from .logger import Logger
 
 
 class PropertyExtractor:

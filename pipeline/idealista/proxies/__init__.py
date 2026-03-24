@@ -3,7 +3,7 @@
 Proxy management for Idealista scraper.
 """
 
-from proxies.proxies import (
+from .proxies import (
     RotatingProxyManager,
     PROXY_ENDPOINT_CONFIG,
     get_proxy_string,

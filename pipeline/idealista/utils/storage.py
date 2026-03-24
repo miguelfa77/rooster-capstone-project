@@ -7,8 +7,8 @@ Handles CSV file operations and progress tracking.
 import csv
 from pathlib import Path
 from typing import List, Dict
-from config import OUTPUT_DIR, CSV_SEPARATOR
-from utils.logger import Logger
+from ..config import OUTPUT_DIR, CSV_SEPARATOR
+from .logger import Logger
 
 
 class DataManager:
@@ -50,28 +50,49 @@ class DataManager:
     
     def save_properties(self, properties: List[Dict]):
         """
-        Append properties to CSV file incrementally.
-        
-        Args:
-            properties: List of property dictionaries
+        Append each observation to the CSV (time series: same url may appear many times
+        with different scraped_at). Only skips exact duplicates within this batch
+        (same url + same scraped_at).
         """
         if not properties:
             return
-        
+
+        seen_keys = set()
+        to_write: List[Dict] = []
+        skipped_batch_dupes = 0
+
+        for prop in properties:
+            url = (prop.get("url") or "").strip()
+            if not url:
+                continue
+            scraped_at = (prop.get("scraped_at") or "").strip()
+            key = (url, scraped_at)
+            if key in seen_keys:
+                skipped_batch_dupes += 1
+                continue
+            seen_keys.add(key)
+            to_write.append(prop)
+
+        if not to_write:
+            if skipped_batch_dupes:
+                Logger.info(f"Skipped {skipped_batch_dupes} duplicate (url, scraped_at) in batch")
+            return
+
         try:
-            with open(self.csv_file, 'a', encoding='utf-8', newline='') as f:
+            with open(self.csv_file, "a", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(
-                    f, 
-                    fieldnames=self.fieldnames, 
-                    delimiter=CSV_SEPARATOR
+                    f,
+                    fieldnames=self.fieldnames,
+                    delimiter=CSV_SEPARATOR,
                 )
-                
-                for prop in properties:
-                    # Ensure all fields are present
-                    row = {field: prop.get(field, '') for field in self.fieldnames}
+                for prop in to_write:
+                    row = {field: prop.get(field, "") for field in self.fieldnames}
                     writer.writerow(row)
-            
-            Logger.success(f"Saved {len(properties)} properties to {self.csv_file}")
+
+            msg = f"Appended {len(to_write)} row(s) to {self.csv_file}"
+            if skipped_batch_dupes:
+                msg += f" (skipped {skipped_batch_dupes} duplicate key in batch)"
+            Logger.success(msg)
         except Exception as e:
             Logger.error(f"Error saving properties: {e}")
     
@@ -100,4 +121,56 @@ class DataManager:
         except Exception as e:
             Logger.warning(f"Error reading last page: {e}")
             return 0
+    
+    def get_page_count(self, page: int) -> int:
+        """
+        Get number of properties saved for a specific page.
+        Useful for detecting incomplete pages.
+        
+        Args:
+            page: Page number to check
+        
+        Returns:
+            Number of properties found for that page
+        """
+        if not self.csv_file.exists():
+            return 0
+        
+        try:
+            with open(self.csv_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f, delimiter=CSV_SEPARATOR)
+                count = 0
+                for row in reader:
+                    try:
+                        if int(row.get('page', 0)) == page:
+                            count += 1
+                    except ValueError:
+                        continue
+                return count
+        except Exception as e:
+            Logger.warning(f"Error reading page count: {e}")
+            return 0
+    
+    def is_page_complete(self, page: int, expected_count: int = 30) -> bool:
+        """
+        Check if a page appears to be complete.
+        A page is considered incomplete if it has fewer than expected_count properties.
+        
+        Args:
+            page: Page number to check
+            expected_count: Expected number of properties per page (default: 30)
+        
+        Returns:
+            True if page appears complete, False otherwise
+        """
+        actual_count = self.get_page_count(page)
+        if actual_count == 0:
+            return False  # Page not scraped at all
+        if actual_count < expected_count * 0.8:  # Less than 80% of expected
+            Logger.warning(
+                f"Page {page} appears incomplete: {actual_count} properties "
+                f"(expected ~{expected_count})"
+            )
+            return False
+        return True
 

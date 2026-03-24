@@ -4,7 +4,7 @@ Simple logging utility that can be easily extended later.
 """
 
 from datetime import datetime
-from config import LOG_TIMESTAMPS
+from ..config import LOG_TIMESTAMPS
 
 
 class Logger:
@@ -21,20 +21,20 @@ class Logger:
     @staticmethod
     def info(message: str):
         """Log info message"""
-        print(Logger._format_message("INFO", message))
-    
+        print(Logger._format_message("INFO", message), flush=True)
+
     @staticmethod
     def warning(message: str):
         """Log warning message"""
-        print(Logger._format_message("WARNING", message))
-    
+        print(Logger._format_message("WARNING", message), flush=True)
+
     @staticmethod
     def error(message: str):
         """Log error message"""
-        print(Logger._format_message("ERROR", message))
-    
+        print(Logger._format_message("ERROR", message), flush=True)
+
     @staticmethod
     def success(message: str):
         """Log success message"""
-        print(Logger._format_message("SUCCESS", message))
+        print(Logger._format_message("SUCCESS", message), flush=True)
 

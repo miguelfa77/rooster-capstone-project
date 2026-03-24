@@ -1,0 +1,1248 @@
+"""
+Ask Rooster agent: OpenAI function calling → validate → execute → (optional) synthesiser fallback.
+Pure-Python validation, execution, and renderer overrides.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import random
+import re
+import time
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from difflib import SequenceMatcher
+from typing import Any, Iterator
+
+import pandas as pd
+from sqlalchemy import text
+
+from agent.openai_tools import DEFAULT_RENDERER_FOR_TOOL, get_rooster_openai_tools
+from agent.llm_sql import (
+    DEFAULT_SYNTHESISER_MODEL_OPENAI,
+    SUMMARIZE_TIMEOUT_SEC,
+    get_pg_engine,
+)
+
+OPENAI_TOOLS_FIRST_SYSTEM_PREFIX = """You are Rooster's planning assistant for Valencia real estate. You may call the provided functions to fetch real data, or reply briefly without calling tools when no database is needed.
+
+When to call tools:
+- Questions about listings, yields, neighborhoods, transport, tourist apartments, price trends, or charts → call the appropriate function(s).
+
+When NOT to call tools:
+- Greetings, thanks, small talk, or meta questions about what Rooster can do → reply in a short conversational way (no tools, max ~3 sentences).
+
+If you call tools, do not write prose in the first turn; use tool calls only.
+"""
+
+# --- Fast path (before full FC + schema): tiny router + canned replies ---
+CLASSIFIER_MODEL = "gpt-4o-mini"
+CLASSIFIER_TIMEOUT_SEC = 3.0
+
+CONVERSATIONAL_CLASSIFIER_PROMPT = """
+You are a router for a real estate assistant called Rooster.
+
+Classify the user message as EXACTLY one word:
+- "conversational" — greetings, thanks, small talk, meta questions
+  about what Rooster can do, acknowledgements, anything that needs
+  zero database data
+- "data" — anything about properties, neighborhoods, prices, yield,
+  transport, investment, listings, maps, charts
+
+Examples:
+"hola" → conversational
+"hola que tal" → conversational
+"gracias" → conversational
+"qué puedes hacer" → conversational
+"quien eres" → conversational
+"ok perfecto" → conversational
+"quiero invertir en natzaret" → data
+"mejor yield en valencia" → data
+"compara ruzafa y benimaclet" → data
+"muéstrame el mapa de transporte" → data
+"hola, busco piso en ruzafa" → data
+
+Return only one word. No explanation.
+"""
+
+CONVERSATIONAL_RESPONSES: tuple[str, ...] = (
+    "Hola. Soy Rooster, tu analista del mercado inmobiliario de Valencia. ¿Buscas oportunidades de inversión, quieres comparar barrios, o te interesa ver qué hay disponible en una zona concreta?",
+    "Hey. Pregúntame lo que necesites sobre el mercado de Valencia — yields, barrios, anuncios, transporte. ¿Por dónde empezamos?",
+    "Hola. Tengo datos de miles de anuncios en Valencia, yields por barrio, paradas de transporte y viviendas turísticas. ¿Qué quieres analizar?",
+)
+
+META_RESPONSE = (
+    "Soy Rooster — un analista inmobiliario para el mercado de Valencia. Puedo ayudarte a encontrar barrios con mejor yield, comparar zonas, ver anuncios disponibles, analizar presión turística o conectividad de transporte. ¿Qué te interesa?"
+)
+
+# Shorter cap when FC path returns conversational without a precomputed reply.
+CONVERSATIONAL_SYNTH_MAX_TOKENS = 600
+
+_META_PHRASES: tuple[str, ...] = (
+    "qué puedes",
+    "que puedes",
+    "cómo funciona",
+    "como funciona",
+    "quien eres",
+    "quién eres",
+    "what can you",
+    "how do you work",
+    "what do you do",
+)
+
+
+def is_conversational_message(
+    question: str,
+    timeout_sec: float = CLASSIFIER_TIMEOUT_SEC,
+) -> bool:
+    """
+    Fast router: one cheap completion, no tools/schema/DB.
+    Returns True → caller may use canned conversational reply.
+    On any failure, returns False (full pipeline).
+    """
+    if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY")):
+        return False
+    q = (question or "").strip()
+    if not q:
+        return False
+
+    def _call() -> str:
+        from openai import OpenAI
+
+        client = OpenAI(timeout=max(timeout_sec + 5.0, 15.0))
+        response = client.chat.completions.create(
+            model=CLASSIFIER_MODEL,
+            messages=[
+                {"role": "system", "content": CONVERSATIONAL_CLASSIFIER_PROMPT},
+                {"role": "user", "content": q},
+            ],
+            max_completion_tokens=8,
+            temperature=0,
+        )
+        return (response.choices[0].message.content or "").strip().lower()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            raw = ex.submit(_call).result(timeout=timeout_sec)
+    except Exception:
+        return False
+
+    first = raw.split()[0] if raw else ""
+    return first == "conversational" or raw.startswith("conversational")
+
+
+def pick_fast_path_conversational_reply(question: str) -> str:
+    """Canned reply for fast path; meta questions get META_RESPONSE."""
+    q_lower = (question or "").lower().strip()
+    if any(p in q_lower for p in _META_PHRASES):
+        return META_RESPONSE
+    return random.choice(CONVERSATIONAL_RESPONSES)
+
+
+def stream_canned_text_word_by_word(
+    text: str,
+    delay_sec: float = 0.03,
+) -> Iterator[str]:
+    """Yield words for st.write_stream so canned text feels streamed."""
+    words = (text or "").split()
+    if not words:
+        return
+    for i, w in enumerate(words):
+        yield w + (" " if i < len(words) - 1 else "")
+        if delay_sec > 0 and i < len(words) - 1:
+            time.sleep(delay_sec)
+
+
+SYNTHESISER_SYSTEM_PROMPT = """You are Rooster, a senior real estate analyst for Valencia, Spain.
+
+YOUR VOICE:
+- Direct and specific. Name neighborhoods, quote actual numbers.
+- Never use raw database column names in prose — translate to natural language.
+- Never say "based on the data" or "the results show".
+- No bullet points. No markdown bold in prose.
+- Maximum 3 sentences.
+- End with one forward-looking observation (not a question).
+
+The user message includes which visual(s) appear after your text. Your prose MUST match those visuals (e.g. do not say "map" if the visual is a table or chart only).
+
+If there was no execution results (conversational tool_calls empty), answer from expertise and conversation context only.
+
+If tools failed or returned 0 rows, say so honestly and suggest what to try next."""
+
+
+def _sql_escape(s: str) -> str:
+    return (s or "").replace("'", "''")
+
+
+def get_live_schema_context() -> str:
+    """Build live DB snapshot text for the planner (call from app with @st.cache_data)."""
+    engine = get_pg_engine()
+    now = pd.Timestamp.now(tz="UTC").strftime("%H:%M UTC")
+    lines: list[str] = [
+        "=== LIVE DATABASE STATE ===",
+        f"Last updated: {now}",
+        "",
+        "TOTAL DATA:",
+    ]
+    try:
+        counts_df = pd.read_sql(
+            text(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM core.listings WHERE price_int > 0) AS total_listings,
+                    (SELECT COUNT(*) FROM core.transit_stops) AS transit_stops,
+                    (SELECT COUNT(*) FROM core.tourist_apartments
+                     WHERE status IS NULL OR COALESCE(lower(status), '') = 'active') AS tourist_apts,
+                    (SELECT COUNT(DISTINCT neighborhood_id) FROM core.listings WHERE neighborhood_id IS NOT NULL)
+                        AS neighborhoods_with_listings
+                """
+            ),
+            engine,
+        ).iloc[0]
+        lines.append(f"  Listings: {int(counts_df['total_listings']):,}")
+        lines.append(f"  Transit stops: {int(counts_df['transit_stops']):,}")
+        lines.append(f"  Tourist apartments (active or unset status): {int(counts_df['tourist_apts']):,}")
+        lines.append(f"  Neighborhoods with listings: {int(counts_df['neighborhoods_with_listings'])}")
+    except Exception as e:
+        lines.append(f"  (counts unavailable: {e})")
+
+    lines.extend(["", "NEIGHBORHOODS (with listings — exact names as stored):"])
+    try:
+        nb = pd.read_sql(
+            text(
+                """
+                SELECT
+                    n.name,
+                    COUNT(l.url) FILTER (WHERE l.operation = 'venta') AS venta_count,
+                    COUNT(l.url) FILTER (WHERE l.operation = 'alquiler') AS alquiler_count,
+                    BOOL_OR(np.gross_rental_yield_pct IS NOT NULL) AS has_yield
+                FROM core.neighborhoods n
+                LEFT JOIN core.listings l
+                    ON l.neighborhood_id = n.id AND l.price_int > 0
+                LEFT JOIN analytics.neighborhood_profile np ON np.neighborhood_id = n.id
+                GROUP BY n.id, n.name
+                HAVING COUNT(l.url) > 0
+                ORDER BY COUNT(l.url) DESC
+                LIMIT 80
+                """
+            ),
+            engine,
+        )
+        for _, row in nb.iterrows():
+            flags: list[str] = []
+            if int(row["venta_count"] or 0) > 0:
+                flags.append(f"{int(row['venta_count'])} venta")
+            if int(row["alquiler_count"] or 0) > 0:
+                flags.append(f"{int(row['alquiler_count'])} alquiler")
+            if row.get("has_yield"):
+                flags.append("has yield")
+            lines.append(f"  - {row['name']} ({', '.join(flags)})")
+    except Exception as e:
+        lines.append(f"  (neighborhood list unavailable: {e})")
+
+    lines.extend(["", "PRICE RANGES (listings, price_int > 0):"])
+    try:
+        prices_df = pd.read_sql(
+            text(
+                """
+                SELECT operation,
+                       MIN(price_int) AS min_price,
+                       MAX(price_int) AS max_price,
+                       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_int) AS median_price
+                FROM core.listings
+                WHERE price_int > 0
+                GROUP BY operation
+                """
+            ),
+            engine,
+        )
+        for _, row in prices_df.iterrows():
+            op = row["operation"]
+            lines.append(
+                f"  {op}: €{int(row['min_price']):,} – €{int(row['max_price']):,} "
+                f"(median €{int(row['median_price']):,})"
+            )
+    except Exception as e:
+        lines.append(f"  (prices unavailable: {e})")
+
+    lines.extend(
+        [
+            "",
+            "IMPORTANT: When the user names a barrio, match fuzzy to the list above and use the exact DB name in tool params.",
+            "=== END DATABASE STATE ===",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def extract_neighborhood_names_from_schema(schema_context: str) -> list[str]:
+    """Parse '  - Name (...)` lines from live schema string."""
+    out: list[str] = []
+    for line in (schema_context or "").splitlines():
+        m = re.match(r"^\s*-\s+(.+?)\s+\(", line)
+        if m:
+            out.append(m.group(1).strip())
+    return out
+
+
+def fuzzy_match_neighborhood(user_input: str, valid_names: list[str]) -> dict[str, Any]:
+    """
+    Fuzzy match user neighborhood input against valid DB names.
+    Returns best match and confidence score in [0,1].
+    """
+
+    def normalize(s: str) -> str:
+        s = unicodedata.normalize("NFD", (s or "").lower().strip())
+        return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+    if not user_input or not valid_names:
+        return {"name": None, "score": 0.0}
+    user_norm = normalize(user_input)
+    best_score = 0.0
+    best_name: str | None = None
+    for name in valid_names:
+        name_norm = normalize(name)
+        score = SequenceMatcher(None, user_norm, name_norm).ratio()
+        if user_norm and (user_norm in name_norm or name_norm in user_norm):
+            score = max(score, 0.82)
+        if score > best_score:
+            best_score = score
+            best_name = name
+    return {"name": best_name, "score": best_score}
+
+
+def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
+    """Validate and correct planner output; pure Python."""
+    valid_names = extract_neighborhood_names_from_schema(schema_context)
+    errors: list[str] = []
+    corrected: list[dict[str, Any]] = []
+    required_params = {
+        "query_transit_stops": [],
+        "query_tourist_apartments": [],
+        "query_listings": [],
+        "query_neighborhood_profile": [],
+        "query_price_trends": [],
+        "query_chart_data": [],
+    }
+    valid_renderers = {
+        "query_listings": ["table", "point_map", "combined_map", "metric_cards"],
+        "query_transit_stops": ["transit_map", "combined_map"],
+        "query_tourist_apartments": ["tourism_map", "combined_map"],
+        "query_neighborhood_profile": ["bar_chart", "metric_cards", "table"],
+        "query_price_trends": ["bar_chart", "table"],
+        "query_chart_data": ["chart"],
+    }
+
+    for call in plan.get("tool_calls") or []:
+        if not isinstance(call, dict):
+            continue
+        tool = call.get("tool")
+        params = dict(call.get("params") or {})
+        if not isinstance(tool, str) or not tool:
+            errors.append("Invalid tool call")
+            continue
+
+        if tool == "query_chart_data":
+            ct = (params.get("chart_type") or "scatter").strip().lower()
+            if ct not in ("scatter", "amenity", "floor"):
+                ct = "scatter"
+            params["chart_type"] = ct
+
+        nb = params.get("neighborhood")
+        if tool != "query_chart_data" and isinstance(nb, str) and nb.strip():
+            fm = fuzzy_match_neighborhood(nb.strip(), valid_names)
+            if fm["score"] < 0.28 and valid_names:
+                errors.append(f"Neighborhood '{nb}' not found in live list (best score {fm['score']:.2f})")
+                continue
+            if fm["name"] and fm["name"] != nb.strip():
+                params["neighborhood"] = fm["name"]
+
+        req = required_params.get(tool, [])
+        missing = [r for r in req if not params.get(r)]
+        if missing:
+            errors.append(f"Tool {tool} missing required params: {missing}")
+            continue
+
+        vr = valid_renderers.get(tool, ["table"])
+        ren = call.get("renderer") or "table"
+        if ren not in vr:
+            ren = vr[0]
+        corrected.append({**call, "params": params, "renderer": ren})
+
+    out = dict(plan)
+    out["tool_calls"] = corrected
+    out["validation_errors"] = errors
+    if not plan.get("tool_calls"):
+        out["valid"] = len(errors) == 0
+    else:
+        out["valid"] = len(errors) == 0 and len(corrected) > 0
+    return out
+
+
+def query_listings_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
+    conditions = ["l.price_int > 0", "l.area_sqm > 0"]
+    nb = params.get("neighborhood")
+    if isinstance(nb, str) and nb.strip():
+        es = _sql_escape(nb.strip())
+        conditions.append(
+            f"similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4"
+        )
+    op = (params.get("operation") or "venta").strip().lower()
+    if op in ("venta", "alquiler"):
+        conditions.append(f"l.operation = '{op}'")
+    if params.get("max_price") is not None:
+        try:
+            conditions.append(f"l.price_int <= {int(params['max_price'])}")
+        except (TypeError, ValueError):
+            pass
+    if params.get("min_price") is not None:
+        try:
+            conditions.append(f"l.price_int >= {int(params['min_price'])}")
+        except (TypeError, ValueError):
+            pass
+    if params.get("min_rooms") is not None:
+        try:
+            conditions.append(f"l.rooms_int >= {int(params['min_rooms'])}")
+        except (TypeError, ValueError):
+            pass
+    if params.get("max_rooms") is not None:
+        try:
+            conditions.append(f"l.rooms_int <= {int(params['max_rooms'])}")
+        except (TypeError, ValueError):
+            pass
+    if params.get("only_below_median"):
+        conditions.append(
+            """(
+            (l.operation = 'venta' AND l.price_int < np.median_venta_price)
+            OR (l.operation = 'alquiler' AND l.price_int < np.median_alquiler_price)
+        )"""
+        )
+    amenity_map = {
+        "parking": "l.has_parking",
+        "terrace": "l.has_terrace",
+        "elevator": "l.has_elevator",
+        "ac": "l.has_ac",
+        "renovated": "l.is_renovated",
+    }
+    for a in params.get("amenities") or []:
+        if isinstance(a, str) and a.lower() in amenity_map:
+            conditions.append(f"{amenity_map[a.lower()]} = true")
+    lim = 25
+    try:
+        lim = max(1, min(100, int(params.get("limit", 25))))
+    except (TypeError, ValueError):
+        lim = 25
+    where_clause = " AND ".join(conditions)
+    sql = f"""
+        SELECT
+            l.url,
+            l.operation,
+            l.price_int,
+            l.area_sqm,
+            l.rooms_int,
+            ROUND(l.floor_int)::integer AS floor_int,
+            ROUND((l.price_int::numeric / NULLIF(l.area_sqm::numeric, 0)), 0) AS eur_per_sqm,
+            l.has_parking, l.has_terrace, l.has_elevator, l.is_renovated,
+            l.lat, l.lng, l.geocode_quality,
+            n.name AS neighborhood_name,
+            np.gross_rental_yield_pct AS neighborhood_yield,
+            np.investment_score,
+            np.median_venta_price AS neighborhood_median,
+            CASE WHEN l.operation = 'venta' AND l.price_int < np.median_venta_price THEN true
+                 WHEN l.operation = 'alquiler' AND l.price_int < np.median_alquiler_price THEN true
+                 ELSE false END AS below_median
+        FROM core.listings l
+        JOIN core.neighborhoods n ON n.id = l.neighborhood_id
+        LEFT JOIN analytics.neighborhood_profile np ON np.neighborhood_id = l.neighborhood_id
+        WHERE {where_clause}
+        ORDER BY l.price_int ASC NULLS LAST
+        LIMIT {lim}
+    """
+    df = pd.read_sql(text(sql), engine)
+    return df.to_dict("records")
+
+
+def query_neighborhood_profile_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
+    order_by_map = {
+        "investment_score": "np.investment_score",
+        "yield": "np.gross_rental_yield_pct",
+        "price": "np.median_venta_eur_per_sqm",
+        "listings": "np.total_count",
+    }
+    order_col = order_by_map.get(
+        (params.get("order_by") or "investment_score").strip().lower(),
+        "np.investment_score",
+    )
+    try:
+        min_listings = max(0, int(params.get("min_listings", 3)))
+    except (TypeError, ValueError):
+        min_listings = 3
+    neighborhoods = params.get("neighborhoods") or []
+    nb_filter = ""
+    if isinstance(neighborhoods, list) and neighborhoods:
+        parts = []
+        for nm in neighborhoods[:12]:
+            if not isinstance(nm, str):
+                continue
+            es = _sql_escape(nm.strip())
+            parts.append(
+                f"similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4"
+            )
+        if parts:
+            nb_filter = "AND (" + " OR ".join(parts) + ")"
+
+    sql = f"""
+        SELECT
+            n.name AS neighborhood_name,
+            np.gross_rental_yield_pct AS yield_pct,
+            np.investment_score AS value,
+            np.median_venta_eur_per_sqm AS eur_per_sqm,
+            np.median_alquiler_price AS median_rent,
+            np.median_venta_price AS median_sale,
+            np.transport_rating,
+            np.tourist_density_pct AS tourist_pct,
+            np.tourism_pressure,
+            np.transit_stop_count,
+            np.venta_count,
+            np.alquiler_count,
+            np.total_count
+        FROM analytics.neighborhood_profile np
+        JOIN core.neighborhoods n ON n.id = np.neighborhood_id
+        WHERE np.total_count >= {min_listings}
+          AND np.gross_rental_yield_pct IS NOT NULL
+          {nb_filter}
+        ORDER BY {order_col} DESC NULLS LAST
+        LIMIT 15
+    """
+    df = pd.read_sql(text(sql), engine)
+    return df.to_dict("records")
+
+
+def query_transit_stops_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
+    nb = params.get("neighborhood")
+    if isinstance(nb, str) and nb.strip():
+        es = _sql_escape(nb.strip())
+        where = f"WHERE similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4"
+    else:
+        where = "WHERE TRUE"
+    sql = f"""
+        SELECT t.name, t.stop_type, t.lat, t.lng, n.name AS neighborhood_name
+        FROM core.transit_stops t
+        JOIN core.neighborhoods n ON n.id = t.neighborhood_id
+        {where}
+        ORDER BY t.stop_type NULLS LAST
+        LIMIT 2000
+    """
+    df = pd.read_sql(text(sql), engine)
+    return df.to_dict("records")
+
+
+def query_tourist_apartments_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
+    nb = params.get("neighborhood")
+    if isinstance(nb, str) and nb.strip():
+        es = _sql_escape(nb.strip())
+        where = f"""WHERE similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4
+          AND (ta.status IS NULL OR lower(ta.status) = 'active')"""
+    else:
+        where = "WHERE (ta.status IS NULL OR lower(ta.status) = 'active')"
+    sql = f"""
+        SELECT ta.id, ta.address, ta.lat, ta.lng, n.name AS neighborhood_name
+        FROM core.tourist_apartments ta
+        JOIN core.neighborhoods n ON n.id = ta.neighborhood_id
+        {where}
+        LIMIT 2000
+    """
+    df = pd.read_sql(text(sql), engine)
+    return df.to_dict("records")
+
+
+def query_price_trends_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
+    nb = params.get("neighborhood")
+    if isinstance(nb, str) and nb.strip():
+        es = _sql_escape(nb.strip())
+        nb_filter = f"AND similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4"
+    else:
+        nb_filter = ""
+    sql = f"""
+        SELECT
+            pc.url,
+            n.name AS neighborhood_name,
+            pc.price_int,
+            pc.price_int_previous,
+            pc.price_drop_eur,
+            pc.price_drop_pct,
+            l.lat,
+            l.lng
+        FROM analytics.price_changes pc
+        JOIN core.listings l ON l.url = pc.url
+        JOIN core.neighborhoods n ON n.id = l.neighborhood_id
+        WHERE l.price_int > 0
+          {nb_filter}
+        ORDER BY ABS(pc.price_drop_pct) DESC NULLS LAST
+        LIMIT 50
+    """
+    df = pd.read_sql(text(sql), engine)
+    return df.to_dict("records")
+
+
+def query_chart_data_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
+    """Plotly charts load from listings snapshot in renderers; executor only signals success."""
+    del params, engine
+    return [{"_chart": True}]
+
+
+TOOL_FUNCTIONS: dict[str, Any] = {
+    "query_listings": query_listings_fn,
+    "query_neighborhood_profile": query_neighborhood_profile_fn,
+    "query_transit_stops": query_transit_stops_fn,
+    "query_tourist_apartments": query_tourist_apartments_fn,
+    "query_price_trends": query_price_trends_fn,
+    "query_chart_data": query_chart_data_fn,
+}
+
+
+def execute_plan(validated_plan: dict[str, Any], engine) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for call in validated_plan.get("tool_calls") or []:
+        tool = call.get("tool")
+        params = call.get("params") or {}
+        renderer = call.get("renderer") or "table"
+        tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
+        if not isinstance(tool, str) or tool not in TOOL_FUNCTIONS:
+            results.append(
+                {
+                    "tool": tool,
+                    "params": params,
+                    "renderer": renderer,
+                    "rows": [],
+                    "row_count": 0,
+                    "success": False,
+                    "error": f"Unknown tool: {tool}",
+                    "tool_call_id": tool_call_id,
+                }
+            )
+            continue
+        try:
+            rows = TOOL_FUNCTIONS[tool](params, engine)
+            results.append(
+                {
+                    "tool": tool,
+                    "params": params,
+                    "renderer": renderer,
+                    "rows": rows,
+                    "row_count": len(rows),
+                    "success": True,
+                    "error": None,
+                    "tool_call_id": tool_call_id,
+                }
+            )
+        except Exception as e:
+            results.append(
+                {
+                    "tool": tool,
+                    "params": params,
+                    "renderer": renderer,
+                    "rows": [],
+                    "row_count": 0,
+                    "success": False,
+                    "error": str(e),
+                    "tool_call_id": tool_call_id,
+                }
+            )
+    return results
+
+
+def decide_renderer(result: dict[str, Any]) -> str:
+    """Override renderer from actual row count and shape."""
+    tool = result.get("tool")
+    rows = result.get("rows") or []
+    planned = result.get("renderer") or "table"
+    row_count = len(rows)
+    if tool == "query_chart_data":
+        return "chart" if row_count > 0 else "empty"
+    if row_count == 0:
+        return "empty"
+    if tool == "query_listings":
+        has_coords = any(
+            r.get("lat") is not None and r.get("lng") is not None for r in rows
+        )
+        if planned == "point_map" and not has_coords:
+            return "table"
+        if row_count <= 3 and planned == "table":
+            return "metric_cards"
+        if row_count > 15 and planned == "metric_cards":
+            return "table"
+        return planned
+    if tool == "query_neighborhood_profile":
+        if row_count == 1:
+            return "metric_cards"
+        if row_count <= 6:
+            return "bar_chart"
+        return "table"
+    if tool == "query_transit_stops":
+        return "transit_map"
+    if tool == "query_tourist_apartments":
+        return "tourism_map"
+    if tool == "query_price_trends":
+        return "table" if row_count > 8 else planned
+    return planned
+
+
+def _llm_synthesiser(
+    messages: list[dict[str, str]],
+    model: str,
+    timeout_sec: float,
+    max_tokens: int = 400,
+) -> str:
+    from openai import OpenAI
+
+    client = OpenAI(timeout=max(timeout_sec + 5.0, 35.0))
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0.3,
+        max_completion_tokens=max_tokens,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+def infer_synth_max_tokens(execution_results: list[dict[str, Any]]) -> int:
+    """Higher caps for dense visuals (overview cards, profiles, charts)."""
+    if not execution_results:
+        return 200
+    rends = [r.get("renderer") for r in execution_results]
+    tools = [r.get("tool") for r in execution_results]
+    if "metric_cards" in rends:
+        return 300
+    if any(t == "query_neighborhood_profile" for t in tools):
+        return 250
+    if any(t == "query_chart_data" for t in tools):
+        return 200
+    return 150
+
+
+def format_confirmed_visuals(execution_results: list[dict[str, Any]]) -> str:
+    """Human-readable list of tools and final renderers for the synthesiser."""
+    if not execution_results:
+        return "none (prose only)"
+    parts: list[str] = []
+    for r in execution_results:
+        tool = r.get("tool") or "?"
+        ren = (r.get("renderer") or "?").strip()
+        if ren == "empty":
+            parts.append(f"{tool}→no rows")
+        else:
+            parts.append(f"{tool}→{ren}")
+    return "; ".join(parts)
+
+
+def _build_results_summary_for_synth(
+    execution_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results_summary: list[dict[str, Any]] = []
+    for result in execution_results:
+        tool = result.get("tool")
+        if tool == "query_chart_data" and result.get("success"):
+            p = result.get("params") or {}
+            results_summary.append(
+                {
+                    "tool": tool,
+                    "chart_type": p.get("chart_type") or "scatter",
+                    "renderer": result.get("renderer"),
+                }
+            )
+            continue
+        if result.get("success") and result.get("row_count", 0) > 0:
+            sample = (result.get("rows") or [])[:3]
+            results_summary.append(
+                {
+                    "tool": tool,
+                    "row_count": result.get("row_count"),
+                    "sample": sample,
+                    "renderer": result.get("renderer"),
+                }
+            )
+        elif not result.get("success"):
+            results_summary.append({"tool": tool, "error": result.get("error")})
+        else:
+            results_summary.append(
+                {
+                    "tool": tool,
+                    "row_count": 0,
+                    "note": "no rows",
+                }
+            )
+    return results_summary
+
+
+def build_synthesiser_messages(
+    question: str,
+    plan: dict[str, Any],
+    execution_results: list[dict[str, Any]],
+    conversation_state: dict[str, Any],
+    confirmed_visuals: str | None = None,
+    max_tokens_override: int | None = None,
+) -> tuple[list[dict[str, str]], int]:
+    """Messages + max_tokens for the main synthesiser (streaming or not)."""
+    results_summary = _build_results_summary_for_synth(execution_results)
+    visuals_line = confirmed_visuals or format_confirmed_visuals(execution_results)
+    max_tok = infer_synth_max_tokens(execution_results)
+    if max_tokens_override is not None:
+        max_tok = max_tokens_override
+    user_block = f"""User asked: "{question}"
+
+Plan reasoning: {plan.get("reasoning", "")}
+
+Confirmed visuals (after your text): {visuals_line}
+Your prose must match these visuals (e.g. do not describe a map if the UI shows only a table or chart).
+
+Execution results:
+{json.dumps(results_summary, indent=2, default=str)}
+
+Conversation state:
+{json.dumps(conversation_state, indent=2, default=str)}
+
+Write your response (3 sentences max, no markdown bold, no raw column names)."""
+    messages = [
+        {"role": "system", "content": SYNTHESISER_SYSTEM_PROMPT},
+        {"role": "user", "content": user_block},
+    ]
+    return messages, max_tok
+
+
+def _resolve_synthesiser_model(model: str | None) -> str:
+    if model:
+        return model
+    return DEFAULT_SYNTHESISER_MODEL_OPENAI
+
+
+def build_openai_first_turn_messages(
+    user_input: str,
+    conversation_state: dict[str, Any],
+    conversation_context: str,
+    live_schema_context: str,
+    static_schema: str,
+) -> list[dict[str, str]]:
+    schema_text = f"{live_schema_context}\n\n=== STATIC SCHEMA REFERENCE ===\n{static_schema}"
+    system = OPENAI_TOOLS_FIRST_SYSTEM_PREFIX + "\n\n" + schema_text
+    user_block = f"""Conversation state (JSON):
+{json.dumps(conversation_state, indent=2, default=str)}
+
+Recent transcript:
+{conversation_context or "(none)"}
+
+User question: {user_input}"""
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_block},
+    ]
+
+
+def openai_tool_calls_to_plan_calls(tool_calls: list[Any]) -> list[dict[str, Any]]:
+    """Map OpenAI ChatCompletionMessageToolCall objects to Rooster plan tool_calls."""
+    out: list[dict[str, Any]] = []
+    for tc in tool_calls:
+        fn = getattr(tc, "function", None)
+        name = getattr(fn, "name", None) if fn else None
+        raw_args = getattr(fn, "arguments", None) if fn else None
+        if not isinstance(name, str) or not name:
+            continue
+        try:
+            args = json.loads(raw_args or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        out.append(
+            {
+                "tool": name,
+                "params": args,
+                "renderer": DEFAULT_RENDERER_FOR_TOOL.get(name, "table"),
+                "renderer_rationale": "",
+                "_tool_call_id": getattr(tc, "id", None),
+            }
+        )
+    return out
+
+
+def _infer_plan_neighborhood_resolved(plan: dict[str, Any]) -> None:
+    for c in plan.get("tool_calls") or []:
+        p = c.get("params") or {}
+        nb = p.get("neighborhood")
+        if isinstance(nb, str) and nb.strip():
+            plan["neighborhood_resolved"] = nb.strip()
+            return
+        nbs = p.get("neighborhoods")
+        if isinstance(nbs, list) and nbs and isinstance(nbs[0], str) and nbs[0].strip():
+            plan["neighborhood_resolved"] = nbs[0].strip()
+            return
+    plan["neighborhood_resolved"] = None
+
+
+def _infer_combine_maps_from_tools(plan: dict[str, Any]) -> bool:
+    spatial = {"query_listings", "query_transit_stops", "query_tourist_apartments"}
+    n = sum(1 for c in (plan.get("tool_calls") or []) if c.get("tool") in spatial)
+    return n >= 2
+
+
+def _openai_fc_first_completion(
+    messages: list[dict[str, str]],
+    model: str,
+    timeout_sec: float,
+) -> Any:
+    from openai import OpenAI
+
+    client = OpenAI(timeout=max(timeout_sec + 5.0, 35.0))
+    return client.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=get_rooster_openai_tools(),
+        tool_choice="auto",
+        temperature=0,
+        max_completion_tokens=900,
+    )
+
+
+def run_openai_function_calling_pipeline(
+    user_input: str,
+    conversation_state: dict[str, Any],
+    live_schema_context: str,
+    static_schema: str,
+    conversation_context: str,
+    model: str,
+    timeout_sec: float,
+    engine,
+) -> dict[str, Any]:
+    """
+    OpenAI native function calling: first completion may request tools; we execute,
+    then return messages for a second completion (streamed in the app) with full context.
+    `model` must be the UI-selected OpenAI model id.
+    """
+    first_messages = build_openai_first_turn_messages(
+        user_input,
+        conversation_state,
+        conversation_context,
+        live_schema_context,
+        static_schema,
+    )
+    model_name = _resolve_synthesiser_model(model)
+
+    def _run_first() -> Any:
+        return _openai_fc_first_completion(first_messages, model_name, timeout_sec)
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            response = ex.submit(_run_first).result(timeout=timeout_sec)
+    except FuturesTimeoutError:
+        return {"error": "timeout"}
+
+    choice = response.choices[0]
+    msg = choice.message
+    tcalls = getattr(msg, "tool_calls", None) or []
+
+    if not tcalls:
+        text = (getattr(msg, "content", None) or "").strip()
+        return {
+            "error": None,
+            "conversational_text": text,
+            "validated_plan": None,
+            "execution_results": None,
+            "final_messages": None,
+            "max_tokens_final": 0,
+            "validation_failed": False,
+            "validation_errors": [],
+        }
+
+    raw_plan_calls = openai_tool_calls_to_plan_calls(tcalls)
+    if not raw_plan_calls:
+        text = (getattr(msg, "content", None) or "").strip()
+        return {
+            "error": None,
+            "conversational_text": text or "No valid tool calls.",
+            "validated_plan": None,
+            "execution_results": None,
+            "final_messages": None,
+            "max_tokens_final": 0,
+            "validation_failed": False,
+            "validation_errors": [],
+        }
+
+    plan: dict[str, Any] = {
+        "tool_calls": raw_plan_calls,
+        "reasoning": "openai_function_calling",
+        "neighborhood_resolved": None,
+        "combine_maps": False,
+    }
+    _infer_plan_neighborhood_resolved(plan)
+    plan["combine_maps"] = _infer_combine_maps_from_tools(plan)
+
+    validated = validate_plan(plan, live_schema_context)
+    ve = validated.get("validation_errors") or []
+
+    if plan.get("tool_calls") and not (validated.get("tool_calls") or []):
+        return {
+            "error": None,
+            "conversational_text": None,
+            "validated_plan": validated,
+            "execution_results": None,
+            "final_messages": None,
+            "max_tokens_final": 0,
+            "validation_failed": True,
+            "validation_errors": ve,
+        }
+
+    execution_results = execute_plan(validated, engine)
+    for res in execution_results:
+        res["renderer"] = decide_renderer(res)
+
+    confirmed = format_confirmed_visuals(execution_results)
+    assistant_msg: dict[str, Any] = {
+        "role": "assistant",
+        "content": getattr(msg, "content", None),
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments or "{}",
+                },
+            }
+            for tc in tcalls
+        ],
+    }
+    tool_msgs: list[dict[str, Any]] = []
+    for tc in tcalls:
+        er = next(
+            (r for r in execution_results if r.get("tool_call_id") == tc.id),
+            None,
+        )
+        if er is None:
+            payload = {
+                "error": "This tool call was not executed (invalid parameters or neighborhood)."
+            }
+        else:
+            summ = _build_results_summary_for_synth([er])
+            payload = summ[0] if summ else {"error": "no result"}
+        tool_msgs.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(payload, default=str),
+            }
+        )
+
+    followup_user = (
+        f"Now write the final answer for the user in Rooster's voice (max 3 sentences, no markdown bold). "
+        f"The UI will show these visuals after your text: {confirmed}. "
+        f"Match your prose to those visuals. User question was: {user_input!r}"
+    )
+    final_messages: list[dict[str, Any]] = [
+        *first_messages,
+        assistant_msg,
+        *tool_msgs,
+        {"role": "user", "content": followup_user},
+    ]
+    max_final = infer_synth_max_tokens(execution_results)
+
+    return {
+        "error": None,
+        "conversational_text": None,
+        "validated_plan": validated,
+        "execution_results": execution_results,
+        "final_messages": final_messages,
+        "max_tokens_final": max_final,
+        "validation_failed": False,
+        "validation_errors": ve,
+    }
+
+
+def stream_openai_final_response_messages(
+    messages: list[dict[str, Any]],
+    model: str,
+    max_tokens: int,
+    timeout_sec: float,
+) -> Iterator[str]:
+    """Second-turn streaming completion (same UI-selected model)."""
+    from openai import OpenAI
+
+    model_name = _resolve_synthesiser_model(model)
+    client = OpenAI(timeout=max(timeout_sec + 5.0, 120.0))
+    stream = client.chat.completions.create(
+        model=model_name,
+        messages=messages,
+        temperature=0.3,
+        max_completion_tokens=max_tokens,
+        stream=True,
+    )
+    for chunk in stream:
+        ch = chunk.choices[0].delta.content if chunk.choices else None
+        if ch:
+            yield ch
+
+
+def run_synthesiser(
+    question: str,
+    plan: dict[str, Any],
+    execution_results: list[dict[str, Any]],
+    conversation_state: dict[str, Any],
+    model: str | None,
+    timeout_sec: float = SUMMARIZE_TIMEOUT_SEC,
+    confirmed_visuals: str | None = None,
+    max_tokens_override: int | None = None,
+) -> str:
+    """Stage 4: narrative from LLM."""
+    messages, max_tok = build_synthesiser_messages(
+        question,
+        plan,
+        execution_results,
+        conversation_state,
+        confirmed_visuals=confirmed_visuals,
+        max_tokens_override=max_tokens_override,
+    )
+    model_name = _resolve_synthesiser_model(model)
+
+    def _run() -> str:
+        return _llm_synthesiser(messages, model_name, timeout_sec, max_tokens=max_tok)
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(_run).result(timeout=timeout_sec)
+    except FuturesTimeoutError:
+        return "The response took too long. Try a narrower question."
+
+
+def update_conversation_state(
+    state: dict[str, Any],
+    question: str,
+    plan: dict[str, Any],
+    execution_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Update mutable conversation state after a turn."""
+    if plan.get("neighborhood_resolved"):
+        nb = str(plan["neighborhood_resolved"]).strip()
+        if nb and nb not in state["neighborhoods_discussed"]:
+            state["neighborhoods_discussed"].append(nb)
+    for call in plan.get("tool_calls") or []:
+        if not isinstance(call, dict):
+            continue
+        p = call.get("params") or {}
+        op = p.get("operation")
+        if op and op != "both":
+            state["operation_focus"] = op
+        mp = p.get("max_price")
+        if mp is not None:
+            try:
+                state["price_ceiling"] = int(mp)
+            except (TypeError, ValueError):
+                pass
+    state["turns"] = int(state.get("turns", 0)) + 1
+    if state["turns"] <= 2:
+        state["stage"] = "orienting"
+    elif len(state.get("neighborhoods_discussed", [])) >= 2:
+        state["stage"] = "evaluating"
+    elif state["turns"] >= 6:
+        state["stage"] = "deciding"
+    if plan.get("tool_calls"):
+        state["last_intent"] = plan["tool_calls"][0].get("tool")
+    priority_keywords = {
+        "yield": ["yield", "rentabilidad", "rendimiento", "retorno"],
+        "transport": ["transport", "metro", "bus", "conectividad"],
+        "price": ["precio", "barato", "económico", "budget", "coste"],
+        "tourism": ["turístico", "airbnb", "vut", "corta estancia"],
+    }
+    q_lower = (question or "").lower()
+    for priority, kws in priority_keywords.items():
+        if any(kw in q_lower for kw in kws):
+            if priority not in state["user_priorities"]:
+                state["user_priorities"].append(priority)
+    return state
+
+
+def map_renderer_to_dispatch_intent(renderer: str) -> str:
+    """Map abstract renderer name to existing RENDERERS keys in renderers.py."""
+    mapping = {
+        "table": "search",
+        "point_map": "geo",
+        "transit_map": "transit_map",
+        "tourism_map": "tourism_map",
+        "combined_map": "combined_map",
+        "bar_chart": "ranking",
+        "metric_cards": "overview",
+        "chart": "chart",
+        "empty": "search",
+    }
+    return mapping.get(renderer, "search")
+
+
+def build_render_stack(
+    validated_plan: dict[str, Any],
+    execution_results: list[dict[str, Any]],
+    geo_key: int,
+) -> list[dict[str, Any]]:
+    """
+    Build render blocks for dispatch. When combine_maps is True, merge spatial tools
+    into one combined_map block, then append non-spatial tools (e.g. charts, profiles).
+    """
+    combine = bool(validated_plan.get("combine_maps"))
+    spatial_tools = {"query_listings", "query_transit_stops", "query_tourist_apartments"}
+    blocks: list[dict[str, Any]] = []
+    if not execution_results:
+        return blocks
+
+    spatial_merged = False
+    if combine:
+        rl: list = []
+        rt: list = []
+        ru: list = []
+        for res in execution_results:
+            if not res.get("success"):
+                continue
+            t = res.get("tool")
+            r = res.get("rows") or []
+            if t == "query_listings":
+                rl = r
+            elif t == "query_transit_stops":
+                rt = r
+            elif t == "query_tourist_apartments":
+                ru = r
+        if rl or rt or ru:
+            blocks.append(
+                {
+                    "intent": "combined_map",
+                    "rows": [],
+                    "meta": {
+                        "geo_key": geo_key,
+                        "rows_listings": rl,
+                        "rows_transit": rt,
+                        "rows_tourism": ru,
+                        "caveat": "",
+                    },
+                }
+            )
+            spatial_merged = True
+
+    for res in execution_results:
+        if combine and spatial_merged and res.get("tool") in spatial_tools:
+            continue
+        ren = (res.get("renderer") or "").strip()
+        if ren == "empty":
+            continue
+        intent = map_renderer_to_dispatch_intent(ren)
+        rows = res.get("rows") or []
+        meta: dict[str, Any] = {"geo_key": geo_key, "caveat": ""}
+        if intent == "chart":
+            p = res.get("params") or {}
+            ct = (p.get("chart_type") or "scatter").strip().lower()
+            if ct not in ("scatter", "amenity", "floor"):
+                ct = "scatter"
+            meta["chart_type"] = ct
+        if intent == "ranking":
+            meta["metric_label"] = "Value"
+        if intent == "ranking" and rows and "value" not in rows[0]:
+            for r in rows:
+                if "value" not in r and r.get("investment_score") is not None:
+                    r["value"] = r["investment_score"]
+        blocks.append({"intent": intent, "rows": rows, "meta": meta})
+    return blocks

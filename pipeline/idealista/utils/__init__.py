@@ -3,9 +3,10 @@
 Utility modules for Idealista scraper.
 """
 
-from utils.logger import Logger
-from utils.extractor import PropertyExtractor
-from utils.storage import DataManager
+from .logger import Logger
+from .extractor import PropertyExtractor
+from .storage import DataManager
+from . import run_session
 
-__all__ = ['Logger', 'PropertyExtractor', 'DataManager']
+__all__ = ["Logger", "PropertyExtractor", "DataManager", "run_session"]
 
