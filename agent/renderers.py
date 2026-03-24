@@ -531,6 +531,84 @@ def render_neighborhood_map(rows: list[dict[str, Any]], metadata: dict[str, Any]
     )
 
 
+def render_no_coords_fallback(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """Map was requested but listing rows lack lat/lng — show table + notice."""
+    st.caption(UI.CHAT_NO_COORDS_FALLBACK)
+    render_listing_table(rows, metadata)
+
+
+def render_neighborhood_highlight_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """
+    Highlight specific neighborhoods on a basemap; others muted.
+    Used when output_intent is map_neighborhoods (barrio polygons).
+    """
+    df = pd.DataFrame(rows)
+    name_c = _find_col_df(df, ("neighborhood_name", "name", "barrio", "neighborhood_raw"))
+    if df.empty or not name_c:
+        st.caption(UI.NEED_NEIGHBORHOOD_NAME)
+        return
+
+    highlight_norms = {
+        _norm_name(str(x)) for x in df[name_c].dropna() if str(x).strip()
+    }
+    features, geo_fallback = _load_neighborhood_geo_features()
+    if geo_fallback:
+        st.caption(UI.GEO_FALLBACK_CAPTION)
+    if not features:
+        st.warning(UI.NO_GEO_LOADED_SHORT)
+        return
+
+    matched = 0
+    for f in features:
+        n = (f.get("properties") or {}).get("norm", "")
+        if n in highlight_norms:
+            matched += 1
+    if matched == 0:
+        st.info(UI.MATCH_ROWS_FAIL)
+        if rows:
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+
+    def style_fn(feature: dict) -> dict:
+        norm = feature.get("properties", {}).get("norm", "")
+        if norm in highlight_norms:
+            return {
+                "fillColor": "#1D9E75",
+                "color": "#1D9E75",
+                "weight": 2,
+                "fillOpacity": 0.6,
+            }
+        return {
+            "fillColor": "#333333",
+            "color": "#555555",
+            "weight": 0.5,
+            "fillOpacity": 0.15,
+        }
+
+    fc: dict[str, Any] = {"type": "FeatureCollection", "features": features}
+    geo_key = int(metadata.get("geo_key", 0))
+    m = folium.Map(location=VALENCIA_CENTER, zoom_start=12, tiles="CartoDB dark_matter")
+
+    folium.GeoJson(
+        fc,
+        style_function=style_fn,
+        name="Barrios",
+        tooltip=folium.GeoJsonTooltip(
+            fields=["name"],
+            aliases=["Barrio:"],
+        ),
+    ).add_to(m)
+
+    st_folium(
+        m,
+        use_container_width=True,
+        height=420,
+        returned_objects=[],
+        key=_st_folium_key(metadata, "neighborhood_highlight", str(geo_key)),
+    )
+    st.caption(UI.CHAT_NEIGHBORHOOD_HIGHLIGHT_CAPTION.format(n=len(highlight_norms)))
+
+
 def render_mini_choropleth(
     df: pd.DataFrame,
     *,
@@ -1442,6 +1520,8 @@ RENDERERS: dict[str, Any] = {
     "memo": render_memo,
     "trend": render_trend_chart,
     "chart": render_chart,
+    "neighborhood_highlight": render_neighborhood_highlight_map,
+    "no_coords": render_no_coords_fallback,
 }
 
 

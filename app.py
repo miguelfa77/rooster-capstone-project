@@ -55,6 +55,7 @@ from agent.agent_pipeline import (
     build_render_stack,
     extract_neighborhood_names_from_schema,
     format_confirmed_visuals,
+    format_last_assistant_for_planner,
     get_live_schema_context,
     is_conversational_message,
     pick_fast_path_conversational_reply,
@@ -1496,9 +1497,13 @@ def render_chat() -> None:
         openai_precomputed: str | None = None
         openai_fc_final_messages: list | None = None
         openai_fc_max_tokens: int = 0
+        had_output_correction: bool = False
 
         engine = get_pg_engine()
         conv = build_conversation_context(st.session_state.messages[:-1])
+        last_assistant_for_planner = format_last_assistant_for_planner(
+            st.session_state.messages[:-1]
+        )
 
         with st.status(UI.STATUS_THINKING, expanded=False) as status:
             try:
@@ -1515,7 +1520,9 @@ def render_chat() -> None:
                     model_choice,
                     float(timeout_sec),
                     engine,
+                    last_assistant_context=last_assistant_for_planner,
                 )
+                had_output_correction = bool(fc.get("had_output_correction"))
                 if fc.get("error") == "timeout":
                     st.session_state.messages.append({
                         "role": "assistant",
@@ -1720,6 +1727,8 @@ def render_chat() -> None:
                     )
                     st.write(response_text)
                 _dispatch_render_stack_blocks(render_stack_for_stream or [], geo_key)
+                if had_output_correction:
+                    st.caption(UI.CHAT_OUTPUT_CORRECTED)
                 if val_errs_for_stream:
                     st.caption(
                         "Nota: " + ". ".join(str(x) for x in val_errs_for_stream)

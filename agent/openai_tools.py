@@ -42,15 +42,21 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                                 "auto",
                                 "table",
                                 "map",
+                                "map_listings",
+                                "map_neighborhoods",
                                 "chart",
                                 "metrics",
                                 "ranking",
                                 "combined_map",
+                                "cards",
+                                "text",
                             ],
                             "description": (
-                                "auto: infer from row shapes; table: tabular; map: geographic; "
-                                "chart: Plotly; metrics: KPI cards; ranking: bar comparisons; "
-                                "combined_map: listings+transit+tourism overlay when multiple map tools apply."
+                                "auto: infer from row shapes; table: browsable list; "
+                                "map_listings: property dots (lat/lng); map_neighborhoods: barrio polygons; "
+                                "map: legacy geographic; chart: Plotly; metrics/cards: KPI cards; "
+                                "ranking: bar comparisons; text: prose-only; "
+                                "combined_map: listings+transit+tourism overlay."
                             ),
                         }
                     },

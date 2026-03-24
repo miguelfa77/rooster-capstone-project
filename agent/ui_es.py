@@ -216,6 +216,16 @@ CHAT_COMBINED_EMPTY = "No hay capas para mostrar en el mapa combinado."
 CHAT_COMBINED_CAP_LISTINGS = "🔵 {n} anuncios (color = €/m²)"
 CHAT_COMBINED_CAP_TRANSIT = "🟣 {n} paradas de transporte"
 CHAT_COMBINED_CAP_TOURISM = "🟡 {n} VUT"
+CHAT_NEIGHBORHOOD_HIGHLIGHT_CAPTION = (
+    "{n} barrio(s) destacado(s). Haz clic en un barrio verde para ver los detalles."
+)
+CHAT_NO_COORDS_FALLBACK = (
+    "No hay coordenadas en estos resultados; se muestra la tabla. "
+    "Pide de nuevo un mapa si necesitas puntos en el plano."
+)
+CHAT_OUTPUT_CORRECTED = (
+    "Consulta ajustada automáticamente para incluir todos los campos necesarios."
+)
 
 COMBINED_MAP_ALL_FAILED = "No se pudo cargar ninguna capa del mapa combinado."
 
