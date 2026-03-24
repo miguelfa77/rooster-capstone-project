@@ -180,6 +180,105 @@ def pick_fast_path_conversational_reply(question: str) -> str:
     return random.choice(CONVERSATIONAL_RESPONSES)
 
 
+GROUNDED_ACK_REPLIES: tuple[str, ...] = (
+    "De nada.",
+    "Encantado de ayudar.",
+    "Para eso estamos.",
+)
+
+_CHIT_CHAT_TOKENS = frozenset(
+    {
+        "hola",
+        "gracias",
+        "thanks",
+        "thank",
+        "you",
+        "ok",
+        "vale",
+        "perfecto",
+        "hi",
+        "hey",
+        "genial",
+        "bueno",
+    }
+)
+
+# Only scan recent turns so a follow-up is not "grounded" to ancient tool UI forever.
+_GROUNDED_RECENT_MESSAGE_WINDOW = 10
+
+
+def _is_thanks_only(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    return bool(
+        re.match(
+            r"^(gracias|thanks|thank you|ty|muchas gracias|thank)\s*!?\s*$",
+            t,
+        )
+    )
+
+
+def _is_pure_chit_chat_message(text: str) -> bool:
+    """Short acknowledgements / greetings — not follow-ups about data or prior results."""
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    t = re.sub(r"[!?.]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    words = [w for w in t.split() if w]
+    if not words:
+        return True
+    if len(words) <= 4 and all(w in _CHIT_CHAT_TOKENS or len(w) <= 2 for w in words):
+        return True
+    return False
+
+
+def last_assistant_message_had_tool_ui(messages: list[dict[str, Any]]) -> bool:
+    """
+    True if a recent assistant turn (before the current user message) showed tool-backed UI.
+    """
+    if len(messages) < 2:
+        return False
+    prior = messages[:-1]
+    recent = (
+        prior[-_GROUNDED_RECENT_MESSAGE_WINDOW:]
+        if len(prior) > _GROUNDED_RECENT_MESSAGE_WINDOW
+        else prior
+    )
+    for m in reversed(recent):
+        if m.get("role") != "assistant":
+            continue
+        if m.get("agent_turn") and (m.get("render_stack") or []):
+            return True
+    return False
+
+
+def use_conversational_fast_path(messages: list[dict[str, Any]], user_input: str) -> bool:
+    """
+    Whether to use the cheap canned conversational path (no FC / DB).
+    After a recent tool-backed reply, substantive follow-ups use the full agent.
+    Only a bare thanks uses the fast path (short ack, not a random intro).
+    """
+    if last_assistant_message_had_tool_ui(messages):
+        if _is_thanks_only(user_input):
+            return True
+        return False
+    if _is_pure_chit_chat_message(user_input):
+        return True
+    return is_conversational_message(user_input)
+
+
+def pick_conversational_reply(
+    messages: list[dict[str, Any]],
+    user_input: str,
+) -> str:
+    """Reply for the conversational fast path (thanks after data vs cold open)."""
+    if last_assistant_message_had_tool_ui(messages) and _is_thanks_only(user_input):
+        return random.choice(GROUNDED_ACK_REPLIES)
+    return pick_fast_path_conversational_reply(user_input)
+
+
 def stream_canned_text_word_by_word(
     text: str,
     delay_sec: float = 0.03,
@@ -386,6 +485,14 @@ _DATA_TOOLS_WITH_OUTPUT_INTENT = frozenset(
 # One replan attempt after output-completeness issues (total 2 planner calls max).
 MAX_OUTPUT_CORRECTION_ATTEMPTS = 1
 
+# User asked for a visual chart; profile rows are present but planner chose a tabular intent.
+_CHART_REQUEST_RE = re.compile(
+    r"(?:^|\s|[\W_])"
+    r"(?:gráfica|gráfico|grafica|grafico|gráficas|gráficos|chart|charts|graph|graphs|plot|plots|scatter)"
+    r"(?:$|\s|[\W_])",
+    re.IGNORECASE,
+)
+
 
 def normalize_output_intent(raw: Any) -> str:
     s = raw if raw is not None else "auto"
@@ -393,6 +500,32 @@ def normalize_output_intent(raw: Any) -> str:
         s = str(s)
     s = s.strip().lower()
     return s if s in _VALID_OUTPUT_INTENTS else "auto"
+
+
+def normalize_output_intent_for_tool(tool: str, raw: Any) -> str:
+    """
+    Map user- and model-facing synonyms to canonical intents per tool.
+    Keeps one place for “gráfica/chart” → profile bar chart vs listing Plotly chart.
+    """
+    s = raw if raw is not None else "auto"
+    if not isinstance(s, str):
+        s = str(s)
+    s = s.strip().lower()
+    if tool == "query_neighborhood_profile":
+        if s in (
+            "chart",
+            "graph",
+            "grafica",
+            "grafico",
+            "gráfica",
+            "gráfico",
+            "visualization",
+            "visualisation",
+        ):
+            s = "bar_chart"
+    if tool == "query_chart_data" and s == "bar_chart":
+        s = "chart"
+    return normalize_output_intent(s)
 
 
 def extract_output_intent_from_tool_args(tool_calls: list[Any]) -> str:
@@ -414,7 +547,7 @@ def extract_output_intent_from_tool_args(tool_calls: list[Any]) -> str:
             args = {}
         intent = args.get("output_intent")
         if intent:
-            return normalize_output_intent(intent)
+            return normalize_output_intent_for_tool(name, intent)
     return "auto"
 
 
@@ -429,9 +562,9 @@ def validate_output_completeness(
 
     Returns: list of issue dicts, empty if all good.
     """
-    del question  # reserved for future heuristics
     issues: list[dict[str, Any]] = []
     oi = normalize_output_intent(output_intent)
+    q = (question or "").strip()
 
     for result in execution_results or []:
         if not result.get("success"):
@@ -443,6 +576,29 @@ def validate_output_completeness(
             continue
 
         columns = set(rows[0].keys())
+        params = result.get("params") if isinstance(result.get("params"), dict) else {}
+        per_oi = normalize_output_intent_for_tool(
+            tool,
+            (params or {}).get("output_intent") or output_intent,
+        )
+        if (
+            tool == "query_neighborhood_profile"
+            and len(rows) >= 2
+            and per_oi in ("table", "cards")
+            and _CHART_REQUEST_RE.search(q)
+        ):
+            issues.append(
+                {
+                    "type": "chart_intent_mismatch",
+                    "tool": tool,
+                    "columns_present": sorted(columns),
+                    "fix": (
+                        "The user asked for a chart or graph. Use output_intent bar_chart "
+                        "on query_neighborhood_profile (add chart_style scatter only if they "
+                        "want yield vs score as a scatter plot)."
+                    ),
+                }
+            )
 
         if oi in ("map_listings", "map"):
             if tool == "query_listings":
@@ -589,6 +745,7 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
             "metric_cards",
             "table",
             "neighborhood_highlight_map",
+            "profile_scatter",
         ],
         "query_price_trends": ["bar_chart", "table"],
         "query_chart_data": ["chart"],
@@ -632,7 +789,12 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
 
     out = dict(plan)
     out["tool_calls"] = corrected
-    out["output_intent"] = normalize_output_intent(plan.get("output_intent"))
+    _tc0 = plan.get("tool_calls") or []
+    _t0 = _tc0[0].get("tool") if _tc0 and isinstance(_tc0[0], dict) else ""
+    out["output_intent"] = normalize_output_intent_for_tool(
+        str(_t0) if _t0 else "",
+        plan.get("output_intent"),
+    )
     out["validation_errors"] = errors
     if not plan.get("tool_calls"):
         out["valid"] = len(errors) == 0
@@ -868,8 +1030,12 @@ def execute_plan(validated_plan: dict[str, Any], engine) -> list[dict[str, Any]]
     for call in validated_plan.get("tool_calls") or []:
         tool = call.get("tool")
         params = dict(call.get("params") or {})
-        oi_call = normalize_output_intent(params.get("output_intent"))
-        sql_params = {k: v for k, v in params.items() if k != "output_intent"}
+        oi_call = normalize_output_intent_for_tool(
+            tool if isinstance(tool, str) else "",
+            params.get("output_intent"),
+        )
+        _sql_meta_keys = frozenset({"output_intent", "chart_style"})
+        sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
         renderer = call.get("renderer") or "table"
         tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
         if not isinstance(tool, str) or tool not in TOOL_FUNCTIONS:
@@ -921,8 +1087,11 @@ def execute_plan(validated_plan: dict[str, Any], engine) -> list[dict[str, Any]]
 
 def decide_renderer(result: dict[str, Any], output_intent: str = "auto") -> str:
     """Pick UI renderer from planner output_intent first; if auto, use data-shape heuristics."""
-    oi = normalize_output_intent(output_intent)
     tool = result.get("tool")
+    oi = normalize_output_intent_for_tool(
+        tool if isinstance(tool, str) else "",
+        output_intent,
+    )
     rows = result.get("rows") or []
     planned = result.get("renderer") or "table"
     row_count = len(rows)
@@ -936,6 +1105,17 @@ def decide_renderer(result: dict[str, Any], output_intent: str = "auto") -> str:
         return "chart" if row_count > 0 else "empty"
     if row_count == 0:
         return "empty"
+
+    if tool == "query_neighborhood_profile" and row_count >= 2:
+        p = result.get("params") or {}
+        cstyle = (p.get("chart_style") or "auto").strip().lower()
+        if cstyle not in ("bar", "scatter", "auto"):
+            cstyle = "auto"
+        # chart_style overrides mistaken output_intent (e.g. table) for visual asks
+        if cstyle == "scatter" and oi not in ("cards", "map_neighborhoods"):
+            return "profile_scatter"
+        if cstyle == "bar" and oi == "table":
+            return "metric_cards" if row_count == 1 else "bar_chart"
 
     if oi != "auto":
         if oi == "text":
@@ -1068,6 +1248,8 @@ def infer_synth_max_tokens(execution_results: list[dict[str, Any]]) -> int:
     if "metric_cards" in rends:
         return 300
     if "neighborhood_highlight_map" in rends:
+        return 280
+    if "profile_scatter" in rends:
         return 280
     if "no_coords_fallback" in rends:
         return 220
@@ -1679,6 +1861,7 @@ def map_renderer_to_dispatch_intent(renderer: str) -> str:
         "tourism_map": "tourism_map",
         "combined_map": "combined_map",
         "bar_chart": "ranking",
+        "profile_scatter": "profile_scatter",
         "metric_cards": "overview",
         "chart": "chart",
         "neighborhood_highlight_map": "neighborhood_highlight",

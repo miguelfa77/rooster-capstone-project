@@ -53,10 +53,18 @@ def _st_folium_key(metadata: dict[str, Any] | None, *parts: str) -> str:
 
 
 _TRANSIT_STOP_COLORS: dict[str, str] = {
+    # OSM-style keys
     "station": "#534AB7",
     "halt": "#534AB7",
     "stop_position": "#1D9E75",
     "tram_stop": "#534AB7",
+    # Values from pipeline/open_data/fetch_transit_overpass.infer_stop_type
+    "rail": "#534AB7",
+    "metro": "#534AB7",
+    "tram": "#534AB7",
+    "bus": "#1D9E75",
+    "transit": "#1D9E75",
+    "other": "#888780",
     "": "#888780",
 }
 
@@ -757,6 +765,55 @@ def render_ranking(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None
             render_mini_choropleth(plot_df, metric_col="value", height=360, zoom_start=11, geo_key=geo_key)
         except Exception:
             pass
+
+
+def render_profile_scatter(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """
+    Scatter of yield vs investment score (or similar) per neighborhood — profile data only.
+    """
+    df = pd.DataFrame(rows)
+    if df.empty or len(df) < 2:
+        st.caption(UI.NO_RANKING)
+        return
+    nc = _find_col_df(df, ("neighborhood_name", "neighborhood", "name", "barrio"))
+    yc = _find_col_df(df, ("yield_pct", "gross_rental_yield_pct", "yield"))
+    vc = _find_col_df(df, ("value", "investment_score", "score"))
+    if not nc or not yc or not vc:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    plot_df = df[[nc, yc, vc]].copy()
+    plot_df.columns = ["neighborhood_name", "yield_pct", "value"]
+    plot_df["yield_pct"] = pd.to_numeric(plot_df["yield_pct"], errors="coerce")
+    plot_df["value"] = pd.to_numeric(plot_df["value"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["yield_pct", "value"])
+    if plot_df.empty or len(plot_df) < 2:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    geo_key = int((metadata or {}).get("geo_key", 0))
+    fig = px.scatter(
+        plot_df,
+        x="yield_pct",
+        y="value",
+        text="neighborhood_name",
+        template="plotly_dark",
+        color="value",
+        color_continuous_scale=["#3B8BD4", "#1D9E75", "#EF9F27"],
+        labels={
+            "yield_pct": "Rent. bruta %",
+            "value": "Score",
+        },
+    )
+    fig.update_traces(textposition="top center", textfont=dict(size=10))
+    fig.update_layout(
+        height=400,
+        margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=False,
+    )
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key=_st_plotly_key(metadata, "profile_scatter"),
+    )
 
 
 def render_comparison_chart(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
@@ -1513,6 +1570,7 @@ RENDERERS: dict[str, Any] = {
     "geo": render_geo,
     "underpriced": render_underpriced,
     "ranking": render_ranking,
+    "profile_scatter": render_profile_scatter,
     "transit_map": render_transit_map,
     "tourism_map": render_tourism_map,
     "combined_map": render_combined_map,

@@ -57,13 +57,13 @@ from agent.agent_pipeline import (
     format_confirmed_visuals,
     format_last_assistant_for_planner,
     get_live_schema_context,
-    is_conversational_message,
-    pick_fast_path_conversational_reply,
+    pick_conversational_reply,
     run_openai_function_calling_pipeline,
     run_synthesiser,
     stream_canned_text_word_by_word,
     stream_openai_final_response_messages,
     update_conversation_state,
+    use_conversational_fast_path,
 )
 from agent.llm_sql import (
     DEFAULT_SYNTHESISER_MODEL_OPENAI,
@@ -1457,9 +1457,12 @@ def render_chat() -> None:
             })
             st.rerun()
 
-        # Fast path: tiny router (gpt-4o-mini) — no engine, schema, tools, or FC
-        if is_conversational_message(user_input):
-            response_text = pick_fast_path_conversational_reply(user_input)
+        # Fast path: only for cold open / short chit-chat; grounded follow-ups use full FC
+        if use_conversational_fast_path(st.session_state.messages, user_input):
+            response_text = pick_conversational_reply(
+                st.session_state.messages,
+                user_input,
+            )
             plan_conv = {"reasoning": "conversational_fast_path", "tool_calls": []}
             with st.chat_message("assistant", avatar="🐓"):
                 st.write_stream(stream_canned_text_word_by_word(response_text))
@@ -1523,11 +1526,6 @@ def render_chat() -> None:
                     last_assistant_context=last_assistant_for_planner,
                 )
                 had_output_correction = bool(fc.get("had_output_correction"))
-                plan = fc.get("validated_plan") or {}
-                st.write(
-                    f"DEBUG — output_intent: {plan.get('output_intent')}, "
-                    f"tool_calls: {[c['tool'] for c in plan.get('tool_calls', [])]}"
-                )
                 if fc.get("error") == "timeout":
                     st.session_state.messages.append({
                         "role": "assistant",

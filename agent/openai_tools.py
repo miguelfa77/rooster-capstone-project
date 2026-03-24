@@ -120,22 +120,32 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "type": "integer",
                             "description": "Minimum listings per neighborhood (default 3).",
                         },
+                        "chart_style": {
+                            "type": "string",
+                            "enum": ["bar", "scatter", "auto"],
+                            "description": (
+                                "When showing charts (bar_chart or chart intent): "
+                                "bar = horizontal bar ranking (default for many barrios); "
+                                "scatter = yield vs investment score (two metrics); "
+                                "auto = pick from row count."
+                            ),
+                        },
                         "output_intent": {
                             "type": "string",
                             "enum": [
                                 "map_neighborhoods",
                                 "bar_chart",
+                                "chart",
                                 "table",
                                 "cards",
                                 "auto",
                             ],
                             "description": (
                                 "REQUIRED. How to display results. "
-                                "map_neighborhoods: map of barrios/neighborhoods, "
-                                "dónde están, show neighborhoods on map. "
-                                "bar_chart: rankings, comparisons, mejor, ranking, compara. "
-                                "cards: single neighborhood summary. "
-                                "table: detailed list. "
+                                "map_neighborhoods: barrio polygons on a map. "
+                                "bar_chart or chart: gráfica, chart, graph, visualización, "
+                                "rankings, comparisons — use chart_style for bar vs scatter. "
+                                "cards: KPI cards. table: detailed list. "
                                 "auto: no clear signal."
                             ),
                         },
