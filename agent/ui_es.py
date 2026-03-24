@@ -2,6 +2,8 @@
 
 # —— Página y pestañas ——
 PAGE_TITLE = "Rooster – Inmobiliario Valencia"
+# Pestaña del navegador (cabecera principal usa CHAT_WORDMARK + CHAT_TAGLINE en app.py)
+PAGE_BROWSER_TITLE = "Rooster · Valencia"
 PAGE_SUBTITLE_INTEL = "Inteligencia"
 PAGE_SUBTITLE_CHAT = "Pregunta a Rooster"
 TAB_INTEL = "Inteligencia"

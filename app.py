@@ -78,7 +78,7 @@ from agent.llm_sql import (
 from agent import ui_es as UI
 from agent.renderers import dispatch, render_graceful_fallback
 
-st.set_page_config(page_title=UI.PAGE_TITLE, page_icon="🏠", layout="wide")
+st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
 
 _ROOSTER_GLOBAL_CSS = """
 <style>
@@ -135,7 +135,26 @@ _ROOSTER_GLOBAL_CSS = """
   line-height: 1.3;
 }
 
-/* Chat empty state */
+/* Rooster wordmark + tagline (page header + chat empty) */
+.rooster-header-wrap {
+  margin-bottom: 1.25rem;
+}
+.rooster-wordmark {
+  font-size: 48px;
+  font-weight: 500;
+  color: #f0f0f0;
+  margin-bottom: 12px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.rooster-wordmark .dot {
+  color: #e03030;
+}
+.rooster-tagline {
+  font-size: 22px;
+  color: #777777;
+  line-height: 1.45;
+}
 .chat-empty-wrap {
   display: flex;
   flex-direction: column;
@@ -143,20 +162,19 @@ _ROOSTER_GLOBAL_CSS = """
   justify-content: center;
   text-align: center;
   padding: 3rem 1rem 2rem 1rem;
-  min-height: 220px;
+  min-height: 280px;
 }
-.chat-empty-wordmark {
-  font-size: 22px;
-  font-weight: 500;
-  color: #f0f0f0;
-  margin-bottom: 10px;
+.chat-empty-wrap .rooster-tagline {
+  max-width: 24rem;
 }
-.chat-empty-wordmark .dot {
-  color: #e03030;
+
+/* User messages: avatar on the right (opposite of assistant) — see Streamlit stChatMessage testids */
+.stChatMessage:has([data-testid="stChatMessageAvatarUser"]) {
+  flex-direction: row-reverse !important;
+  align-items: flex-start;
 }
-.chat-empty-tagline {
-  font-size: 14px;
-  color: #555555;
+.stChatMessage:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] {
+  text-align: right;
 }
 </style>
 """
@@ -164,6 +182,14 @@ _ROOSTER_GLOBAL_CSS = """
 
 def _inject_global_styles() -> None:
     st.markdown(_ROOSTER_GLOBAL_CSS, unsafe_allow_html=True)
+
+
+def _rooster_brand_html() -> str:
+    wm = html.escape(UI.CHAT_WORDMARK)
+    return (
+        f'<div class="rooster-wordmark">{wm}<span class="dot">.</span></div>'
+        f'<div class="rooster-tagline">{html.escape(UI.CHAT_TAGLINE)}</div>'
+    )
 
 
 _inject_global_styles()
@@ -210,6 +236,14 @@ def _cached_live_schema_context() -> str:
 
 
 QUERY_TIMEOUT_SEC = 60
+
+# Inteligencia — Plotly (match shell #0e0e0e, KPI #161616, map tiles)
+_INTEL_CHART_PAPER = "#0e0e0e"
+_INTEL_CHART_PLOT = "#161616"
+_INTEL_CHART_GRID = "#2a2a2a"
+_INTEL_CHART_TEXT = "#a8a8a8"
+_INTEL_CHART_ACCENT = "#e03030"
+_INTEL_CHART_COLORSCALE = ["#1a1a1a", "#4d4d4d", _INTEL_CHART_ACCENT]
 
 CHOROPLETH_METRICS = UI.CHOROPLETH_METRICS
 CHOROPLETH_METRICS_PROFILE_ONLY_COLUMNS = UI.CHOROPLETH_METRICS_PROFILE_ONLY_COLUMNS
@@ -1062,6 +1096,33 @@ def _render_neighborhood_ranking_table(df: pd.DataFrame) -> None:
     st.caption(UI.INTEL_RANK_CAPTION)
 
 
+def _apply_intel_plotly_theme(fig, *, has_coloraxis: bool = False) -> None:
+    layout: dict = {
+        "paper_bgcolor": _INTEL_CHART_PAPER,
+        "plot_bgcolor": _INTEL_CHART_PLOT,
+        "font": dict(color=_INTEL_CHART_TEXT),
+        "xaxis": dict(
+            gridcolor=_INTEL_CHART_GRID,
+            zerolinecolor=_INTEL_CHART_GRID,
+            linecolor=_INTEL_CHART_GRID,
+        ),
+        "yaxis": dict(
+            gridcolor=_INTEL_CHART_GRID,
+            zerolinecolor=_INTEL_CHART_GRID,
+            linecolor=_INTEL_CHART_GRID,
+        ),
+    }
+    if has_coloraxis:
+        layout["coloraxis_colorbar"] = dict(
+            bgcolor="rgba(0,0,0,0)",
+            tickfont=dict(color=_INTEL_CHART_TEXT),
+            titlefont=dict(color=_INTEL_CHART_TEXT),
+        )
+    fig.update_layout(**layout)
+    fig.update_xaxes(showgrid=True, gridwidth=1, zerolinewidth=1)
+    fig.update_yaxes(showgrid=True, gridwidth=1, zerolinewidth=1)
+
+
 def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
     if df.empty:
         st.info(UI.INTEL_NO_SCATTER)
@@ -1077,7 +1138,7 @@ def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
             y="yield_pct",
             size="eur_per_sqm",
             color="investment_score",
-            color_continuous_scale=["#3B8BD4", "#1D9E75", "#EF9F27"],
+            color_continuous_scale=_INTEL_CHART_COLORSCALE,
             hover_name="neighborhood_name",
             hover_data={
                 "transport_rating": True,
@@ -1113,6 +1174,7 @@ def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
             },
         )
         fig.update_layout(height=420, margin=dict(l=0, r=0, t=0, b=0))
+    _apply_intel_plotly_theme(fig, has_coloraxis=has_score)
     y_med = float(df["yield_pct"].median())
     x_med = float(df["listing_count"].median())
     # Plotly shape lines do not accept 8-digit #RRGGBBAA; use rgba for translucent guides.
@@ -1123,6 +1185,7 @@ def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
         line_color=guide_line,
         annotation_text="Mediana rentabilidad ciudad",
         annotation_position="right",
+        annotation_font_color=_INTEL_CHART_TEXT,
     )
     fig.add_vline(
         x=x_med,
@@ -1130,8 +1193,18 @@ def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
         line_color=guide_line,
         annotation_text="Mediana oferta",
         annotation_position="top",
+        annotation_font_color=_INTEL_CHART_TEXT,
     )
-    fig.update_traces(marker=dict(opacity=0.85, line=dict(width=0)))
+    if has_score:
+        fig.update_traces(marker=dict(opacity=0.85, line=dict(width=0)))
+    else:
+        fig.update_traces(
+            marker=dict(
+                color=_INTEL_CHART_ACCENT,
+                opacity=0.85,
+                line=dict(width=0),
+            )
+        )
     st.plotly_chart(fig, use_container_width=True)
     st.caption(UI.INTEL_SCATTER_CAPTION)
 
@@ -1371,12 +1444,8 @@ def render_chat() -> None:
     model_choice = st.session_state.get("selected_model") or DEFAULT_SYNTHESISER_MODEL_OPENAI
 
     if not st.session_state.messages:
-        wm = html.escape(UI.CHAT_WORDMARK)
         st.markdown(
-            f'<div class="chat-empty-wrap">'
-            f'<div class="chat-empty-wordmark">{wm}<span class="dot">.</span></div>'
-            f'<div class="chat-empty-tagline">{html.escape(UI.CHAT_TAGLINE)}</div>'
-            f"</div>",
+            f'<div class="chat-empty-wrap">{_rooster_brand_html()}</div>',
             unsafe_allow_html=True,
         )
 
@@ -1807,7 +1876,10 @@ def main():
     if "selected_model" not in st.session_state:
         st.session_state.selected_model = model_values[st.session_state.selected_model_index]
 
-    st.title(UI.PAGE_TITLE)
+    st.markdown(
+        f'<div class="rooster-header-wrap">{_rooster_brand_html()}</div>',
+        unsafe_allow_html=True,
+    )
 
     with st.sidebar:
         with st.expander(f"⚙ {UI.SETTINGS}", expanded=False):
