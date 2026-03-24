@@ -1523,6 +1523,11 @@ def render_chat() -> None:
                     last_assistant_context=last_assistant_for_planner,
                 )
                 had_output_correction = bool(fc.get("had_output_correction"))
+                plan = fc.get("validated_plan") or {}
+                st.write(
+                    f"DEBUG — output_intent: {plan.get('output_intent')}, "
+                    f"tool_calls: {[c['tool'] for c in plan.get('tool_calls', [])]}"
+                )
                 if fc.get("error") == "timeout":
                     st.session_state.messages.append({
                         "role": "assistant",
