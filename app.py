@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -78,6 +79,94 @@ from agent import ui_es as UI
 from agent.renderers import dispatch, render_graceful_fallback
 
 st.set_page_config(page_title=UI.PAGE_TITLE, page_icon="🏠", layout="wide")
+
+_ROOSTER_GLOBAL_CSS = """
+<style>
+/* App shell */
+.stApp { background-color: #0e0e0e; }
+.block-container { padding-top: 2rem; }
+
+/* Tabs — active tab red underline */
+.stTabs [data-baseweb="tab"] {
+  font-size: 13px;
+  color: #666;
+  padding-bottom: 10px;
+}
+.stTabs [aria-selected="true"] {
+  color: #f0f0f0 !important;
+  border-bottom: 2px solid #e03030;
+}
+
+/* Section labels (Inteligencia) */
+.section-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #555;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+/* KPI cards */
+.kpi-card {
+  background: #161616;
+  border: 0.5px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 18px 20px;
+  height: 100%;
+  box-sizing: border-box;
+}
+.kpi-card-label {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.kpi-card-value {
+  font-size: 28px;
+  font-weight: 500;
+  color: #f0f0f0;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+.kpi-card-sub {
+  font-size: 12px;
+  color: #888;
+  line-height: 1.3;
+}
+
+/* Chat empty state */
+.chat-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 3rem 1rem 2rem 1rem;
+  min-height: 220px;
+}
+.chat-empty-wordmark {
+  font-size: 22px;
+  font-weight: 500;
+  color: #f0f0f0;
+  margin-bottom: 10px;
+}
+.chat-empty-wordmark .dot {
+  color: #e03030;
+}
+.chat-empty-tagline {
+  font-size: 14px;
+  color: #555555;
+}
+</style>
+"""
+
+
+def _inject_global_styles() -> None:
+    st.markdown(_ROOSTER_GLOBAL_CSS, unsafe_allow_html=True)
+
+
+_inject_global_styles()
 
 
 def _setup_rooster_logging() -> None:
@@ -864,6 +953,16 @@ def _load_yield_liquidity_df() -> pd.DataFrame:
     )
 
 
+def _kpi_card_html(label: str, value: str, sub: str) -> str:
+    return (
+        f'<div class="kpi-card">'
+        f'<div class="kpi-card-label">{html.escape(label)}</div>'
+        f'<div class="kpi-card-value">{html.escape(value)}</div>'
+        f'<div class="kpi-card-sub">{html.escape(sub)}</div>'
+        "</div>"
+    )
+
+
 def _render_intelligence_framing_metrics(m: dict | None) -> None:
     if not m:
         st.info(UI.INTEL_NO_FRAMING)
@@ -872,22 +971,30 @@ def _render_intelligence_framing_metrics(m: dict | None) -> None:
     sp = m.get("spread_pp")
     ns = m.get("n_strong")
     nw = m.get("n_with_yield")
+    v1 = f"{float(med):.1f}%" if med is not None and pd.notna(med) else "—"
+    v2 = f"{float(sp):.1f} pp" if sp is not None and pd.notna(sp) else "—"
+    v3 = f"{int(ns)}" if ns is not None and pd.notna(ns) else "—"
+    sub3 = (
+        UI.KPI_SUB_COUNT.format(n=int(nw))
+        if nw is not None and pd.notna(nw)
+        else "—"
+    )
     c1, c2, c3 = st.columns(3)
-    c1.metric(
-        UI.INTEL_METRIC_MEDIAN_YIELD,
-        f"{float(med):.1f}%" if med is not None and pd.notna(med) else "—",
-        help=UI.INTEL_METRIC_MEDIAN_YIELD_HELP,
-    )
-    c2.metric(
-        UI.INTEL_METRIC_SPREAD,
-        f"{float(sp):.1f} pp" if sp is not None and pd.notna(sp) else "—",
-        help=UI.INTEL_METRIC_SPREAD_HELP,
-    )
-    c3.metric(
-        UI.INTEL_METRIC_STRONG_YIELD,
-        f"{int(ns)} de {int(nw)}" if ns is not None and nw is not None else "—",
-        help=UI.INTEL_METRIC_STRONG_YIELD_HELP,
-    )
+    with c1:
+        st.markdown(
+            _kpi_card_html(UI.KPI_CARD_LABEL_MEDIAN, v1, UI.KPI_SUB_YIELD),
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            _kpi_card_html(UI.KPI_CARD_LABEL_SPREAD, v2, UI.KPI_SUB_DISPERSION),
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            _kpi_card_html(UI.KPI_CARD_LABEL_STRONG, v3, sub3),
+            unsafe_allow_html=True,
+        )
 
 
 def _render_neighborhood_ranking_table(df: pd.DataFrame) -> None:
@@ -1029,193 +1136,6 @@ def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
     st.caption(UI.INTEL_SCATTER_CAPTION)
 
 
-def _load_chat_briefing_top_pick() -> dict | None:
-    if not _analytics_views_available().get("neighborhood_metrics"):
-        return None
-    eng = get_pg_engine()
-    if _neighborhood_profile_available():
-        try:
-            df = pd.read_sql_query(
-                """
-                SELECT neighborhood_name, investment_score, gross_rental_yield_pct,
-                       transport_rating, tourism_pressure, venta_count
-                FROM analytics.neighborhood_profile
-                WHERE venta_count >= 5
-                  AND gross_rental_yield_pct IS NOT NULL
-                ORDER BY investment_score DESC NULLS LAST
-                LIMIT 1
-                """,
-                eng,
-            )
-            if not df.empty:
-                return df.iloc[0].to_dict()
-        except Exception:
-            pass
-    try:
-        df = pd.read_sql_query(
-            """
-            SELECT neighborhood_name,
-                   gross_rental_yield_pct AS investment_score,
-                   gross_rental_yield_pct,
-                   NULL::text AS transport_rating,
-                   NULL::text AS tourism_pressure,
-                   venta_count
-            FROM analytics.neighborhood_metrics
-            WHERE venta_count >= 5
-              AND gross_rental_yield_pct IS NOT NULL
-            ORDER BY gross_rental_yield_pct DESC NULLS LAST
-            LIMIT 1
-            """,
-            eng,
-        )
-        if not df.empty:
-            return df.iloc[0].to_dict()
-    except Exception:
-        pass
-    return None
-
-
-def _load_chat_briefing_best_value() -> tuple[dict | None, float | None]:
-    """Lowest €/m² among barrios with yield above city median."""
-    if not _analytics_views_available().get("neighborhood_metrics"):
-        return None, None
-    eng = get_pg_engine()
-    try:
-        med_city = pd.read_sql_query(
-            """
-            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY gross_rental_yield_pct) AS med
-            FROM analytics.neighborhood_metrics
-            WHERE gross_rental_yield_pct IS NOT NULL
-            """,
-            eng,
-        ).iloc[0]["med"]
-        row = pd.read_sql_query(
-            """
-            WITH city AS (
-                SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY gross_rental_yield_pct) AS med
-                FROM analytics.neighborhood_metrics
-                WHERE gross_rental_yield_pct IS NOT NULL
-            )
-            SELECT nm.neighborhood_name, nm.median_venta_eur_per_sqm, nm.gross_rental_yield_pct
-            FROM analytics.neighborhood_metrics nm, city
-            WHERE nm.gross_rental_yield_pct > city.med
-              AND nm.median_venta_eur_per_sqm IS NOT NULL
-              AND nm.median_venta_eur_per_sqm > 0
-              AND nm.venta_count >= 3
-            ORDER BY nm.median_venta_eur_per_sqm ASC NULLS LAST
-            LIMIT 1
-            """,
-            eng,
-        )
-    except Exception:
-        return None, None
-    med_f = float(med_city) if med_city is not None and pd.notna(med_city) else None
-    if row.empty:
-        return None, med_f
-    return row.iloc[0].to_dict(), med_f
-
-
-def _load_chat_briefing_price_signal() -> dict | None:
-    eng = get_pg_engine()
-    try:
-        df = pd.read_sql_query(
-            """
-            WITH ranked_dates AS (
-                SELECT scraped_at,
-                       ROW_NUMBER() OVER (ORDER BY scraped_at DESC) AS rn
-                FROM (SELECT DISTINCT scraped_at FROM core.listing_snapshots) t
-            ),
-            t1 AS (SELECT scraped_at FROM ranked_dates WHERE rn = 1),
-            t2 AS (SELECT scraped_at FROM ranked_dates WHERE rn = 2)
-            SELECT
-                n.name AS neighborhood_name,
-                AVG(s1.price_int)::numeric AS cur_avg,
-                AVG(s2.price_int)::numeric AS prev_avg,
-                COUNT(*)::int AS n_listings
-            FROM core.listing_snapshots s1
-            JOIN core.listing_snapshots s2 ON s2.url = s1.url
-            JOIN core.listings l ON l.url = s1.url
-            JOIN core.neighborhoods n ON n.id = l.neighborhood_id
-            WHERE l.operation = 'venta'
-              AND s1.scraped_at = (SELECT scraped_at FROM t1)
-              AND s2.scraped_at = (SELECT scraped_at FROM t2)
-              AND EXISTS (SELECT 1 FROM ranked_dates WHERE rn = 2)
-              AND s1.price_int > 0 AND s2.price_int > 0
-            GROUP BY n.name
-            HAVING COUNT(*) >= 3
-               AND AVG(s2.price_int) > 0
-            ORDER BY ABS(
-                (AVG(s1.price_int) - AVG(s2.price_int)) / AVG(s2.price_int)
-            ) DESC
-            LIMIT 1
-            """,
-            eng,
-        )
-    except Exception:
-        return None
-    if df.empty:
-        return None
-    r = df.iloc[0]
-    cur = float(r["cur_avg"])
-    prev = float(r["prev_avg"])
-    if prev == 0:
-        return None
-    chg = (cur - prev) / prev * 100.0
-    return {
-        "neighborhood_name": r["neighborhood_name"],
-        "change_pct": chg,
-        "n": int(r["n_listings"]),
-    }
-
-
-def _render_chat_briefing_cards() -> None:
-    """Empty-state briefing: top pick, best €/m², price movement signal."""
-    c1, c2, c3 = st.columns(3)
-    top = _load_chat_briefing_top_pick()
-    with c1:
-        st.markdown(f"**{UI.BRIEF_TOP_PICK}**")
-        if top:
-            st.markdown(
-                UI.BRIEF_TOP_PICK_BODY.format(
-                    name=str(top["neighborhood_name"]),
-                    score=float(top["investment_score"]),
-                    yld=float(top["gross_rental_yield_pct"]),
-                    tr=str(top.get("transport_rating") or "—"),
-                    tp=str(top.get("tourism_pressure") or "—"),
-                    vc=int(top["venta_count"]),
-                )
-            )
-        else:
-            st.caption(UI.BRIEF_NO_TOP_PICK)
-    val, city_med = _load_chat_briefing_best_value()
-    with c2:
-        st.markdown(f"**{UI.BRIEF_BEST_VALUE}**")
-        if val and city_med is not None:
-            st.markdown(
-                UI.BRIEF_VALUE_BODY.format(
-                    name=str(val["neighborhood_name"]),
-                    m2=int(val["median_venta_eur_per_sqm"]),
-                    yld=float(val["gross_rental_yield_pct"]),
-                    med=city_med,
-                )
-            )
-        else:
-            st.caption(UI.BRIEF_NO_VALUE)
-    sig = _load_chat_briefing_price_signal()
-    with c3:
-        st.markdown(f"**{UI.BRIEF_MARKET_SIGNAL}**")
-        if sig:
-            st.markdown(
-                UI.BRIEF_SIGNAL_BODY.format(
-                    name=str(sig["neighborhood_name"]),
-                    chg=float(sig["change_pct"]),
-                    n=int(sig["n"]),
-                )
-            )
-        else:
-            st.caption(UI.BRIEF_NO_SIGNAL)
-
-
 def _floor_label_for_chart(x: object) -> str:
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return ""
@@ -1244,14 +1164,18 @@ def _floor_sort_key(lbl: str) -> tuple:
 
 
 def render_dashboard() -> None:
-    st.subheader(UI.PAGE_SUBTITLE_INTEL)
-    st.caption(UI.INTEL_CAPTION)
     _warn_analytics_missing_once()
 
-    st.markdown(UI.INTEL_S1_TITLE)
+    st.markdown(
+        f'<p class="section-label">{html.escape(UI.SECTION_LABEL_MERCADO)}</p>',
+        unsafe_allow_html=True,
+    )
     _render_intelligence_framing_metrics(_load_market_framing_metrics())
 
-    st.markdown(UI.INTEL_S2_TITLE)
+    st.markdown(
+        f'<p class="section-label">{html.escape(UI.SECTION_LABEL_MAPA)}</p>',
+        unsafe_allow_html=True,
+    )
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         show_barrios = _intel_toggle(UI.INTEL_TOGGLE_BARRIOS, value=False, key="intel_t_barrios")
@@ -1427,7 +1351,6 @@ def _render_followup_pills_replay(pills: list[str]) -> None:
 
 
 def render_chat() -> None:
-    st.markdown(f"### {UI.PAGE_SUBTITLE_CHAT}")
     _warn_analytics_missing_once()
 
     if "messages" not in st.session_state:
@@ -1448,7 +1371,14 @@ def render_chat() -> None:
     model_choice = st.session_state.get("selected_model") or DEFAULT_SYNTHESISER_MODEL_OPENAI
 
     if not st.session_state.messages:
-        _render_chat_briefing_cards()
+        wm = html.escape(UI.CHAT_WORDMARK)
+        st.markdown(
+            f'<div class="chat-empty-wrap">'
+            f'<div class="chat-empty-wordmark">{wm}<span class="dot">.</span></div>'
+            f'<div class="chat-empty-tagline">{html.escape(UI.CHAT_TAGLINE)}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
     for i, msg in enumerate(st.session_state.messages):
         _replay_message(msg, idx=i)
@@ -1920,11 +1850,11 @@ def main():
             )
             st.caption(UI.LLM_CAPTION)
 
-    tab_intel, tab_chat = st.tabs([UI.TAB_INTEL, UI.TAB_CHAT])
-    with tab_intel:
-        render_dashboard()
+    tab_chat, tab_intel = st.tabs([UI.TAB_CHAT, UI.TAB_INTEL])
     with tab_chat:
         render_chat()
+    with tab_intel:
+        render_dashboard()
 
 
 if __name__ == "__main__":

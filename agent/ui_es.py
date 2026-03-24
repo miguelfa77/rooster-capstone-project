@@ -7,6 +7,21 @@ PAGE_SUBTITLE_CHAT = "Pregunta a Rooster"
 TAB_INTEL = "Inteligencia"
 TAB_CHAT = "Pregunta a Rooster"
 
+# —— Chat (empty state / wordmark) ——
+CHAT_WORDMARK = "Rooster"
+CHAT_TAGLINE = "Tu copiloto inmobiliario para Valencia"
+
+# —— Inteligencia · KPI cards (HTML styling en app.py) ——
+SECTION_LABEL_MERCADO = "Mercado · Valencia"
+SECTION_LABEL_MAPA = "Mapa de Valencia"
+KPI_CARD_LABEL_MEDIAN = "Rentabilidad bruta mediana"
+KPI_CARD_LABEL_SPREAD = "Dispersión de rentabilidad"
+KPI_CARD_LABEL_STRONG = "Barrios >6% rentabilidad"
+KPI_SUB_YIELD = "ciudad completa"
+KPI_SUB_DISPERSION = "entre barrios"
+# n = barrios con dato de rentabilidad (denominador del conteo)
+KPI_SUB_COUNT = "de {n} analizados"
+
 # —— Sidebar ——
 SETTINGS = "Ajustes"
 LLM_CAPTION = "LLM: **OpenAI** (único proveedor)"
@@ -58,23 +73,6 @@ INTEL_RANK_CAPTION = (
 INTEL_SCATTER_CAPTION = (
     "Tamaño del punto = mediana €/m² venta. **Arriba-izquierda** = alta rentabilidad, poca oferta. "
     "**Arriba-derecha** = equilibrio raro: rentabilidad y liquidez."
-)
-BRIEF_TOP_PICK = "Mejor opción hoy"
-BRIEF_BEST_VALUE = "Mejor €/m² (entre barrios por encima de la mediana)"
-BRIEF_MARKET_SIGNAL = "Señal de mercado"
-BRIEF_NO_TOP_PICK = "Sin candidato claro (revisa datos de analytics / perfil de barrios)."
-BRIEF_NO_VALUE = "Sin barrio que cumpla criterios de valor (mediana ciudad y listados)."
-BRIEF_NO_SIGNAL = "Sin comparación de precios entre scrapes (hacen falta al menos dos fechas en listing_snapshots)."
-BRIEF_TOP_PICK_BODY = (
-    "**{name}** — puntuación **{score:.1f}** — rent. bruta **{yld:.1f}%**, "
-    "transporte **{tr}**, presión turística **{tp}**, **{vc}** anuncios de venta."
-)
-BRIEF_VALUE_BODY = (
-    "**{name}** — **€{m2:,}/m²** mediana venta — rent. bruta **{yld:.1f}%** (> mediana ciudad **{med:.1f}%**)."
-)
-BRIEF_SIGNAL_BODY = (
-    "**{name}** — precio medio venta **{chg:+.1f}%** entre el último scrape y el anterior — "
-    "**{n}** anuncios con precio en ambos periodos."
 )
 NEIGHBORHOOD_DIVE_TITLE = "Perfil del barrio"
 NEIGHBORHOOD_DIVE_SUPPLY = "**Oferta:** {v} venta · {a} alquiler"
