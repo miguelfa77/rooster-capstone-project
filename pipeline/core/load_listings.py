@@ -29,11 +29,19 @@ def _parse_price(s: Optional[str]) -> Optional[int]:
     return int(s) if s else None
 
 
-def _parse_int(s: Optional[str]) -> Optional[int]:
+def _parse_rooms_int(s: Optional[str]) -> Optional[int]:
+    """
+    Bedroom count from raw Idealista text: '2 hab.', '3 dorm.', '4', etc.
+    (Plain int() only works for all-numeric strings; '2 hab.' would fail.)
+    """
     if not s:
         return None
+    text = str(s).strip().replace(",", ".")
+    m = re.search(r"\d+", text)
+    if not m:
+        return None
     try:
-        return int(float(str(s).strip().replace(",", ".")))
+        return int(m.group(0))
     except (ValueError, TypeError):
         return None
 
@@ -148,7 +156,7 @@ def main() -> None:
         if not url or not operation:
             continue
         price_int = _parse_price(price)
-        rooms_int = _parse_int(rooms)
+        rooms_int = _parse_rooms_int(rooms)
         area_sqm = _parse_area_sqm(area)
         street_raw, neighborhood_raw = _extract_location(heading)
         ts = _parse_scraped_ts(scraped_at)

@@ -68,6 +68,8 @@ If you cannot determine what it refers to, reply briefly without tools asking: "
 
 OPENAI_TOOLS_FIRST_SYSTEM_PREFIX = """You are Rooster's planning assistant for Valencia real estate. You may call the provided functions to fetch real data, or reply briefly without calling tools when no database is needed.
 
+LANGUAGE: Rooster's UI is Spanish. If you reply without tools (greetings, meta questions), write in **Spanish (español)** unless the user's message is clearly entirely in English.
+
 """ + PLANNER_NOTE_OUTPUT_INTENT + "\n" + CONTEXT_RESOLUTION + """
 
 When to call tools:
@@ -298,6 +300,11 @@ def stream_canned_text_word_by_word(
 
 SYNTHESISER_SYSTEM_PROMPT = """You are Rooster, a senior real estate analyst for Valencia, Spain.
 
+LANGUAGE (mandatory):
+- The product is used in **Spanish**. Write **all** text the user will read in **Spanish (español de España)** — clear, professional, natural for a Spanish investor.
+- Match the user's language only if they write **fully in English**; for Spanish or mixed Spanish/English questions, answer in Spanish.
+- Use Spanish terms: rentabilidad bruta, €/m², barrio, anuncio, vivienda turística, transporte, etc. Do not answer in English by default.
+
 YOUR VOICE:
 - Direct and specific. Name neighborhoods, quote actual numbers.
 - Never use raw database column names in prose — translate to natural language.
@@ -313,11 +320,13 @@ If there was no execution results (conversational tool_calls empty), answer from
 If tools failed or returned 0 rows, say so honestly and suggest what to try next.
 
 FOLLOW-UP PILLS (required when tools ran and returned something to show):
-After your 3 sentences, output a NEW LINE, then exactly one HTML comment on its own line:
-<!-- FOLLOW_UPS: ["short Spanish action 1", "short Spanish action 2", "short Spanish action 3"] -->
-Use 2-3 strings (max 8 words each), Spanish, specific to what was just shown (not generic chips).
+After your 3 sentences, output a NEW LINE, then exactly ONE HTML comment:
+<!-- FOLLOW_UPS: ["acción corta 1", "acción corta 2", "acción corta 3"] -->
+The payload MUST be a JSON **array of strings** only (not an object, not "suggestions", not nested JSON).
+2-3 strings, max 8 words each, **Spanish**, specific to what was just shown.
 Examples: after a map → "Ver tabla de estos anuncios"; after a ranking → "Comparar los dos mejores barrios".
-If there is nothing to build on (error-only, or pure chit-chat), use: <!-- FOLLOW_UPS: [] -->"""
+If there is nothing to build on (error-only, or pure chit-chat), use: <!-- FOLLOW_UPS: [] -->
+Nothing may appear after the closing `-->` — the comment must be the last characters of your reply."""
 
 
 def _sql_escape(s: str) -> str:
@@ -496,35 +505,84 @@ _DATA_TOOLS_WITH_OUTPUT_INTENT = frozenset(
 MAX_OUTPUT_CORRECTION_ATTEMPTS = 1
 
 
+def _normalize_follow_ups_payload(raw: Any) -> list[str]:
+    """Turn JSON array, object with suggestions, or list of objects into pill strings."""
+    out: list[str] = []
+
+    def _append_one(s: str | None) -> None:
+        if not s or not str(s).strip():
+            return
+        t = str(s).strip()
+        words = t.split()
+        if len(words) > 12:
+            t = " ".join(words[:12])
+        out.append(t)
+
+    if raw is None:
+        return out
+    if isinstance(raw, str):
+        _append_one(raw)
+        return out[:3]
+    if isinstance(raw, dict):
+        if "suggestions" in raw and isinstance(raw["suggestions"], list):
+            return _normalize_follow_ups_payload(raw["suggestions"])
+        for k in ("follow_ups", "pills", "actions"):
+            if k in raw and isinstance(raw[k], list):
+                return _normalize_follow_ups_payload(raw[k])
+        if "label" in raw or "text" in raw:
+            _append_one(
+                raw.get("label")
+                or raw.get("text")
+                or raw.get("title")
+            )
+            return out[:3]
+        return out
+    if isinstance(raw, list):
+        for x in raw:
+            if isinstance(x, str):
+                _append_one(x)
+            elif isinstance(x, dict):
+                lab = (
+                    x.get("label")
+                    or x.get("text")
+                    or x.get("title")
+                    or x.get("action")
+                )
+                if isinstance(lab, str) and lab.strip():
+                    _append_one(lab)
+                elif x.get("label") is not None:
+                    _append_one(str(x.get("label")))
+            else:
+                _append_one(str(x))
+            if len(out) >= 3:
+                break
+        return out
+    return out
+
+
 def strip_follow_ups_suffix(text: str) -> tuple[str, list[str]]:
     """
-    Remove trailing <!-- FOLLOW_UPS: ["..."] --> from synthesiser output; return prose + pills.
+    Remove <!-- FOLLOW_UPS: ... --> from synthesiser output (array or JSON object); return prose + pills.
     """
     if not (text or "").strip():
         return "", []
     t = text.strip()
-    m = re.search(
-        r"<!--\s*FOLLOW_UPS:\s*(\[[\s\S]*?\])\s*-->\s*\Z",
-        t,
-        re.IGNORECASE,
-    )
-    if not m:
+    m_open = re.search(r"<!--\s*FOLLOW_UPS:\s*", t, re.IGNORECASE)
+    if not m_open:
         return t, []
-    prose = t[: m.start()].strip()
+    start = m_open.start()
+    payload_start = m_open.end()
+    close = t.find("-->", payload_start)
+    if close == -1:
+        return t, []
+    payload = t[payload_start:close].strip()
+    prose = t[:start].strip()
     try:
-        raw = json.loads(m.group(1))
+        raw = json.loads(payload)
     except json.JSONDecodeError:
-        return t, []
-    if not isinstance(raw, list):
-        return t, []
-    out: list[str] = []
-    for x in raw:
-        s = str(x).strip()
-        if s and len(s.split()) <= 12:
-            out.append(s)
-        if len(out) >= 3:
-            break
-    return prose, out
+        return prose, []
+    labels = _normalize_follow_ups_payload(raw)
+    return prose, labels[:3]
 
 
 def _dedup_params_signature(params: dict[str, Any]) -> str:
@@ -1364,13 +1422,13 @@ def infer_synth_max_tokens(execution_results: list[dict[str, Any]]) -> int:
 def format_confirmed_visuals(execution_results: list[dict[str, Any]]) -> str:
     """Human-readable list of tools and final renderers for the synthesiser."""
     if not execution_results:
-        return "none (prose only)"
+        return "ninguno (solo texto)"
     parts: list[str] = []
     for r in execution_results:
         tool = r.get("tool") or "?"
         ren = (r.get("renderer") or "?").strip()
         if ren == "empty":
-            parts.append(f"{tool}→no rows")
+            parts.append(f"{tool}→sin filas")
         else:
             parts.append(f"{tool}→{ren}")
     return "; ".join(parts)
@@ -1409,7 +1467,7 @@ def _build_results_summary_for_synth(
                 {
                     "tool": tool,
                     "row_count": 0,
-                    "note": "no rows",
+                    "note": "sin filas",
                 }
             )
     return results_summary
@@ -1431,21 +1489,21 @@ def build_synthesiser_messages(
         max_tok = max_tokens_override
     else:
         max_tok += 50
-    user_block = f"""User asked: "{question}"
+    user_block = f"""Pregunta del usuario: "{question}"
 
 Plan reasoning: {plan.get("reasoning", "")}
 
-Confirmed visuals (after your text): {visuals_line}
-Your prose must match these visuals (e.g. do not describe a map if the UI shows only a table or chart).
+Visuales confirmados (después de tu texto): {visuals_line}
+Tu texto debe coincidir con esos visuales (no describas un mapa si solo hay tabla o gráfico).
 
-Execution results:
+Resultados de ejecución:
 {json.dumps(results_summary, indent=2, default=str)}
 
-Conversation state:
+Estado de conversación:
 {json.dumps(conversation_state, indent=2, default=str)}
 
-Write your response (3 sentences max, no markdown bold, no raw column names).
-Then on a new line append the <!-- FOLLOW_UPS: [...] --> HTML comment as instructed in the system prompt."""
+Escribe la respuesta en **español** (máx. 3 frases, sin negritas markdown, sin nombres de columnas crudos).
+Luego en una línea nueva el comentario HTML <!-- FOLLOW_UPS: [...] --> como en el system prompt."""
     messages = [
         {"role": "system", "content": SYNTHESISER_SYSTEM_PROMPT},
         {"role": "user", "content": user_block},
@@ -1826,11 +1884,13 @@ def run_openai_function_calling_pipeline(
         )
         if er is None:
             payload = {
-                "error": "This tool call was not executed (invalid parameters or neighborhood)."
+                "error": (
+                    "Esta herramienta no se ejecutó (parámetros no válidos o barrio no reconocido)."
+                )
             }
         else:
             summ = _build_results_summary_for_synth([er])
-            payload = summ[0] if summ else {"error": "no result"}
+            payload = summ[0] if summ else {"error": "sin resultado"}
         tool_msgs.append(
             {
                 "role": "tool",
@@ -1840,10 +1900,11 @@ def run_openai_function_calling_pipeline(
         )
 
     followup_user = (
-        f"Now write the final answer for the user in Rooster's voice (max 3 sentences, no markdown bold). "
-        f"The UI will show these visuals after your text: {confirmed}. "
-        f"Match your prose to those visuals. User question was: {user_input!r}\n"
-        f"Then append the <!-- FOLLOW_UPS: [...] --> line exactly as in the synthesiser system prompt."
+        f"Escribe la respuesta final para el usuario con la voz de Rooster (máx. 3 frases, sin negritas markdown). "
+        f"La interfaz mostrará después de tu texto estos visuales: {confirmed}. "
+        f"El texto debe coincidir con ellos. Pregunta del usuario: {user_input!r}\n"
+        f"Todo en **español** salvo que el usuario hubiera escrito solo en inglés.\n"
+        f"Añade al final la línea <!-- FOLLOW_UPS: [...] --> exactamente como indica el system prompt del sintetizador."
     )
     final_messages: list[dict[str, Any]] = [
         *first_messages,

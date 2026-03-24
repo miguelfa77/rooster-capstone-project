@@ -121,9 +121,11 @@ class PropertyExtractor:
             
             for item in detail_items:
                 text = item.text.strip()
-                
-                if 'hab.' in text or 'dorm' in text:
-                    result['rooms'] = text
+                tlo = text.lower()
+
+                # Bedrooms: "2 hab.", "3 hab", "4 dorm.", "1 habitación" (Idealista variants)
+                if ("hab" in tlo or "dorm" in tlo) and re.search(r"\d", text):
+                    result["rooms"] = text
                 elif 'm²' in text:
                     result['area'] = text
                 elif 'Planta' in text or 'planta' in text or 'ascensor' in text:

@@ -377,6 +377,14 @@ Always write as an analyst speaking to a client, never as a system reading datab
 """
 
 
+OUTPUT_LANGUAGE_RULES = """
+OUTPUT LANGUAGE — CRITICAL:
+- Rooster's user-facing app is **Spanish**. Write the entire answer in **Spanish (español de España)** for investors.
+- If the user's question is clearly and entirely in English, you may answer in English; otherwise always Spanish.
+- Prefer natural Spanish: rentabilidad bruta, €/m², barrio, anuncio, vivienda turística, liquidez.
+"""
+
+
 FORMATTING_RULES = """
 RESPONSE FORMAT RULES — follow these exactly:
 
@@ -454,7 +462,7 @@ CONSTRAINTS:
 - Never invent figures — only what the data supports
 - Never recommend a specific listing as "buy this" — compare neighborhoods and strategies
 
-""" + LANGUAGE_RULES + "\n" + FORMATTING_RULES
+""" + OUTPUT_LANGUAGE_RULES + "\n" + LANGUAGE_RULES + "\n" + FORMATTING_RULES
 
 
 # Legacy single-shot SQL path (`query()`): SQL-only, not the analyst persona.
@@ -571,6 +579,7 @@ Conversation stage: {stage} — {stage_hint}
 {FORMATTING_RULES}
 
 Write plain text only (no markdown headings, no bullet lists in the answer, no **bold**).
+Write in **Spanish** unless the user's question is entirely in English.
 Do not repeat data-quality caveats here if the app will show a separate caption — stay in the 3-sentence paragraph."""
 
 
@@ -594,29 +603,29 @@ Previous conversation:
 Keep your answer to 2–3 sentences maximum.
 Be specific and useful. If the question is about how Rooster works (investment score, data sources, methodology), explain it clearly and honestly.
 
+Write in **Spanish** unless the user's question is entirely in English.
 Write plain text only (no markdown headings, no bullet lists, no **bold**)."""
 
 
-SUMMARY_PROMPT = """Based on this conversation, write a brief investment memo in this
-exact structure:
+SUMMARY_PROMPT = """Basándote en esta conversación, redacta un breve memo de inversión en **español** con esta estructura:
 
-**Market context**
-One sentence on the Valencia market overall.
+**Contexto de mercado**
+Una frase sobre el mercado valenciano en general.
 
-**Neighborhoods evaluated**
-For each neighborhood discussed: name, yield, key strength,
-key risk. One line each.
+**Barrios evaluados**
+Por cada barrio mencionado: nombre, rentabilidad, principal fortaleza,
+principal riesgo. Una línea cada uno.
 
-**Recommendation**
-The strongest option based on what the investor prioritised in
-this conversation, with one sentence of justification.
+**Recomendación**
+La opción más sólida según lo que el inversor priorizó en la conversación,
+con una frase de justificación.
 
-**Next steps**
-Two concrete actions the investor should take next.
+**Próximos pasos**
+Dos acciones concretas que el inversor debería tomar.
 
-Keep the whole memo under 200 words. Be specific and direct.
+Máximo ~200 palabras. Concreto y directo.
 
-Conversation:
+Conversación:
 {full_conversation}
 """
 
