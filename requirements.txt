@@ -1,0 +1,31 @@
+# Production / Railway — full list (single file so Nixpacks always installs everything).
+# agent/requirements.txt delegates here via `-r ../requirements.txt`.
+
+# Core ETL / DB stack for Rooster
+# protobuf 4.x required for Streamlit (5.x breaks google.protobuf.pyext)
+protobuf>=4.21,<5
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.0
+pandas>=2.0.0
+geopandas>=0.14.0
+pyshp>=2.3.0
+shapely>=2.0.0
+
+# LLM for natural language → SQL
+google-generativeai>=0.8.0
+openai>=1.0.0
+
+# UI (use recent streamlit for protobuf 5 compatibility)
+# blinker>=1.8 removed blinker._saferef (used by selenium-wire / some Streamlit paths). Pin 1.7.x.
+# Flask 3.x wants blinker>=1.9 — use a Rooster-only venv or: pip uninstall flask
+blinker==1.7.0
+streamlit>=1.40.0
+folium>=0.16.0
+streamlit-folium>=0.23.0
+plotly>=5.18.0
+
+# Idealista Selenium scraper (pipeline/idealista/idealista_scraper.py)
+selenium>=4.15.0
+undetected-chromedriver>=3.5.0
+selenium-wire>=5.1.0
+fake-useragent>=1.4.0

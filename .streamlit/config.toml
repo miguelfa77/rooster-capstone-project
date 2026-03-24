@@ -1,0 +1,7 @@
+# Defaults for cloud (Railway). CLI flags in Procfile override port/address.
+[server]
+headless = true
+address = "0.0.0.0"
+
+[browser]
+gatherUsageStats = false
