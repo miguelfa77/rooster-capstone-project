@@ -1113,10 +1113,11 @@ def _apply_intel_plotly_theme(fig, *, has_coloraxis: bool = False) -> None:
         ),
     }
     if has_coloraxis:
+        # Plotly ≥6: colorbar title font uses title.font, not titlefont
         layout["coloraxis_colorbar"] = dict(
             bgcolor="rgba(0,0,0,0)",
             tickfont=dict(color=_INTEL_CHART_TEXT),
-            titlefont=dict(color=_INTEL_CHART_TEXT),
+            title=dict(text="Puntuación", font=dict(color=_INTEL_CHART_TEXT)),
         )
     fig.update_layout(**layout)
     fig.update_xaxes(showgrid=True, gridwidth=1, zerolinewidth=1)
@@ -1158,7 +1159,6 @@ def _render_yield_liquidity_scatter(df: pd.DataFrame) -> None:
         fig.update_layout(
             height=420,
             margin=dict(l=0, r=0, t=0, b=0),
-            coloraxis_colorbar=dict(title="Puntuación"),
         )
     else:
         fig = px.scatter(
