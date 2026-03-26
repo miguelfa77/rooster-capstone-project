@@ -1,41 +1,74 @@
-# rooster-capstone-project
-Rooster - Your AI Data Intern for Real Estate Investors in Valencia
+# Rooster
 
-The Streamlit UI is in **Spanish** (`agent/ui_es.py`).
+**Rooster** is a Valencia-focused real estate intelligence app: a **Streamlit** UI with a chat copilot (OpenAI function calling + PostgreSQL/PostGIS) and an **Inteligencia** tab for maps and market metrics.
 
-## Open data (transit + tourist apartments)
+**Live app:** [https://rooster-capstone-project-production.up.railway.app](https://rooster-capstone-project-production.up.railway.app)
 
-Apply SQL in order (see [`sql/README.md`](sql/README.md)): after `analytics_views.sql`, run **`open_data_tables.sql`** then **`open_data_views.sql`**.
+---
 
-**Environment**
+## Repository layout
 
-- **`DATABASE_URL`** or **`PG*`** – Same DB as the app. Pipeline CLIs load **`agent/.env`**, **`pipeline/.env`**, and **repo root `.env`** (last two merge keys that are unset or empty for `PG*` / `DATABASE_URL`). A lone `PGPASSWORD=…` is enough if you use defaults `localhost` / `postgres` / `rooster`.
-- **`TOURIST_APT_CSV_URL`** – GVA CSV (e.g. [lista VUT](https://dadesobertes.gva.es/)); see **`pipeline/.env.example`**. If unset or the download fails, use **`TOURIST_APT_CSV_PATH`**.
-- **`TOURIST_APT_CSV_PATH`** – Local CSV fallback.
-- **`TOURIST_APT_PROVINCE_CODES`** – INE province codes to **include** (default **`46`** = provincia de Valencia, all municipios). Example: `46` only, or `46,12` for Valencia + Castelló.
-- **`TOURIST_APT_GEOCODE_UNMATCHED`** – Set to `1` to geocode addresses without a **`ref_catastral`** match in **`core.parcels`** via Nominatim (slow). By default only parcel-centroid joins are used; **`core.parcels`** is often **Valencia city** only — VUTs elsewhere in the province will not get coordinates until parcels cover those municipios or you enable geocoding.
+| Path | Purpose |
+|------|---------|
+| **`app.py`** | Streamlit entrypoint: chat tab, Intel tab, caching, Folium/Plotly. |
+| **`agent/`** | LLM agent (`agent_pipeline.py`), tool schemas (`openai_tools.py`), UI strings in Spanish (`ui_es.py`), renderers (`renderers.py`), DB helpers + static schema text (`llm_sql.py`). |
+| **`pipeline/`** | Data loaders and scrapers: `raw/` (CSV → Postgres), `core/` (enrichment), `idealista/`, `open_data/` (transit, tourist apartments). |
+| **`sql/`** | SQL migrations: bootstrap schemas, `core`/`analytics` views, open-data DDL. |
+| **`scripts/`** | Ops helpers (e.g. Railway Postgres restore). |
+| **`interface/`** | Static assets (e.g. icons). |
+| **`requirements.txt`** | Python dependencies for deployment and local dev. |
+| **`Procfile`** | Process type for Railway: `streamlit run app.py` on `$PORT`. |
 
-**Commands**
+This matches a common small **data + app** repo: **application code** at the root or in `agent/`, **ETL** under `pipeline/`, **DDL** under `sql/`, and **infra hints** via `Procfile` and env-based configuration.
+
+---
+
+## Configuration
+
+- **`DATABASE_URL`** or **`PGHOST`** / **`PGPORT`** / **`PGUSER`** / **`PGPASSWORD`** / **`PGDATABASE`** — same database the loaders and app use. The app and `agent/llm_sql.py` also load **`agent/.env`**; pipeline CLIs load **`pipeline/.env`** and merge unset keys.
+- **`OPENAI_API_KEY`** (or **`OPENAI_KEY`**) — required for chat.
+
+Optional open-data (transit + tourist apartments): set **`TOURIST_APT_CSV_URL`** or **`TOURIST_APT_CSV_PATH`**, **`TOURIST_APT_PROVINCE_CODES`** (default `46` for Valencia province), and related vars as documented in **`pipeline/.env.example`** when you load VUT data.
+
+---
+
+## SQL apply order (Postgres)
+
+Run scripts against your `rooster` (or equivalent) database in dependency order, for example:
+
+1. `sql/bootstrap_rooster.sql`
+2. `sql/core_tables.sql`
+3. Migrations as needed (`sql/migrate_*.sql`)
+4. `sql/analytics_views.sql`
+5. `sql/open_data_tables.sql` then `sql/open_data_views.sql`
+
+PostGIS must be enabled where you use spatial columns. Railway’s default Postgres plugin may need PostGIS installed separately for spatial features.
+
+---
+
+## Deploying (Railway)
+
+- Connect the GitHub repo; Railway runs the **`Procfile`** web process.
+- Add a **PostgreSQL** plugin and set **`DATABASE_URL`** on the web service (or equivalent `PG*` variables).
+- Set **`OPENAI_API_KEY`** on the web service.
+- Schema and data are **not** applied automatically: run `sql/*.sql` or restore a dump (see `scripts/railway-restore.env.example` and `scripts/railway_pg_restore.sh`).
+
+---
+
+## Local development
+
+If you run from source instead of the hosted app:
 
 ```bash
-python -m pipeline.open_data.fetch_transit_overpass
-python -m pipeline.open_data.load_tourist_apartments
+./bin/python -m streamlit run app.py
 ```
 
-Re-run **`fetch_transit_overpass`** after changing stops data; **`open_data_tables.sql`** defines `nearest_stop_m` and the loaders refresh it.
+Use a **local** project path (not iCloud-synced Desktop/Documents) if Streamlit hits file open timeouts.
 
-After **`load_tourist_apartments`**, optional street geocoding (fuzzy match to **`core.streets`** + **`core.parcels`**, Valencia city): `python -m pipeline.open_data.geocode_tourist_apartments` (see `sql/migrate_tourist_apartments_geocode.sql`).
+---
 
 ## Troubleshooting
 
-### `TimeoutError: [Errno 60] Operation timed out` in `tokenize.open` / Streamlit `get_bytecode`
+### `TimeoutError` in Streamlit / `tokenize.open`
 
-Streamlit reads `app.py` from disk to compile/cache it. A **timeout while opening the file** almost always means the path is on a **slow or cloud-synced volume** (common: **Desktop** or **Documents** with **iCloud Drive**, Dropbox, Google Drive, NFS, or an external disk that sleeps).
-
-**What to do**
-
-1. Move the repo to a **fully local** folder, e.g. `~/dev/rooster-capstone-project` or `~/Projects/rooster-capstone-project`, and run Streamlit from there.
-2. Or turn off iCloud sync for Desktop & Documents (Apple ID → iCloud → iCloud Drive → Options), or keep the project outside synced folders.
-3. After moving, restart Streamlit from the new path.
-
-This is an environment/filesystem issue, not a bug in `app.py` itself.
+If the project lives on a **cloud-synced or slow volume**, move the repo to a local folder and restart Streamlit.
