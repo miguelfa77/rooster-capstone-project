@@ -12,11 +12,11 @@ from typing import Dict, Optional, Tuple
 # Proxy endpoint: p.webshare.io:80
 # Test URL to check IP: https://ipv4.webshare.io/
 PROXY_ENDPOINT_CONFIG = {
-    'name': 'p.webshare.io',  # Proxy endpoint name/identifier
-    'username': 'yxbayudf-rotate',
-    'password': 'lm6w1875zt1i',
-    'address': 'p.webshare.io',  # Endpoint address (stays constant)
-    'port': '80'  # Endpoint port (stays constant)
+    'name': '',  # Proxy endpoint name/identifier
+    'username': '',
+    'password': '',
+    'address': '',  # Endpoint address (stays constant)
+    'port': ''  # Endpoint port (stays constant)
 }
 
 
