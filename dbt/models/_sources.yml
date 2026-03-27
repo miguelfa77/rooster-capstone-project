@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: core
+    description: "Rooster core layer — listings, neighborhoods, open-data points (PostGIS)."
+    schema: core
+    tables:
+      - name: listings
+        description: "One row per listing URL; neighborhood_id from spatial join."
+      - name: neighborhoods
+        description: "Barrio polygons (WGS84)."
+      - name: transit_stops
+        description: "OSM transit stops with geom and optional neighborhood_id."
+      - name: tourist_apartments
+        description: "GVA tourist apartment registry points."

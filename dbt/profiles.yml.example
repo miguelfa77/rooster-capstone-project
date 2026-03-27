@@ -1,0 +1,17 @@
+# Copy to profiles.yml in this directory (gitignored) or use ~/.dbt/profiles.yml.
+# Connection uses PGHOST, PGUSER, PGPASSWORD, PGPORT, PGDATABASE from the environment.
+
+rooster:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('PGHOST', 'localhost') }}"
+      user: "{{ env_var('PGUSER', 'postgres') }}"
+      password: "{{ env_var('PGPASSWORD', '') }}"
+      port: "{{ env_var('PGPORT', '5432') | int }}"
+      dbname: "{{ env_var('PGDATABASE', 'postgres') }}"
+      schema: public
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10

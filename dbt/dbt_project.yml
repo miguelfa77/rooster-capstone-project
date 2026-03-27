@@ -1,0 +1,19 @@
+name: "rooster"
+version: "1.0.0"
+config-version: 2
+
+profile: "rooster"
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  rooster:
+    analytics:
+      +materialized: view
+      +schema: analytics
