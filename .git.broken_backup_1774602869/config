@@ -1,0 +1,19 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+[remote "rooster-capstone-project"]
+	url = https://github.com/miguelfa77/rooster-capstone-project.git
+	fetch = +refs/heads/*:refs/remotes/rooster-capstone-project/*
+[remote "origin"]
+	url = https://github.com/miguelfa77/rooster-capstone-project.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[pull]
+	ff = only
+	rebase = false
+[branch "main"]
+	remote = rooster-capstone-project
+	merge = refs/heads/main

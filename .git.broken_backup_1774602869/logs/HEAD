@@ -1,0 +1,22 @@
+0000000000000000000000000000000000000000 57405104252b34fa22e6e20788724f28092f43b7 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768934672 +0100	commit (initial): first commit
+57405104252b34fa22e6e20788724f28092f43b7 57405104252b34fa22e6e20788724f28092f43b7 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768935216 +0100	checkout: moving from main to main
+57405104252b34fa22e6e20788724f28092f43b7 94357aee10a8e145a01861ad1ff6bf6c33d2d67a Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768935709 +0100	commit: commit
+94357aee10a8e145a01861ad1ff6bf6c33d2d67a 94bd8ed459d4ca68b80063674bcafa78561bea13 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768935713 +0100	rebase (start): checkout origin/main
+94bd8ed459d4ca68b80063674bcafa78561bea13 c3d95c6c8b730f5ad1f001a9124da5d9bc507424 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768935713 +0100	rebase (pick): first commit
+c3d95c6c8b730f5ad1f001a9124da5d9bc507424 9571840e015db9928a24164aad4e6a9266ff8143 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768935713 +0100	rebase (pick): commit
+9571840e015db9928a24164aad4e6a9266ff8143 9571840e015db9928a24164aad4e6a9266ff8143 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1768935713 +0100	rebase (finish): returning to refs/heads/main
+9571840e015db9928a24164aad4e6a9266ff8143 b647601b378f31de4f18da64fd2a8ad098e72119 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774311067 +0100	commit: all new features
+b647601b378f31de4f18da64fd2a8ad098e72119 2b1a4653ea51797868e63fd3709f32ea7f695589 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774311500 +0100	commit: railway fix
+2b1a4653ea51797868e63fd3709f32ea7f695589 02e27d5451072f57df3b8542b8945481ac42cb7f Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774346490 +0100	commit: fix
+02e27d5451072f57df3b8542b8945481ac42cb7f d55f286609505ec901fb3f4ba3a9e8a88838e415 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774347973 +0100	commit: new tool
+d55f286609505ec901fb3f4ba3a9e8a88838e415 f97d8382b852a4c95ff7b8cbac3333fcbbf76b4e Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774351288 +0100	commit: context fix
+f97d8382b852a4c95ff7b8cbac3333fcbbf76b4e 833acb12b63f9305252802b9f61da4e19190701c Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774352063 +0100	commit: debug
+833acb12b63f9305252802b9f61da4e19190701c 5039576f15fcb70f02551fdc274babd53d83926e Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774353321 +0100	commit: coutput intent feature
+5039576f15fcb70f02551fdc274babd53d83926e 2a1dfe407e20f55035362010eee521465aaacb85 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774356828 +0100	commit: chart feature + fix
+2a1dfe407e20f55035362010eee521465aaacb85 ce74b7a91da059083cc2906501e93f0297ac3a18 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774372316 +0100	commit: validation fix + render fix + fallback
+ce74b7a91da059083cc2906501e93f0297ac3a18 5f701c1de91599bf054553ee4648f68a0007b3d4 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774374733 +0100	commit: language and rooms fix
+5f701c1de91599bf054553ee4648f68a0007b3d4 bf494d0bdbb2764cab6d9871ece3fc4b47b0e6af Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774376030 +0100	commit: commit
+bf494d0bdbb2764cab6d9871ece3fc4b47b0e6af cdc5dab5f4e070148e57fcff7be291a67827f3f9 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774377918 +0100	commit: ui
+cdc5dab5f4e070148e57fcff7be291a67827f3f9 8e938624111cc1c8f7601f01006af3dfcd662c3d Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774453170 +0100	commit: commit
+8e938624111cc1c8f7601f01006af3dfcd662c3d 90e679dc21db76d0f4f047be5ac5914ef957fdc1 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774551362 +0100	commit: readme and final touches
+90e679dc21db76d0f4f047be5ac5914ef957fdc1 676616c72f13fc6f52c3df6ac48704fe58a49d40 Miguel Ferrer Alvarez <100728907+miguelfa77@users.noreply.github.com> 1774557161 +0100	commit: fix
