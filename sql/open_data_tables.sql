@@ -1,7 +1,7 @@
 -- Open data: transit stops + tourist apartments (Valencia).
 -- Run after: bootstrap_rooster.sql, core_tables.sql, neighborhoods + listings loaded,
---            match_listings_neighborhood_spatial.sql (recommended), analytics_views.sql optional.
--- Order in README: after analytics_views.sql is OK for tables; run refresh UPDATE after loaders.
+--            match_listings_neighborhood_spatial.sql (recommended).
+-- Then run `dbt run` from dbt/ for analytics.* views (see README). Re-run UPDATE block after loaders.
 
 -- ---------------------------------------------------------------------------
 -- raw.transit_stops — staging from Overpass / EMT exports

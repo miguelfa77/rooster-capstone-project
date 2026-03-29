@@ -21,10 +21,18 @@ scripts/.pgpass_secret
 # Large data directories (not for Git)
 **/data/
 *.log
+.git.broken_backup_1774602869
 # Project files/folders
 /interface
 /agent/db
-/agent/.venv
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/profiles.yml
+dbt/.user.yml
+dbt/.env
 
 # Miscellaneous
 .DS_Store

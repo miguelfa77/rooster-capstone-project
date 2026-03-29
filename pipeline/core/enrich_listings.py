@@ -67,7 +67,7 @@ def main() -> None:
         print(
             "enrich_listings failed — if columns are missing, run:\n"
             "  psql -d rooster -f sql/migrate_listing_enrichment.sql\n"
-            "  psql -d rooster -f sql/analytics_views.sql"
+            "  cd dbt && set -a && source .env && set +a && dbt run"
         )
         raise e
     finally:

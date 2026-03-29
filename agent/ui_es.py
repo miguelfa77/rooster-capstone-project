@@ -266,8 +266,8 @@ TIMEOUT_PHASE_HINTS = {
 
 # —— Analytics aviso ——
 ANALYTICS_SETUP_MD = (
-    "Faltan las vistas de analytics. Desde la raíz del repo (con `PG*` definido, p. ej. `pipeline/.env`):\n\n"
-    "`psql -d rooster -f sql/analytics_views.sql`\n\n"
+    "Faltan las vistas de analytics. Con `dbt/.env` configurado (ver README):\n\n"
+    "`cd dbt && set -a && source .env && set +a && dbt run`\n\n"
     "Si la vista falla por columnas antiguas en `core.listings` (p. ej. enriquecimiento o `first_seen_at`/`last_seen_at`), ejecuta antes:\n\n"
     "`psql -d rooster -f sql/migrate_listing_enrichment.sql`"
 )
@@ -284,8 +284,8 @@ FLOOR_N = "Planta {n}"
 
 # —— Renderers (chat) ——
 GEO_FALLBACK_CAPTION = (
-    "Contornos de barrio desde **core.neighborhoods** (instala las vistas **analytics** para métricas en el coroplético). "
-    "Ejecuta: `psql -d rooster -f sql/analytics_views.sql`"
+    "Contornos de barrio desde **core.neighborhoods** (instala las vistas **analytics** con dbt para métricas en el coroplético). "
+    "Ejecuta: `cd dbt && set -a && source .env && set +a && dbt run`"
 )
 NO_ROWS_TABLE = "No hay filas que mostrar."
 NO_ROWS_MAP = "No hay filas para el mapa."

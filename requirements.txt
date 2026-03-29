@@ -1,6 +1,10 @@
 # Production / Railway — full list (single file so Nixpacks always installs everything).
 # agent/requirements.txt delegates here via `-r ../requirements.txt`.
 
+# dbt — analytics views + tests (see README, “dbt” section)
+dbt-core>=1.7,<2
+dbt-postgres>=1.7,<2
+
 # Core ETL / DB stack for Rooster
 # protobuf 4.x required for Streamlit (5.x breaks google.protobuf.pyext)
 protobuf>=4.21,<5
