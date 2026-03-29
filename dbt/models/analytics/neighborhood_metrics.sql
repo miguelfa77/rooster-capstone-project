@@ -1,10 +1,5 @@
--- Analytics views for Rooster
--- Run after core_tables.sql, spatial neighborhood_id on listings, migrate_listing_upsert_history if needed.
--- neighborhood_metrics aggregates listings via l.neighborhood_id = n.id (spatial FK), not scraped name text.
--- DROP first: CREATE OR REPLACE VIEW cannot rename/reorder columns vs an existing view (different schema generations).
-DROP VIEW IF EXISTS analytics.neighborhood_metrics CASCADE;
-
-CREATE VIEW analytics.neighborhood_metrics AS
+{{ config(alias="neighborhood_metrics") }}
+-- Per-barrio aggregates from spatial neighborhood_id (not scraped name).
 SELECT
     n.id AS neighborhood_id,
     n.name AS neighborhood_name,
@@ -69,40 +64,9 @@ SELECT
         1
     ) AS avg_days_on_market
 
-FROM core.neighborhoods n
-LEFT JOIN core.listings l
+FROM {{ source("core", "neighborhoods") }} AS n
+LEFT JOIN {{ source("core", "listings") }} AS l
     ON l.neighborhood_id = n.id
     AND l.price_int > 0
     AND l.area_sqm > 0
-GROUP BY n.id, n.name, n.geom;
-
-CREATE OR REPLACE VIEW analytics.listing_summary AS
-SELECT
-    operation,
-    COUNT(*) AS total,
-    COUNT(price_int) FILTER (WHERE price_int > 0) AS with_price,
-    ROUND(AVG(price_int) FILTER (WHERE price_int > 0)::NUMERIC, 0) AS avg_price,
-    ROUND(MIN(price_int) FILTER (WHERE price_int > 0)::NUMERIC, 0) AS min_price,
-    ROUND(MAX(price_int) FILTER (WHERE price_int > 0)::NUMERIC, 0) AS max_price,
-    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_int) FILTER (WHERE price_int > 0)::NUMERIC, 0) AS median_price,
-    ROUND(AVG(area_sqm) FILTER (WHERE area_sqm > 0)::NUMERIC, 1) AS avg_area_sqm,
-    ROUND(AVG(rooms_int) FILTER (WHERE rooms_int > 0)::NUMERIC, 1) AS avg_rooms
-FROM core.listings
-GROUP BY operation;
-
-CREATE OR REPLACE VIEW analytics.price_changes AS
-SELECT
-    url,
-    neighborhood_raw,
-    price_int,
-    price_int_previous,
-    price_int_previous - price_int AS price_drop_eur,
-    ROUND(
-        ((price_int_previous - price_int)::NUMERIC / NULLIF(price_int_previous, 0) * 100),
-        1
-    ) AS price_drop_pct,
-    last_seen_at
-FROM core.listings
-WHERE price_int_previous IS NOT NULL
-  AND price_int IS NOT NULL
-  AND price_int < price_int_previous;
+GROUP BY n.id, n.name, n.geom

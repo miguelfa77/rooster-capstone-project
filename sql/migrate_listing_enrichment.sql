@@ -1,6 +1,6 @@
 -- Listing enrichment: amenities, floor/time parsing, days on market, lat/lng, trgm indexes.
 -- Run from repo root: psql -d rooster -f sql/migrate_listing_enrichment.sql
--- Then refresh analytics (avg_days_on_market uses date diff on listings): psql -d rooster -f sql/analytics_views.sql
+-- Then refresh analytics views: cd dbt && dbt run (see README)
 --
 -- Requires PostGIS. Enables pg_trgm for fuzzy street → parcel geocoding.
 

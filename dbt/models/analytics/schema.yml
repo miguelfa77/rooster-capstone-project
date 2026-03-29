@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: neighborhood_metrics
+    description: "Per-barrio listing aggregates and gross rental yield (median-based)."
+    columns:
+      - name: neighborhood_id
+        description: "FK to core.neighborhoods.id"
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: source('core', 'neighborhoods')
+                field: id
+      - name: gross_rental_yield_pct
+        description: "12 * median(alquiler) / median(venta) * 100 when both medians exist."
+
+  - name: listing_summary
+    description: "Global counts and price stats by operation."
+    columns:
+      - name: operation
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["alquiler", "venta"]
+
+  - name: price_changes
+    description: "Listings where price dropped vs previous observation."
+    columns:
+      - name: url
+        tests:
+          - not_null
+          - unique
+
+  - name: neighborhood_transport
+    description: "Transit stop counts and centroid-to-stop distance heuristic."
+    columns:
+      - name: neighborhood_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: source('core', 'neighborhoods')
+                field: id
+
+  - name: neighborhood_tourism
+    description: "VUT counts and density vs total Idealista listings in barrio."
+    columns:
+      - name: neighborhood_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: source('core', 'neighborhoods')
+                field: id
+
+  - name: neighborhood_profile
+    description: "Join of metrics + transport + tourism + investment_score."
+    columns:
+      - name: neighborhood_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: source('core', 'neighborhoods')
+                field: id
+      - name: investment_score
+        description: "Hand-tuned composite (yield, transit bands, tourism pressure)."
+        tests:
+          - not_null
