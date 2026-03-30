@@ -86,6 +86,22 @@ _ROOSTER_GLOBAL_CSS = """
 .stApp { background-color: #0e0e0e; }
 .block-container { padding-top: 2rem; }
 
+/* Header / toolbar — Streamlit defaults use secondaryBackgroundColor (gray-purple strip); match main body */
+header[data-testid="stHeader"],
+[data-testid="stHeader"] > div,
+[data-testid="stToolbar"],
+[data-testid="stToolbar"] > div,
+[data-testid="stToolbar"] button {
+  background-color: #0e0e0e !important;
+}
+[data-testid="stDecoration"] {
+  background: #0e0e0e !important;
+  background-image: none !important;
+}
+section[data-testid="stMain"] > div {
+  background-color: #0e0e0e;
+}
+
 /* Tabs — active tab red underline */
 .stTabs [data-baseweb="tab"] {
   font-size: 13px;
