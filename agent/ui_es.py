@@ -49,6 +49,14 @@ INTEL_TOGGLE_TRANSPORT = "Transporte"
 INTEL_TOGGLE_VUT = "VUT"
 INTEL_TOGGLE_LISTINGS = "Anuncios"
 INTEL_TOGGLE_PARCELS = "Parcelas"
+# Intel map: listing marker stroke differentiates operation (fill stays €/m² colormap)
+INTEL_LISTING_STROKE_VENTA = "#E95D4F"
+INTEL_LISTING_STROKE_ALQUILER = "#48A9DA"
+INTEL_MAP_LISTINGS_OP_LEGEND = (
+    "Anuncios: borde **coral** = venta · borde **azul** = alquiler. El relleno sigue el color por €/m²."
+)
+INTEL_POPUP_VENTA = "Venta"
+INTEL_POPUP_ALQUILER = "Alquiler"
 INTEL_S3_TITLE = "### 3 · Ranking de oportunidades (decidir)"
 INTEL_S4_TITLE = "### 4 · Rentabilidad frente a liquidez (riesgo)"
 INTEL_METRIC_MEDIAN_YIELD = "Mediana rentabilidad bruta ciudad"

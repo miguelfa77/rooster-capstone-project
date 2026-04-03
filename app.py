@@ -747,23 +747,38 @@ def _render_intel_explorer_map(
                             fv = float(raw) if raw is not None and not (isinstance(raw, float) and pd.isna(raw)) else vmin_l
                         except (TypeError, ValueError):
                             fv = vmin_l
-                        c = lcmap(max(vmin_l, min(vmax_l, fv)))
+                        fill_c = lcmap(max(vmin_l, min(vmax_l, fv)))
+                        op_raw = row.get("operation")
+                        op_s = str(op_raw).lower() if op_raw is not None and not (
+                            isinstance(op_raw, float) and pd.isna(op_raw)
+                        ) else ""
+                        if op_s == "alquiler":
+                            stroke = UI.INTEL_LISTING_STROKE_ALQUILER
+                            op_label = UI.INTEL_POPUP_ALQUILER
+                        elif op_s == "venta":
+                            stroke = UI.INTEL_LISTING_STROKE_VENTA
+                            op_label = UI.INTEL_POPUP_VENTA
+                        else:
+                            stroke = "#888888"
+                            op_label = "—"
                         price = int(row["price_int"]) if pd.notna(row.get("price_int")) else 0
                         url = row.get("url") or "#"
                         folium.CircleMarker(
                             location=[float(row["lat"]), float(row["lng"])],
                             radius=4,
-                            color=c,
+                            color=stroke,
                             fill=True,
-                            fill_opacity=0.8,
-                            weight=1,
+                            fill_color=fill_c,
+                            fill_opacity=0.82,
+                            weight=2.5,
                             popup=folium.Popup(
-                                f"<b>€{price:,}</b> · {row.get('area_sqm', '—')} m²<br>"
+                                f"<b>{op_label}</b> · <b>€{price:,}</b> · {row.get('area_sqm', '—')} m²<br>"
                                 f"<a href=\"{url}\" target=\"_blank\">{UI.POPUP_IDEALISTA}</a>",
-                                max_width=200,
+                                max_width=220,
                             ),
                         ).add_to(m)
                     lcmap.add_to(m)
+                    st.caption(UI.INTEL_MAP_LISTINGS_OP_LEGEND)
 
     if show_parcels:
         try:
