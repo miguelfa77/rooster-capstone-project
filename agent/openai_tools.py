@@ -55,8 +55,23 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "type": "integer",
                             "description": "Minimum price in euros.",
                         },
-                        "min_rooms": {"type": "integer"},
-                        "max_rooms": {"type": "integer"},
+                        "min_rooms": {
+                            "type": "integer",
+                            "description": (
+                                "Minimum bedrooms. If the user asks for an **exact** number "
+                                "(e.g. '2 habitaciones', 'piso de 3 dormitorios', 'con 2 hab.'), "
+                                "set **both** min_rooms **and** max_rooms to that same number. "
+                                "Use only min_rooms (leave max_rooms unset) when they say "
+                                "'al menos', 'mínimo', 'at least', or 'más de N habitaciones'."
+                            ),
+                        },
+                        "max_rooms": {
+                            "type": "integer",
+                            "description": (
+                                "Maximum bedrooms. For an **exact** room count, set max_rooms "
+                                "equal to min_rooms (same integer)."
+                            ),
+                        },
                         "only_below_median": {
                             "type": "boolean",
                             "description": "Only listings priced below neighborhood median.",

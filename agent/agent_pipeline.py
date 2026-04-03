@@ -79,6 +79,8 @@ When NOT to call tools:
 - Greetings, thanks, small talk, or meta questions about what Rooster can do → reply in a short conversational way (no tools, max ~3 sentences).
 
 If you call tools, do not write prose in the first turn; use tool calls only.
+
+**Room filters (query_listings):** Spanish phrases like "2 habitaciones" / "3 dormitorios" usually mean **exactly** that many — set **both** min_rooms and max_rooms to N. Use only min_rooms when the user clearly wants a **floor** ("al menos 2 habitaciones", "mínimo 3 dormitorios", "at least 2 bedrooms").
 """
 
 # --- Fast path (before full FC + schema): tiny router + canned replies ---
@@ -962,6 +964,70 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
     return out
 
 
+def _user_wants_at_least_rooms_not_exact(user_message: str) -> bool:
+    """
+    True when the user text suggests a *floor* on bedrooms, not an exact count.
+    If False and they mention rooms, 'N habitaciones' is treated as exact elsewhere.
+    """
+    t = (user_message or "").lower()
+    if any(
+        p in t
+        for p in (
+            "al menos",
+            "almenos",
+            "mínimo",
+            "minimo",
+            "minimum",
+            "at least",
+            "más de ",
+            "mas de ",
+            "como mínimo",
+            "como minimo",
+            "upwards of",
+        )
+    ):
+        return True
+    if "entre" in t and "habit" in t:
+        return True
+    if re.search(r"\d+\s+o\s+más", t) or re.search(r"\d+\s+o\s+mas", t):
+        return True
+    return False
+
+
+def _user_message_mentions_room_count(user_message: str) -> bool:
+    t = (user_message or "").lower()
+    return bool(
+        re.search(
+            r"\b(?:habitaciones|hab\.|dormitorios|dorm\.?)\b",
+            t,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _normalize_query_listings_room_params(
+    params: dict[str, Any], user_message: str | None
+) -> dict[str, Any]:
+    """
+    If the model only passes min_rooms for an exact-N query, SQL would use >= N and
+    return larger units. When the user message looks like an exact room count (not
+    'at least'), set max_rooms = min_rooms.
+    """
+    mr = params.get("min_rooms")
+    xr = params.get("max_rooms")
+    if mr is None or xr is not None:
+        return params
+    if not user_message or not _user_message_mentions_room_count(user_message):
+        return params
+    if _user_wants_at_least_rooms_not_exact(user_message):
+        return params
+    try:
+        n = int(mr)
+    except (TypeError, ValueError):
+        return params
+    return {**params, "max_rooms": n}
+
+
 def query_listings_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     conditions = ["l.price_int > 0", "l.area_sqm > 0"]
     nb = params.get("neighborhood")
@@ -1184,7 +1250,11 @@ TOOL_FUNCTIONS: dict[str, Any] = {
 }
 
 
-def execute_plan(validated_plan: dict[str, Any], engine) -> list[dict[str, Any]]:
+def execute_plan(
+    validated_plan: dict[str, Any],
+    engine,
+    user_message: str | None = None,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for call in validated_plan.get("tool_calls") or []:
         tool = call.get("tool")
@@ -1195,6 +1265,8 @@ def execute_plan(validated_plan: dict[str, Any], engine) -> list[dict[str, Any]]
         )
         _sql_meta_keys = frozenset({"output_intent", "chart_style"})
         sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
+        if tool == "query_listings":
+            sql_params = _normalize_query_listings_room_params(sql_params, user_message)
         renderer = call.get("renderer") or "table"
         tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
         if not isinstance(tool, str) or tool not in TOOL_FUNCTIONS:
@@ -1815,7 +1887,7 @@ def run_openai_function_calling_pipeline(
                 "had_validation_replan": had_validation_replan,
             }
 
-        execution_results = execute_plan(validated, engine)
+        execution_results = execute_plan(validated, engine, user_input)
         oi = (validated.get("output_intent") or "auto")
         issues = validate_output_completeness(user_input, oi, execution_results)
 
