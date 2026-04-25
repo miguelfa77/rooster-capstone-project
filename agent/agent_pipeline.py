@@ -25,6 +25,11 @@ from agent.llm_sql import (
     SUMMARIZE_TIMEOUT_SEC,
     get_pg_engine,
 )
+from agent.render_thresholds import (
+    MIN_ALQUILER_COUNT_DEFAULT,
+    MIN_VENTA_COUNT_DEFAULT,
+    add_data_confidence,
+)
 
 _LOG = logging.getLogger("rooster.agent")
 
@@ -947,6 +952,20 @@ def query_neighborhood_profile_fn(params: dict[str, Any], engine) -> list[dict[s
         min_listings = max(0, int(params.get("min_listings", 3)))
     except (TypeError, ValueError):
         min_listings = 3
+    try:
+        min_venta_count = max(
+            0,
+            int(params.get("min_venta_count", MIN_VENTA_COUNT_DEFAULT)),
+        )
+    except (TypeError, ValueError):
+        min_venta_count = MIN_VENTA_COUNT_DEFAULT
+    try:
+        min_alquiler_count = max(
+            0,
+            int(params.get("min_alquiler_count", MIN_ALQUILER_COUNT_DEFAULT)),
+        )
+    except (TypeError, ValueError):
+        min_alquiler_count = MIN_ALQUILER_COUNT_DEFAULT
     neighborhoods = params.get("neighborhoods") or []
     nb_filter = ""
     if isinstance(neighborhoods, list) and neighborhoods:
@@ -979,13 +998,15 @@ def query_neighborhood_profile_fn(params: dict[str, Any], engine) -> list[dict[s
         FROM analytics.neighborhood_profile np
         JOIN core.neighborhoods n ON n.id = np.neighborhood_id
         WHERE np.total_count >= {min_listings}
+          AND COALESCE(np.venta_count, 0) >= {min_venta_count}
+          AND COALESCE(np.alquiler_count, 0) >= {min_alquiler_count}
           AND np.gross_rental_yield_pct IS NOT NULL
           {nb_filter}
         ORDER BY {order_col} DESC NULLS LAST
         LIMIT 15
     """
     df = pd.read_sql(text(sql), engine)
-    return df.to_dict("records")
+    return add_data_confidence(df.to_dict("records"))
 
 
 def query_transit_stops_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
@@ -1088,6 +1109,20 @@ def compare_neighborhoods_fn(params: dict[str, Any], engine) -> list[dict[str, A
     parts: list[str] = []
     for x in nbs:
         parts.append("'" + _sql_escape(x.strip()) + "'")
+    try:
+        min_venta_count = max(
+            0,
+            int(params.get("min_venta_count", MIN_VENTA_COUNT_DEFAULT)),
+        )
+    except (TypeError, ValueError):
+        min_venta_count = MIN_VENTA_COUNT_DEFAULT
+    try:
+        min_alquiler_count = max(
+            0,
+            int(params.get("min_alquiler_count", MIN_ALQUILER_COUNT_DEFAULT)),
+        )
+    except (TypeError, ValueError):
+        min_alquiler_count = MIN_ALQUILER_COUNT_DEFAULT
     sql = f"""
         SELECT
             neighborhood_name,
@@ -1097,14 +1132,18 @@ def compare_neighborhoods_fn(params: dict[str, Any], engine) -> list[dict[str, A
             transit_stop_count,
             avg_dist_to_stop_m,
             total_count,
+            venta_count,
+            alquiler_count,
             median_venta_price,
             median_alquiler_price
         FROM analytics.neighborhood_profile
         WHERE neighborhood_name IN ({",".join(parts)})
+          AND COALESCE(venta_count, 0) >= {min_venta_count}
+          AND COALESCE(alquiler_count, 0) >= {min_alquiler_count}
         ORDER BY investment_score DESC NULLS LAST
     """
     df = pd.read_sql(text(sql), engine)
-    return df.to_dict("records")
+    return add_data_confidence(df.to_dict("records"))
 
 
 def resolve_spatial_reference_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:

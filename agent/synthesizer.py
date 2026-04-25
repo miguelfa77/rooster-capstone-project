@@ -79,6 +79,38 @@ You write the primary answer. Visuals are optional evidence for specific claims,
 Use exact numbers from agent results. Never invent fields. If a field is missing, say so as a
 caveat or no_data claim.
 
+Prose discipline rules — these are non-negotiable:
+1. NEVER use raw field names from the data in user-facing text. Translate them to natural Spanish:
+   venta_count -> "anuncios de venta" or "muestra de venta";
+   alquiler_count -> "anuncios de alquiler" or "muestra de alquiler";
+   median_sale / median_venta / median_venta_price -> "precio mediano de venta";
+   median_rent / median_alquiler / median_alquiler_price -> "precio mediano de alquiler";
+   gross_rental_yield_pct / yield_pct -> "rentabilidad bruta de alquiler";
+   investment_score -> "puntuación de inversión";
+   tourism_pressure High -> "presión turística alta";
+   tourism_pressure Medium/Moderate -> "presión turística moderada";
+   tourism_pressure Low -> "presión turística baja";
+   transit_stop_count -> "paradas de transporte";
+   avg_dist_to_stop_m -> "distancia media a una parada";
+   data_confidence low -> "muestra reducida" or "datos limitados".
+2. Number formatting:
+   - Prices: whole euros with Spanish thousands separator. 188950.0 -> "188.950 €"; 1500000 -> "1.500.000 €" or "1,5 M€".
+   - Percentages and yields: one decimal and Spanish comma. 7.234 -> "7,2 %".
+   - Counts: integers, no decimal point.
+   - Distances: nearest 50 m for near/comparison phrasing; exact integer for specific facts.
+3. Confidence handling is inline, never a trailing apology. When a cited neighborhood has
+   data_confidence "low", mention it next to the neighborhood the first time it appears:
+   "Sant Isidre (6,5 %, con muestra reducida)".
+4. Do not apologize for filters that upstream tools applied. If a barrio is absent because it
+   failed sample-size filters, do not speculate about it.
+5. Do not introduce caveats the data does not warrant. Asking-price methodology caveats are
+   appropriate when yields are central. Sample-size caveats are appropriate only when at least
+   one cited row has data_confidence "low".
+6. Tourism-pressure caveats are priority-aware. Only mention tourism pressure as a caveat if
+   session_memory.user_profile.inferred_priorities.tourism_avoidance > 0 OR the current user
+   message explicitly mentions turismo, VUT, alquiler vacacional, presión turística,
+   masificación turística, Airbnb, or short-term rentals. Otherwise, do not add tourism caveats.
+
 Visual hint discipline:
 - Hints are suggestions. Hint a template only when it helps understand this paragraph's claim.
 - Most paragraphs should have zero hints.
@@ -92,6 +124,14 @@ Input: "Which neighborhoods have the highest rental yield?"
 Desired shape: lead paragraph with claim_type ranking, cited fields name/gross_rental_yield_pct,
 one ranking_bars hint emphasizing gross_rental_yield_pct; optional spatial_fact paragraph with
 choropleth_focus only if the result supports a spatial pattern; caveat paragraph with no hints.
+
+Worked example: prose discipline
+Input data fields include:
+Sant Marcel.li: median_sale=188950.0, gross_rental_yield_pct=7.24, venta_count=12, alquiler_count=14, data_confidence=strong
+Sant Isidre: median_sale=335000.0, gross_rental_yield_pct=6.52, venta_count=3, alquiler_count=3, data_confidence=low
+Correct paragraph text:
+"Como referencia de precios, Sant Marcel.li combina una rentabilidad bruta de alquiler del 7,2 % con un precio mediano de venta de 188.950 €, mientras que Sant Isidre alcanza el 6,5 % y 335.000 € de precio mediano de venta, aunque con muestra reducida."
+Incorrect: "median_sale is 188950.0 €, venta_count is 12, data_confidence is low."
 
 Worked example: comparison query
 Input: "Compare Russafa and Benimaclet"
@@ -138,6 +178,49 @@ def _fallback_response(agent_results: list[dict[str, Any]]) -> SynthesizedRespon
     )
 
 
+_FIELD_TEXT_REPLACEMENTS: dict[str, str] = {
+    "tourism_pressure: High": "presión turística alta",
+    "tourism_pressure: Medium": "presión turística moderada",
+    "tourism_pressure: Moderate": "presión turística moderada",
+    "tourism_pressure: Low": "presión turística baja",
+    "data_confidence: low": "muestra reducida",
+    "data_confidence low": "muestra reducida",
+    "venta_count": "muestra de venta",
+    "alquiler_count": "muestra de alquiler",
+    "median_sale": "precio mediano de venta",
+    "median_venta": "precio mediano de venta",
+    "median_venta_price": "precio mediano de venta",
+    "median_rent": "precio mediano de alquiler",
+    "median_alquiler": "precio mediano de alquiler",
+    "median_alquiler_price": "precio mediano de alquiler",
+    "gross_rental_yield_pct": "rentabilidad bruta de alquiler",
+    "yield_pct": "rentabilidad bruta de alquiler",
+    "investment_score": "puntuación de inversión",
+    "tourism_pressure": "presión turística",
+    "transit_stop_count": "paradas de transporte",
+    "avg_dist_to_stop_m": "distancia media a una parada",
+    "data_confidence": "confianza de los datos",
+}
+
+
+def _sanitize_user_text(text: str) -> str:
+    out = str(text or "")
+    for raw, natural in _FIELD_TEXT_REPLACEMENTS.items():
+        out = out.replace(raw, natural)
+    return out
+
+
+def _sanitize_response(response: SynthesizedResponse) -> SynthesizedResponse:
+    return response.model_copy(
+        update={
+            "paragraphs": [
+                p.model_copy(update={"text": _sanitize_user_text(p.text)})
+                for p in response.paragraphs
+            ]
+        }
+    )
+
+
 def synthesize_response(
     user_message: str,
     *,
@@ -181,11 +264,12 @@ def synthesize_response(
         parsed = client.responses.parse(**kwargs)
         out = parsed.output_parsed
         if isinstance(out, SynthesizedResponse):
-            _LOG.info("synthesized_response=%s", out.model_dump_json())
-            return out
+            sanitized = _sanitize_response(out)
+            _LOG.info("synthesized_response=%s", sanitized.model_dump_json())
+            return sanitized
     except Exception as exc:
         _LOG.exception("structured_synthesis_failed: %s", exc)
-    return _fallback_response(agent_results)
+    return _sanitize_response(_fallback_response(agent_results))
 
 
 def synthesized_text(synthesized: SynthesizedResponse) -> str:

@@ -94,6 +94,9 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                     "Neighborhood rankings and profiles: yield, investment score, price/m², "
                     "comparisons, market overview. Use for barrio comparisons and investment KPIs. "
                     "Set chart_style when user asks for charts. "
+                    "By default this excludes thin samples: venta_count >= 3 and alquiler_count >= 3. "
+                    "Only set min_venta_count=0 and min_alquiler_count=0 if the user explicitly asks "
+                    "to include small/limited-data barrios. "
                     "Do NOT use for individual listings (use query_listings)."
                 ),
                 "parameters": {
@@ -112,6 +115,20 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                         "min_listings": {
                             "type": "integer",
                             "description": "Minimum listings per neighborhood (default 3).",
+                        },
+                        "min_venta_count": {
+                            "type": "integer",
+                            "description": (
+                                "Minimum sale listing sample size. Default 3. Set 0 only when "
+                                "the user explicitly asks to include thin-sample barrios."
+                            ),
+                        },
+                        "min_alquiler_count": {
+                            "type": "integer",
+                            "description": (
+                                "Minimum rental listing sample size. Default 3. Set 0 only when "
+                                "the user explicitly asks to include thin-sample barrios."
+                            ),
                         },
                         "chart_style": {
                             "type": "string",
@@ -234,7 +251,10 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                 "description": (
                     "One call returning aligned yield, transport, tourism, listing volume, price "
                     "for several barrios. Use instead of many separate query_neighborhood_profile calls "
-                    "when the user compares 2+ barrios on multiple dimensions."
+                    "when the user compares 2+ barrios on multiple dimensions. By default this "
+                    "excludes thin samples: venta_count >= 3 and alquiler_count >= 3. Only set "
+                    "min_venta_count=0 and min_alquiler_count=0 if the user explicitly asks to "
+                    "include small/limited-data barrios."
                 ),
                 "parameters": {
                     "type": "object",
@@ -260,6 +280,20 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                                 ],
                             },
                             "description": "Optional subset; default = all key dimensions.",
+                        },
+                        "min_venta_count": {
+                            "type": "integer",
+                            "description": (
+                                "Minimum sale listing sample size. Default 3. Set 0 only when "
+                                "the user explicitly asks to include thin-sample barrios."
+                            ),
+                        },
+                        "min_alquiler_count": {
+                            "type": "integer",
+                            "description": (
+                                "Minimum rental listing sample size. Default 3. Set 0 only when "
+                                "the user explicitly asks to include thin-sample barrios."
+                            ),
                         },
                     },
                     "required": ["neighborhoods"],
