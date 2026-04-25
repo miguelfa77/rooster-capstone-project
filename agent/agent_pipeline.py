@@ -1312,8 +1312,36 @@ def compare_neighborhoods_fn(params: dict[str, Any], engine) -> list[dict[str, A
 def resolve_spatial_reference_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     from agent.spatial_resolver import match_reference_phrase
 
-    del engine
-    return match_reference_phrase(str(params.get("reference") or ""))
+    rows = match_reference_phrase(str(params.get("reference") or ""))
+    names = [r.get("name") for r in rows if isinstance(r.get("name"), str)]
+    if not names:
+        return rows
+    escaped = ",".join("'" + _sql_escape(str(n)) + "'" for n in names)
+    sql = f"""
+        SELECT id::text AS neighborhood_id, name AS neighborhood_name
+        FROM core.neighborhoods
+        WHERE name IN ({escaped})
+    """
+    try:
+        df = pd.read_sql(text(sql), engine)
+    except Exception:
+        return rows
+    id_by_name = {
+        str(r["neighborhood_name"]): str(r["neighborhood_id"])
+        for r in df.to_dict("records")
+    }
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        n = str(r.get("name") or "")
+        out.append(
+            {
+                "neighborhood_id": id_by_name.get(n),
+                "neighborhood_name": n,
+                "confidence": r.get("confidence", 0.0),
+                "source": "spatial_lexicon",
+            }
+        )
+    return out
 
 
 def query_neighborhood_density_chart_fn(

@@ -57,6 +57,7 @@ from agent.session_memory import (
     sync_flat_conversation_state_v1,
     update_session_memory_from_turn,
 )
+from agent.agent_loop import run_agent_loop
 from agent.agent_pipeline import (
     CONVERSATIONAL_SYNTH_MAX_TOKENS,
     build_render_stack,
@@ -65,7 +66,6 @@ from agent.agent_pipeline import (
     format_last_assistant_for_planner,
     get_live_schema_context,
     pick_conversational_reply,
-    run_openai_function_calling_pipeline,
     run_synthesiser,
     stream_canned_text_word_by_word,
     stream_openai_final_response_messages,
@@ -1608,7 +1608,7 @@ def render_chat() -> None:
                 status.update(label=UI.STATUS_QUERY)
                 live = _cached_live_schema_context()
                 static = _cached_schema_context()
-                fc = run_openai_function_calling_pipeline(
+                fc = run_agent_loop(
                     user_input,
                     memory_context,
                     live,

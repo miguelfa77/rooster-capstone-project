@@ -49,7 +49,21 @@ def match_reference_phrase(phrase: str) -> list[dict[str, Any]]:
     t = (phrase or "").lower().strip()
     if not t:
         return []
+    aliases = {
+        "good_area": ("buena zona", "buen barrio", "mejor zona", "safe", "segura"),
+        "near_center": ("cerca del centro", "cerca centro", "near center"),
+        "family_friendly": ("familia", "familiar", "niños", "colegios"),
+        "near_beach": ("playa", "playas", "beach", "costa"),
+        "university_area": ("universidad", "universitario", "estudiantes"),
+        "quiet": ("tranquilo", "tranquila", "quiet"),
+        "nightlife": ("noche", "bares", "nocturno", "nightlife"),
+    }
     lex = _load_lexicon()
+    for canonical, words in aliases.items():
+        if any(w in t for w in words):
+            rows = resolve_label(canonical)
+            if rows:
+                return rows
     for key, _names in lex.items():
         if key.replace("_", " ") in t or key in t or any(
             w in t for w in key.split("_")

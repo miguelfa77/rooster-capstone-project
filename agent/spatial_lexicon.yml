@@ -5,16 +5,43 @@ centro:
   - "LA SEU"
   - "LA XEREA"
   - "SANT FRANCESC"
+near_center:
+  - "EL CARMEN"
+  - "LA SEU"
+  - "LA XEREA"
+  - "SANT FRANCESC"
+  - "RUZAFA"
 cerca_playa:
   - "EL CABANYAL - EL CANYAMELAR"
   - "LA MARINA DE VALÈNCIA (FRONT MARÍTIM)"
+near_beach:
+  - "EL CABANYAL - EL CANYAMELAR"
+  - "LA MARINA DE VALÈNCIA (FRONT MARÍTIM)"
 universitario:
+  - "BENIMACLET"
+  - "CIUTAT UNIVERSITARIA"
+university_area:
   - "BENIMACLET"
   - "CIUTAT UNIVERSITARIA"
 familiar:
   - "BENIMACLET"
   - "ALBORS"
   - "BENIFERRI"
+family_friendly:
+  - "BENIMACLET"
+  - "ALBORS"
+  - "BENIFERRI"
+good_area:
+  - "RUZAFA"
+  - "EL PLA DEL REMEI"
+  - "LA XEREA"
+quiet:
+  - "BENIFERRI"
+  - "SANT PAU"
+  - "MESTALLA"
 nocturno:
+  - "EL CARMEN"
+  - "RUZAFA"
+nightlife:
   - "EL CARMEN"
   - "RUZAFA"
