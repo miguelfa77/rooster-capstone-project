@@ -1,7 +1,6 @@
 """
 OpenAI tool schemas for Rooster (Chat + Responses API).
-V1 compatibility: tools carry ``output_intent`` as the model's display commitment
-until the RenderPlan composer replaces it in Phase 3.
+Tools fetch validated data; display composition is handled by RenderPlan.
 """
 
 from __future__ import annotations
@@ -23,41 +22,9 @@ DEFAULT_RENDERER_FOR_TOOL: dict[str, str] = {
 }
 
 
-OUTPUT_INTENT_VALUES: list[str] = [
-    "auto",
-    "text",
-    "table",
-    "cards",
-    "metrics",
-    "ranking",
-    "map",
-    "map_listings",
-    "map_neighborhoods",
-    "combined_map",
-    "chart",
-    "bar_chart",
-    "transit_map",
-    "tourism_map",
-]
-
-
-def _output_intent_property() -> dict[str, Any]:
-    return {
-        "type": "string",
-        "enum": OUTPUT_INTENT_VALUES,
-        "description": (
-            "Required display intent for this tool result. Choose the UI form the user "
-            "asked for: map_listings for listing maps, map_neighborhoods for barrio "
-            "polygons, transit_map/tourism_map for those layers, chart/bar_chart for "
-            "visual comparisons, table for dense rows, cards/metrics for compact KPI "
-            "summaries, text only when no visual/data block is useful, auto if unsure."
-        ),
-    }
-
-
 def get_rooster_openai_tools() -> list[dict[str, Any]]:
     """Return the ``tools`` argument for OpenAI tool use (Chat or Responses)."""
-    tools = [
+    return [
         {
             "type": "function",
             "function": {
@@ -383,15 +350,3 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
             },
         },
     ]
-    for tool in tools:
-        fn = tool.get("function") if isinstance(tool, dict) else None
-        params = fn.get("parameters") if isinstance(fn, dict) else None
-        if not isinstance(params, dict):
-            continue
-        props = params.setdefault("properties", {})
-        if isinstance(props, dict):
-            props.setdefault("output_intent", _output_intent_property())
-        required = params.setdefault("required", [])
-        if isinstance(required, list) and "output_intent" not in required:
-            required.append("output_intent")
-    return tools

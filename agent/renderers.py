@@ -940,6 +940,132 @@ def render_metric_cards(rows: list[dict[str, Any]], metadata: dict[str, Any]) ->
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def render_kpi_strip(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """Compact KPI row for profile-like rows."""
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NO_ROWS_TABLE)
+        return
+    row = df.iloc[0].to_dict()
+    candidates = [
+        ("investment_score", "Score"),
+        ("gross_rental_yield_pct", "Rent. bruta"),
+        ("median_venta_price", "Mediana venta"),
+        ("median_alquiler_price", "Mediana alquiler"),
+        ("tourist_density_pct", "Dens. VUT"),
+        ("transit_stop_count", "Paradas"),
+    ]
+    vals = [(col, label, row.get(col)) for col, label in candidates if col in row]
+    if not vals:
+        render_metric_cards(rows, metadata)
+        return
+    cols = st.columns(min(4, len(vals)))
+    for i, (_col, label, value) in enumerate(vals[:4]):
+        with cols[i]:
+            if isinstance(value, (int, float)) and pd.notna(value):
+                shown = f"{value:,.1f}" if abs(float(value)) < 100 else f"{value:,.0f}"
+            else:
+                shown = str(value or "—")
+            st.metric(label, shown)
+
+
+def render_comparison_table(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """Neighborhood-by-dimension matrix with basic numeric highlighting."""
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NO_COMPARE)
+        return
+    preferred = [
+        c
+        for c in (
+            "neighborhood_name",
+            "gross_rental_yield_pct",
+            "investment_score",
+            "tourist_density_pct",
+            "transit_stop_count",
+            "avg_dist_to_stop_m",
+            "total_count",
+            "median_venta_price",
+            "median_alquiler_price",
+        )
+        if c in df.columns
+    ]
+    shown = df[preferred] if preferred else df
+    numeric_cols = [c for c in shown.columns if pd.api.types.is_numeric_dtype(shown[c])]
+    try:
+        if numeric_cols:
+            st.dataframe(
+                shown.style.background_gradient(subset=numeric_cols, cmap="YlGn"),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(shown, use_container_width=True, hide_index=True)
+    except Exception:
+        st.dataframe(shown, use_container_width=True, hide_index=True)
+
+
+def render_score_breakdown(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """Show investment_score components for the first profile row."""
+    if not rows:
+        st.caption(UI.NO_ROWS_TABLE)
+        return
+    from agent.score_explainer import explain_investment_score_row
+
+    parts = explain_investment_score_row(rows[0])
+    df = pd.DataFrame(
+        [
+            {"component": "Rentabilidad", "value": parts.get("yield_contribution", 0)},
+            {"component": "Transporte", "value": parts.get("transport_bonus", 0)},
+            {
+                "component": "Baja presión turística",
+                "value": parts.get("tourism_low_density_bonus", 0),
+            },
+        ]
+    )
+    fig = px.bar(
+        df,
+        x="value",
+        y="component",
+        orientation="h",
+        template="plotly_dark",
+        color="value",
+        color_continuous_scale=["#3B8BD4", "#1D9E75", "#EF9F27"],
+        labels={"value": "Aporte", "component": ""},
+    )
+    fig.update_layout(height=220, showlegend=False, coloraxis_showscale=False)
+    st.plotly_chart(fig, use_container_width=True, key=_st_plotly_key(metadata, "score_breakdown"))
+
+
+def render_density_chart(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """Explicit VUT density/count bar chart."""
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NO_RANKING)
+        return
+    nc = _find_col_df(df, ("neighborhood_name", "neighborhood", "name", "barrio"))
+    vc = _find_col_df(df, ("value", "tourist_density_pct", "tourist_apt_count"))
+    if not nc or not vc:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    plot_df = df[[nc, vc]].copy()
+    plot_df.columns = ["neighborhood_name", "value"]
+    plot_df["value"] = pd.to_numeric(plot_df["value"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["value"]).sort_values("value", ascending=True).tail(15)
+    fig = px.bar(
+        plot_df,
+        x="value",
+        y="neighborhood_name",
+        orientation="h",
+        template="plotly_dark",
+        color="value",
+        color_continuous_scale=["#3B8BD4", "#EF9F27"],
+        labels={"value": metadata.get("metric_label") or "Densidad VUT", "neighborhood_name": ""},
+    )
+    fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False)
+    st.plotly_chart(fig, use_container_width=True, key=_st_plotly_key(metadata, "density"))
+
+
 def _underpriced_row_map(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     by: dict[str, dict[str, Any]] = {}
     for r in rows:
@@ -1586,7 +1712,9 @@ def render_memo(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
 RENDERERS: dict[str, Any] = {
     "search": render_search,
     "compare": render_compare,
+    "comparison_table": render_comparison_table,
     "overview": render_overview,
+    "kpi_strip": render_kpi_strip,
     "geo": render_geo,
     "underpriced": render_underpriced,
     "ranking": render_ranking,
@@ -1598,6 +1726,8 @@ RENDERERS: dict[str, Any] = {
     "memo": render_memo,
     "trend": render_trend_chart,
     "chart": render_chart,
+    "density_chart": render_density_chart,
+    "score_breakdown": render_score_breakdown,
     "neighborhood_highlight": render_neighborhood_highlight_map,
     "no_coords": render_no_coords_fallback,
 }

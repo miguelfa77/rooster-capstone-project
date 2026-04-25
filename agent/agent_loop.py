@@ -40,10 +40,8 @@ def run_agent_loop_pipeline(
     preamble_callback=None,
 ) -> dict[str, Any]:
     """
-    Phase 2 loop: planner → validate → execute → feed tool outputs back while budget remains.
-
-    Rendering remains v1-compatible (`output_intent` + Python fallback). The loop is focused on
-    multi-step data acquisition and per-step correction, not Phase 3 render planning.
+    Phase 2/3 loop: planner -> validate -> execute -> feed tool outputs back while
+    budget remains. Rendering is composed later by RenderPlan.
     """
     from agent.agent_pipeline import (
         SYNTHESISER_SYSTEM_PROMPT,
@@ -54,11 +52,9 @@ def run_agent_loop_pipeline(
         build_openai_first_turn_messages,
         decide_renderer,
         execute_plan,
-        extract_output_intent_from_tool_args,
         format_output_completeness_correction,
         format_validation_plan_correction,
         infer_synth_max_tokens,
-        normalize_output_intent,
         openai_tool_calls_to_plan_calls,
         validate_output_completeness,
         validate_plan,
@@ -212,7 +208,6 @@ def run_agent_loop_pipeline(
 
         plan: dict[str, Any] = {
             "tool_calls": raw_plan_calls,
-            "output_intent": extract_output_intent_from_tool_args(tcalls),
             "reasoning": f"agent_loop_step_{step + 1}",
             "neighborhood_resolved": None,
             "combine_maps": False,
@@ -229,15 +224,14 @@ def run_agent_loop_pipeline(
             continue
 
         execution_results = execute_plan(validated, engine, user_input)
-        oi = normalize_output_intent(validated.get("output_intent") or "auto")
-        issues = validate_output_completeness(user_input, oi, execution_results)
+        issues = validate_output_completeness(user_input, execution_results)
         if issues:
-            correction_hint = format_output_completeness_correction(issues, user_input, oi)
+            correction_hint = format_output_completeness_correction(issues, user_input)
             had_output_correction = True
             continue
 
         for res in execution_results:
-            res["renderer"] = decide_renderer(res, res.get("output_intent") or oi)
+            res["renderer"] = decide_renderer(res)
 
         all_tcalls.extend(tcalls)
         all_execution.extend(execution_results)

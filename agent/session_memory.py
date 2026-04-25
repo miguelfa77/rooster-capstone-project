@@ -37,7 +37,6 @@ class ConversationStateModel(BaseModel):
 class ShownSoFarModel(BaseModel):
     tools_called: list[str] = Field(default_factory=list)
     neighborhoods_shown: list[str] = Field(default_factory=list)
-    last_render_plan_summary: str = ""
 
 
 class SessionMemoryV2(BaseModel):

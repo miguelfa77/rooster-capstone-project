@@ -60,7 +60,6 @@ from agent.session_memory import (
 from agent.agent_loop import run_agent_loop
 from agent.agent_pipeline import (
     CONVERSATIONAL_SYNTH_MAX_TOKENS,
-    build_render_stack,
     extract_neighborhood_names_from_schema,
     format_confirmed_visuals,
     format_last_assistant_for_planner,
@@ -83,6 +82,7 @@ from agent.llm_sql import (
 )
 from agent import ui_es as UI
 from agent.renderers import dispatch, render_graceful_fallback
+from agent.render_dispatcher import build_blocks_from_results
 
 st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
 
@@ -1726,10 +1726,12 @@ def render_chat() -> None:
                         ],
                     )
                     geo_key = len(st.session_state.messages)
-                    render_stack_for_stream = build_render_stack(
+                    render_stack_for_stream, _ = build_blocks_from_results(
                         validated_for_stream or {},
                         execution_for_stream or [],
                         geo_key,
+                        resolved_intent=fc.get("resolved_intent"),
+                        memory=memory_context,
                     )
                     confirmed_for_stream = format_confirmed_visuals(
                         execution_for_stream or []
