@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from html import escape
 from difflib import SequenceMatcher, get_close_matches
 from typing import Any
 
@@ -36,6 +37,16 @@ def _plain_chat_prose(text: str) -> str:
     if not t:
         return t
     return t.replace("**", "").replace("__", "")
+
+
+def _idealista_link(url: Any, label: str | None = None) -> str:
+    """Safe popup link; avoids broken/unsafe anchors when url is missing or malformed."""
+    raw = str(url or "").strip()
+    if not raw.startswith(("http://", "https://")):
+        return ""
+    text = escape(label or UI.POPUP_IDEALISTA)
+    href = escape(raw, quote=True)
+    return f'<a href="{href}" target="_blank" rel="noopener noreferrer">{text}</a>'
 
 
 def _st_plotly_key(metadata: dict[str, Any] | None, *parts: str) -> str:
@@ -303,7 +314,7 @@ def render_geo_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None
                 c = "#555555"
         rooms = row.get("rooms_int", "?")
         hood = row.get("neighborhood_name", "—")
-        url = row.get("url", "#")
+        link = _idealista_link(row.get("url"), "Ver →")
         price = int(row["price_int"]) if pd.notna(row.get("price_int")) else 0
         area = row.get("area_sqm", "—")
         popup = folium.Popup(
@@ -311,7 +322,7 @@ def render_geo_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None
             <b>€{price:,}</b><br>
             {area} m² · {rooms} hab.<br>
             {hood}<br>
-            <a href="{url}" target="_blank">Ver →</a>
+            {link}
             """,
             max_width=200,
         )
@@ -326,6 +337,7 @@ def render_geo_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None
         ).add_to(m)
 
     colormap.add_to(m)
+    st.caption(f"Color de anuncios: {colormap.caption} (percentiles 5–95).")
     st_folium(
         m,
         height=380,
@@ -964,7 +976,7 @@ def render_underpriced(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> 
             except (TypeError, ValueError):
                 discount = 0.0
             hood = row.get("neighborhood_name", "—")
-            url = row.get("url", "#")
+            link = _idealista_link(row.get("url"), "Ver →")
             area = row.get("area_sqm", "—")
             price = int(row["price_int"]) if pd.notna(row.get("price_int")) else 0
             folium.CircleMarker(
@@ -981,7 +993,7 @@ def render_underpriced(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> 
                         ↓ {discount:.0f}% bajo la mediana
                     </span><br>
                     {area} m² · {hood}<br>
-                    <a href="{url}" target="_blank">Ver →</a>
+                    {link}
                     """,
                     max_width=220,
                 ),
@@ -1456,11 +1468,11 @@ def render_combined_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) ->
                 c = colormap(max(vmin, min(vmax, fv)))
                 price = int(row["price_int"]) if pd.notna(row.get("price_int")) else 0
                 area = row.get("area_sqm", "—")
-                url = row.get("url") or "#"
+                link = _idealista_link(row.get("url"))
                 popup = folium.Popup(
                     f"<b>€{price:,}</b> · {area} m²<br>"
                     f"€{int(fv):,}/m²<br>"
-                    f"<a href=\"{url}\" target=\"_blank\">{UI.POPUP_IDEALISTA}</a>",
+                    f"{link}",
                     max_width=180,
                 )
                 folium.CircleMarker(
@@ -1478,7 +1490,7 @@ def render_combined_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) ->
         listing_group = folium.FeatureGroup(name=UI.FOLIUM_LAYER_LISTINGS, show=True)
         for _, row in df_l.iterrows():
             price = int(row["price_int"]) if pd.notna(row.get("price_int")) else 0
-            url = row.get("url") or "#"
+            link = _idealista_link(row.get("url"))
             folium.CircleMarker(
                 location=[float(row["lat"]), float(row["lng"])],
                 radius=7,
@@ -1487,7 +1499,7 @@ def render_combined_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) ->
                 fill_opacity=0.85,
                 weight=1.5,
                 popup=folium.Popup(
-                    f"<b>€{price:,}</b><br><a href=\"{url}\" target=\"_blank\">{UI.POPUP_IDEALISTA}</a>",
+                    f"<b>€{price:,}</b><br>{link}",
                     max_width=180,
                 ),
             ).add_to(listing_group)
@@ -1534,10 +1546,15 @@ def render_combined_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) ->
         returned_objects=[],
         key=_st_folium_key(metadata, "combined"),
     )
-    c1, c2, c3 = st.columns(3)
-    c1.caption(UI.CHAT_COMBINED_CAP_LISTINGS.format(n=len(df_l)))
-    c2.caption(UI.CHAT_COMBINED_CAP_TRANSIT.format(n=len(df_t)))
-    c3.caption(UI.CHAT_COMBINED_CAP_TOURISM.format(n=len(df_tour)))
+    captions: list[str] = []
+    if not df_l.empty:
+        captions.append(UI.CHAT_COMBINED_CAP_LISTINGS.format(n=len(df_l)))
+    if not df_t.empty:
+        captions.append(UI.CHAT_COMBINED_CAP_TRANSIT.format(n=len(df_t)))
+    if not df_tour.empty:
+        captions.append(UI.CHAT_COMBINED_CAP_TOURISM.format(n=len(df_tour)))
+    if captions:
+        st.caption(" · ".join(captions))
 
 
 render_search = render_listing_table

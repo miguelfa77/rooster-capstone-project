@@ -12,7 +12,7 @@ Re-run the capstone 19-query set after each major agent change. Record pass/fail
 
 1. Greeting / router: one-word classifier via Responses API, no tool calls.
 2. Listings: `operation` matches resolved intent (venta vs alquiler).
-3. Profile: `query_neighborhood_profile` without `output_intent` in tool args; renderer chosen in Python.
+3. Profile: `query_neighborhood_profile` includes `output_intent`; renderer honors it with Python fallback.
 4. Compare: `compare_neighborhoods` returns one aligned table.
 5. Parcel: `query_parcel_metrics` against `analytics.parcel_metrics`.
 6. Density chart: `query_neighborhood_density_chart` yields bar-style profile data.

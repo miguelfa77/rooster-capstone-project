@@ -11,9 +11,14 @@ import pandas as pd
 from sqlalchemy import text
 
 from agent.llm_sql import get_pg_engine
-from agent.responses_api import extract_response_text, get_openai_client
+from agent.responses_api import (
+    extract_response_text,
+    get_openai_client,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 
-EXPLAIN_MODEL = os.getenv("ROOSTER_EXPLAIN_MODEL", "gpt-4o-mini")
+EXPLAIN_MODEL = os.getenv("ROOSTER_EXPLAIN_MODEL", "gpt-5-mini")
 
 
 def _yield_component(yield_pct: float | None) -> float:
@@ -102,17 +107,22 @@ def explain_neighborhood_investment_score(
         )
     client = get_openai_client(timeout_sec)
     pri = session_priorities or {}
-    r = client.responses.create(
-        model=EXPLAIN_MODEL,
-        instructions="Español, 2 frases, conecta las magnitudes con las prioridades del usuario si aplica.",
-        input=(
+    kwargs: dict[str, Any] = {
+        "model": EXPLAIN_MODEL,
+        "instructions": "Español, 2 frases, conecta las magnitudes con las prioridades del usuario si aplica.",
+        "input": (
             f"Barrio: {neighborhood_name}\n"
             f"Componentes: {parts}\n"
             f"Score total: {row.get('investment_score')}\n"
             f"Prioridades (0-1): {pri}\n"
         ),
-        max_output_tokens=180,
-        temperature=0.2,
-    )
+        "max_output_tokens": 180,
+    }
+    if supports_temperature(EXPLAIN_MODEL):
+        kwargs["temperature"] = 0.2
+    rpar = reasoning_param_for_model(EXPLAIN_MODEL, "low")
+    if rpar is not None:
+        kwargs["reasoning"] = rpar
+    r = client.responses.create(**kwargs)
     t = extract_response_text(r)
     return t.strip() or str(parts)

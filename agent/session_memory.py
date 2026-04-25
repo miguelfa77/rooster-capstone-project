@@ -10,9 +10,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agent.responses_api import get_openai_client
+from agent.responses_api import (
+    get_openai_client,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 
-MEMORY_MODEL = os.getenv("ROOSTER_MEMORY_MODEL", "gpt-4o-mini")
+MEMORY_MODEL = os.getenv("ROOSTER_MEMORY_MODEL", "gpt-5-mini")
 
 
 class UserProfileModel(BaseModel):
@@ -132,10 +136,14 @@ Tools called this turn (names): {json.dumps(tools_used)}
             "input": text_in,
             "text_format": MemoryTurnDelta,
             "max_output_tokens": 1200,
-            "temperature": 0,
         }
+        if supports_temperature(MEMORY_MODEL):
+            parse_kw["temperature"] = 0
         if prompt_cache_key:
             parse_kw["prompt_cache_key"] = prompt_cache_key
+        rpar = reasoning_param_for_model(MEMORY_MODEL, "minimal")
+        if rpar is not None:
+            parse_kw["reasoning"] = rpar
         parsed = client.responses.parse(**parse_kw)
         delta = parsed.output_parsed
         if not isinstance(delta, MemoryTurnDelta):

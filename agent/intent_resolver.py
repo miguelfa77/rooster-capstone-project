@@ -10,10 +10,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agent.responses_api import get_openai_client
+from agent.responses_api import (
+    get_openai_client,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 from agent.spatial_resolver import expand_qualitative_tags
 
-INTENT_MODEL = os.getenv("ROOSTER_INTENT_MODEL", "gpt-4o-mini")
+INTENT_MODEL = os.getenv("ROOSTER_INTENT_MODEL", "gpt-5-mini")
 
 
 class PriceBandModel(BaseModel):
@@ -96,12 +100,14 @@ LIVE / schema hints (excerpt):
             "input": user_block,
             "text_format": ResolvedIntent,
             "max_output_tokens": 800,
-            "temperature": 0,
         }
+        if supports_temperature(INTENT_MODEL):
+            parse_kw["temperature"] = 0
         if prompt_cache_key:
             parse_kw["prompt_cache_key"] = prompt_cache_key
-        if "gpt-5" in INTENT_MODEL.lower():
-            parse_kw["reasoning"] = {"effort": "low"}
+        rpar = reasoning_param_for_model(INTENT_MODEL, "low")
+        if rpar is not None:
+            parse_kw["reasoning"] = rpar
         parsed = client.responses.parse(**parse_kw)
         out = parsed.output_parsed
         if isinstance(out, ResolvedIntent):

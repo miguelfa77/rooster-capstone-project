@@ -64,8 +64,8 @@ def _load_pipeline_env() -> None:
 _load_pipeline_env()
 
 # Default models when UI does not override (env-tunable)
-DEFAULT_PLANNER_MODEL_OPENAI = os.getenv("PLANNER_MODEL", "gpt-4o-mini")
-DEFAULT_SYNTHESISER_MODEL_OPENAI = os.getenv("SYNTHESISER_MODEL", "gpt-4o")
+DEFAULT_PLANNER_MODEL_OPENAI = os.getenv("PLANNER_MODEL", "gpt-5.5")
+DEFAULT_SYNTHESISER_MODEL_OPENAI = os.getenv("SYNTHESISER_MODEL", "gpt-5.5")
 
 SCHEMA_DESC = """
 ## Rooster database schema (PostgreSQL)
@@ -301,20 +301,28 @@ def summarize_conversation_memo(
     prompt = SUMMARY_PROMPT.format(full_conversation=full_conversation.strip() or "(empty)")
 
     def _run() -> str:
-        from openai import OpenAI
-
-        client = OpenAI(timeout=max(timeout_sec + 5.0, 30.0))
-        model_name = model or os.getenv("OPENAI_MODEL", "gpt-4o")
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": MEMO_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_completion_tokens=900,
+        from agent.responses_api import (
+            extract_response_text,
+            get_openai_client,
+            reasoning_param_for_model,
+            supports_temperature,
         )
-        return (response.choices[0].message.content or "").strip()
+
+        client = get_openai_client(max(timeout_sec, 30.0))
+        model_name = model or os.getenv("OPENAI_MODEL", "gpt-5.5")
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "instructions": MEMO_SYSTEM_PROMPT,
+            "input": prompt,
+            "max_output_tokens": 900,
+        }
+        if supports_temperature(model_name):
+            kwargs["temperature"] = 0.2
+        rpar = reasoning_param_for_model(model_name, "low")
+        if rpar is not None:
+            kwargs["reasoning"] = rpar
+        response = client.responses.create(**kwargs)
+        return extract_response_text(response).strip()
 
     with ThreadPoolExecutor(max_workers=1) as ex:
         fut = ex.submit(_run)

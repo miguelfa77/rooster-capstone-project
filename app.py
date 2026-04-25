@@ -768,7 +768,14 @@ def _render_intel_explorer_map(
                             stroke = "#888888"
                             op_label = "—"
                         price = int(row["price_int"]) if pd.notna(row.get("price_int")) else 0
-                        url = row.get("url") or "#"
+                        raw_url = str(row.get("url") or "").strip()
+                        link = ""
+                        if raw_url.startswith(("http://", "https://")):
+                            safe_url = html.escape(raw_url, quote=True)
+                            link = (
+                                f"<a href=\"{safe_url}\" target=\"_blank\" "
+                                f"rel=\"noopener noreferrer\">{UI.POPUP_IDEALISTA}</a>"
+                            )
                         folium.CircleMarker(
                             location=[float(row["lat"]), float(row["lng"])],
                             radius=4,
@@ -779,7 +786,7 @@ def _render_intel_explorer_map(
                             weight=2.5,
                             popup=folium.Popup(
                                 f"<b>{op_label}</b> · <b>€{price:,}</b> · {row.get('area_sqm', '—')} m²<br>"
-                                f"<a href=\"{url}\" target=\"_blank\">{UI.POPUP_IDEALISTA}</a>",
+                                f"{link}",
                                 max_width=220,
                             ),
                         ).add_to(m)
@@ -1590,6 +1597,10 @@ def render_chat() -> None:
         last_assistant_for_planner = format_last_assistant_for_planner(
             st.session_state.messages[:-1]
         )
+        memory_context = {
+            **dict(st.session_state.conversation_state),
+            "session_memory_v2": st.session_state.get("session_memory_v2") or {},
+        }
 
         with st.status(UI.STATUS_THINKING, expanded=False) as status:
             try:
@@ -1599,7 +1610,7 @@ def render_chat() -> None:
                 static = _cached_schema_context()
                 fc = run_openai_function_calling_pipeline(
                     user_input,
-                    st.session_state.conversation_state,
+                    memory_context,
                     live,
                     static,
                     conv,
@@ -1609,6 +1620,9 @@ def render_chat() -> None:
                     last_assistant_context=last_assistant_for_planner,
                     prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     previous_planner_response_id=None,
+                    preamble_callback=lambda text: status.update(
+                        label=text[:140] if text else UI.STATUS_QUERY
+                    ),
                 )
                 had_output_correction = bool(fc.get("had_output_correction"))
                 if fc.get("error") == "timeout":
@@ -1781,7 +1795,7 @@ def render_chat() -> None:
                         user_input,
                         plan_for_stream,
                         [],
-                        st.session_state.conversation_state,
+                        memory_context,
                         model_choice,
                         timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
                         confirmed_visuals=None,
@@ -1842,7 +1856,7 @@ def render_chat() -> None:
                             user_input,
                             validated_for_stream or {},
                             execution_for_stream or [],
-                            st.session_state.conversation_state,
+                            memory_context,
                             model_choice,
                             timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
                             confirmed_visuals=confirmed_for_stream,
@@ -1858,7 +1872,7 @@ def render_chat() -> None:
                         user_input,
                         validated_for_stream or {},
                         execution_for_stream or [],
-                        st.session_state.conversation_state,
+                        memory_context,
                         model_choice,
                         timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
                         confirmed_visuals=confirmed_for_stream,
@@ -1932,9 +1946,9 @@ def render_chat() -> None:
 
 def main():
     models_pairs = [
-        ("GPT-4o — máxima calidad", "gpt-4o"),
-        ("GPT-4o mini — más rápido", "gpt-4o-mini"),
-        ("GPT-4 Turbo", "gpt-4-turbo"),
+        ("GPT-5.5 — máxima calidad", "gpt-5.5"),
+        ("GPT-5.1 — equilibrado", "gpt-5.1"),
+        ("GPT-5 mini — más rápido", "gpt-5-mini"),
     ]
     model_labels = [m[0] for m in models_pairs]
     model_values = [m[1] for m in models_pairs]
@@ -1975,9 +1989,9 @@ def main():
             st.session_state.selected_model = model_values[selected_index]
 
             model_descriptions = {
-                "gpt-4o": "Mejor razonamiento. Recomendado para análisis complejos.",
-                "gpt-4o-mini": "3× más rápido. Bueno para preguntas directas.",
-                "gpt-4-turbo": "Equilibrio entre calidad y velocidad.",
+                "gpt-5.5": "Mejor razonamiento. Recomendado para análisis complejos.",
+                "gpt-5.1": "Equilibrio entre calidad, latencia y coste.",
+                "gpt-5-mini": "Más rápido. Bueno para preguntas directas.",
             }
             sm = st.session_state.selected_model
             if sm in model_descriptions:

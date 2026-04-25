@@ -15,7 +15,7 @@ import unicodedata
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from difflib import SequenceMatcher
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import pandas as pd
 from sqlalchemy import text
@@ -48,17 +48,15 @@ When the user uses words like:
 
 YOU MUST resolve what they refer to before planning.
 
-Step 1: Read the "Last assistant response" block in the user message (prose + what data was shown).
-Step 2: Identify what was shown (neighborhoods? listings? data?).
-Step 3: Extract the specific items (names, URLs, IDs).
-Step 4: Use those exact items as filters in your tool call (e.g. `neighborhoods` list for `query_neighborhood_profile`, or repeat the same filters as the previous turn).
+Resolve the referenced objects from the "Last assistant response" block (prose + displayed data).
+Use exact barrio names, URLs, or prior filters from that block when planning the next tool call.
 
 EXAMPLE:
 Previous response showed: ranking of Sant Marcel·lí, Els Orriols, Sant Isidre, Natzaret, Tres Forques
 User says: "enséñame un mapa con estos barrios"
 
 CORRECT: call `query_neighborhood_profile` with params.neighborhoods listing those five names;
-the UI will choose map vs chart from data shape and `chart_style` when present.
+set params.output_intent = "map_neighborhoods" so the UI renders barrio polygons.
 
 WRONG: switching to `query_listings` with empty params or `map_listings` when the user clearly refers to barrios from the last turn.
 
@@ -75,6 +73,7 @@ LANGUAGE: Rooster's UI is Spanish. If you reply without tools (greetings, meta q
 
 When to call tools:
 - Questions about listings, yields, neighborhoods, transport, tourist apartments, price trends, or charts → call the appropriate function(s).
+- Every tool call MUST include `output_intent`; this is the model's display commitment. Prefer explicit values (e.g. `map_listings`, `map_neighborhoods`, `bar_chart`, `table`) over `auto`.
 
 When NOT to call tools:
 - Greetings, thanks, small talk, or meta questions about what Rooster can do → reply in a short conversational way (no tools, max ~3 sentences).
@@ -549,12 +548,99 @@ def strip_follow_ups_suffix(text: str) -> tuple[str, list[str]]:
 
 def _dedup_params_signature(params: dict[str, Any]) -> str:
     """Stable fingerprint for render deduplication (excludes display-only keys)."""
-    skip = frozenset({"chart_style"})
+    skip = frozenset({"output_intent", "chart_style"})
     d = {k: v for k, v in (params or {}).items() if k not in skip}
     try:
         return json.dumps(d, sort_keys=True, default=str)
     except (TypeError, ValueError):
         return str(d)
+
+
+_VALID_OUTPUT_INTENTS = frozenset(
+    {
+        "auto",
+        "text",
+        "table",
+        "cards",
+        "metrics",
+        "ranking",
+        "map",
+        "map_listings",
+        "map_neighborhoods",
+        "combined_map",
+        "chart",
+        "bar_chart",
+        "transit_map",
+        "tourism_map",
+    }
+)
+
+
+def normalize_output_intent(value: Any) -> str:
+    """Normalize the model's display commitment while preserving v1 aliases."""
+    oi = str(value or "auto").strip().lower()
+    aliases = {
+        "listing_map": "map_listings",
+        "listings_map": "map_listings",
+        "point_map": "map_listings",
+        "neighborhood_map": "map_neighborhoods",
+        "neighborhoods_map": "map_neighborhoods",
+        "barrio_map": "map_neighborhoods",
+        "bar": "bar_chart",
+        "scatter": "chart",
+        "kpi": "metrics",
+        "metric_cards": "cards",
+    }
+    oi = aliases.get(oi, oi)
+    return oi if oi in _VALID_OUTPUT_INTENTS else "auto"
+
+
+def normalize_output_intent_for_tool(tool: str, value: Any) -> str:
+    """Clamp broad display intents to values each current tool can satisfy."""
+    oi = normalize_output_intent(value)
+    if oi == "auto":
+        return oi
+    if tool == "query_listings":
+        if oi == "map":
+            return "map_listings"
+        if oi in {"map_listings", "cards", "metrics", "table", "ranking", "combined_map"}:
+            return oi
+        return "auto"
+    if tool == "query_neighborhood_profile":
+        if oi == "map":
+            return "map_neighborhoods"
+        if oi in {
+            "map_neighborhoods",
+            "bar_chart",
+            "chart",
+            "cards",
+            "metrics",
+            "table",
+            "ranking",
+        }:
+            return oi
+        return "auto"
+    if tool == "query_transit_stops":
+        if oi == "map":
+            return "transit_map"
+        return oi if oi in {"transit_map", "combined_map", "table"} else "auto"
+    if tool == "query_tourist_apartments":
+        if oi == "map":
+            return "tourism_map"
+        return oi if oi in {"tourism_map", "combined_map", "table"} else "auto"
+    if tool == "query_price_trends":
+        return oi if oi in {"table", "bar_chart", "chart"} else "auto"
+    if tool == "query_chart_data":
+        return "chart" if oi in {"chart", "bar_chart"} else "auto"
+    if tool == "query_parcel_metrics":
+        return oi if oi in {"table", "bar_chart", "chart", "metrics"} else "auto"
+    if tool == "compare_neighborhoods":
+        return oi if oi in {"table", "bar_chart", "chart", "ranking"} else "auto"
+    if tool == "query_neighborhood_density_chart":
+        return oi if oi in {"bar_chart", "chart", "table"} else "auto"
+    if tool in {"resolve_spatial_reference", "query_neighborhood_context"}:
+        return oi if oi in {"table", "text"} else "auto"
+    return oi
 
 
 def _dedupe_render_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -594,20 +680,25 @@ _CHART_REQUEST_RE = re.compile(
 
 def validate_output_completeness(
     question: str,
+    output_intent: str,
     execution_results: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Light checks for replan: chart wording vs profile params, required columns.
-    Renders are chosen in Python (v2) — we only flag obvious gaps.
+    Light checks for replan: declared output intent vs result shape, required columns.
+    `output_intent` is the v1 display contract until RenderPlan exists.
     """
     issues: list[dict[str, Any]] = []
     q = (question or "").strip()
+    plan_oi = normalize_output_intent(output_intent)
 
     for result in execution_results or []:
         if not result.get("success"):
             continue
         rows = result.get("rows") or []
         tool = str(result.get("tool") or "")
+        result_oi = normalize_output_intent_for_tool(
+            tool, result.get("output_intent") or plan_oi
+        )
 
         if not rows:
             continue
@@ -634,6 +725,38 @@ def validate_output_completeness(
                     ),
                 }
             )
+
+        if result_oi in {"map_listings", "transit_map", "tourism_map"}:
+            has_coords = "lat" in columns and "lng" in columns
+            if not has_coords:
+                issues.append(
+                    {
+                        "type": "missing_map_coordinates",
+                        "tool": tool,
+                        "columns_present": sorted(columns),
+                        "fix": (
+                            "The requested output intent is a point map. Include lat and lng "
+                            "columns, or choose a non-map output_intent."
+                        ),
+                    }
+                )
+
+        if result_oi == "map_neighborhoods" and tool == "query_neighborhood_profile":
+            has_name = any(
+                col in columns for col in ("neighborhood_name", "name", "barrio")
+            )
+            if not has_name:
+                issues.append(
+                    {
+                        "type": "missing_neighborhood_for_map",
+                        "tool": tool,
+                        "columns_present": sorted(columns),
+                        "fix": (
+                            "For map_neighborhoods, include the barrio label "
+                            "(neighborhood_name/name/barrio) so the renderer can match polygons."
+                        ),
+                    }
+                )
 
         if tool in (
             "query_neighborhood_profile",
@@ -675,6 +798,7 @@ def validate_output_completeness(
 def format_output_completeness_correction(
     issues: list[dict[str, Any]],
     question: str,
+    output_intent: str,
 ) -> str:
     """Build user message block for a replan after output completeness issues."""
     lines: list[str] = []
@@ -686,6 +810,7 @@ def format_output_completeness_correction(
 {body}
 
 The user asked: "{question}"
+Output intent was: "{normalize_output_intent(output_intent)}"
 
 Generate new tool_calls that fix all problems listed above.
 Do not repeat the same mistake."""
@@ -758,6 +883,9 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
         if not isinstance(tool, str) or not tool:
             errors.append("Invalid tool call")
             continue
+        params["output_intent"] = normalize_output_intent_for_tool(
+            tool, params.get("output_intent") or plan.get("output_intent")
+        )
 
         if tool == "query_chart_data":
             ct = (params.get("chart_type") or "scatter").strip().lower()
@@ -851,6 +979,7 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
     out = dict(plan)
     out["tool_calls"] = corrected
     out["validation_errors"] = errors
+    out["output_intent"] = normalize_output_intent(plan.get("output_intent"))
     if not plan.get("tool_calls"):
         out["valid"] = len(errors) == 0
     else:
@@ -1239,7 +1368,12 @@ def execute_plan(
     for call in validated_plan.get("tool_calls") or []:
         tool = call.get("tool")
         params = dict(call.get("params") or {})
-        _sql_meta_keys = frozenset({"chart_style"})
+        oi_call = normalize_output_intent_for_tool(
+            tool if isinstance(tool, str) else "",
+            params.get("output_intent") or validated_plan.get("output_intent"),
+        )
+        params["output_intent"] = oi_call
+        _sql_meta_keys = frozenset({"output_intent", "chart_style"})
         sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
         if tool == "query_listings":
             sql_params = _normalize_query_listings_room_params(sql_params, user_message)
@@ -1256,6 +1390,7 @@ def execute_plan(
                     "success": False,
                     "error": f"Unknown tool: {tool}",
                     "tool_call_id": tool_call_id,
+                    "output_intent": oi_call,
                 }
             )
             continue
@@ -1271,6 +1406,7 @@ def execute_plan(
                     "success": True,
                     "error": None,
                     "tool_call_id": tool_call_id,
+                    "output_intent": oi_call,
                 }
             )
         except Exception as e:
@@ -1284,14 +1420,19 @@ def execute_plan(
                     "success": False,
                     "error": str(e),
                     "tool_call_id": tool_call_id,
+                    "output_intent": oi_call,
                 }
             )
     return results
 
 
-def decide_renderer(result: dict[str, Any]) -> str:
-    """Pick Streamlit renderer from tool, row shape, and params (e.g. chart_style)."""
+def decide_renderer(result: dict[str, Any], output_intent: str = "auto") -> str:
+    """Pick Streamlit renderer from output_intent first; fallback to data-shape heuristics."""
     tool = result.get("tool")
+    oi = normalize_output_intent_for_tool(
+        tool if isinstance(tool, str) else "",
+        output_intent,
+    )
     rows = result.get("rows") or []
     planned = result.get("renderer") or "table"
     row_count = len(rows)
@@ -1315,6 +1456,92 @@ def decide_renderer(result: dict[str, Any]) -> str:
             return "profile_scatter"
         if cstyle == "bar":
             return "metric_cards" if row_count == 1 else "bar_chart"
+
+    if oi != "auto":
+        if oi == "text":
+            return "empty"
+        if oi == "bar_chart":
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count == 1 else "bar_chart"
+            if tool == "query_price_trends":
+                return "table" if row_count > 8 else "bar_chart"
+            if tool == "query_chart_data":
+                return "chart"
+            if tool in {"compare_neighborhoods", "query_neighborhood_density_chart"}:
+                return "bar_chart"
+            return planned
+        if oi == "transit_map":
+            if tool == "query_transit_stops":
+                return "transit_map"
+            return planned
+        if oi == "tourism_map":
+            if tool == "query_tourist_apartments":
+                return "tourism_map"
+            return planned
+        if oi == "map_listings":
+            if tool == "query_listings":
+                return "point_map" if _has_coords() else "no_coords_fallback"
+            return planned
+        if oi == "map_neighborhoods":
+            if tool == "query_neighborhood_profile":
+                return "neighborhood_highlight_map"
+            return planned
+        if oi == "cards":
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count <= 6 else "bar_chart"
+            if tool == "query_listings":
+                return "metric_cards" if row_count <= 3 else "table"
+            if tool == "query_price_trends":
+                return "table"
+            return "metric_cards" if row_count <= 3 else "table"
+        if oi == "map":
+            if tool == "query_listings":
+                return "point_map" if _has_coords() else "table"
+            if tool == "query_transit_stops":
+                return "transit_map"
+            if tool == "query_tourist_apartments":
+                return "tourism_map"
+            if tool == "query_neighborhood_profile":
+                return "neighborhood_highlight_map"
+            return planned
+        if oi == "chart":
+            if tool == "query_chart_data":
+                return "chart"
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count == 1 else "bar_chart"
+            if tool in {"compare_neighborhoods", "query_neighborhood_density_chart"}:
+                return "bar_chart"
+            return planned
+        if oi == "metrics":
+            if tool == "query_neighborhood_profile":
+                return "metric_cards" if row_count <= 6 else "bar_chart"
+            if tool == "query_listings":
+                return "metric_cards" if row_count <= 3 else "table"
+            if tool == "query_price_trends":
+                return "table"
+            if tool == "query_parcel_metrics":
+                return "table"
+            return planned
+        if oi == "table":
+            if tool == "query_listings":
+                return "metric_cards" if row_count <= 3 else "table"
+            if tool == "query_neighborhood_profile":
+                return (
+                    "metric_cards"
+                    if row_count == 1
+                    else ("bar_chart" if row_count <= 6 else "table")
+                )
+            if tool == "query_price_trends":
+                return "table"
+            return "table"
+        if oi == "ranking":
+            if tool == "query_neighborhood_profile":
+                return "bar_chart"
+            if tool in {"query_listings", "query_price_trends", "compare_neighborhoods"}:
+                return "table"
+            return planned
+        if oi == "combined_map":
+            return planned
 
     if tool == "query_listings":
         has_coords = _has_coords()
@@ -1356,16 +1583,35 @@ def _llm_synthesiser(
     timeout_sec: float,
     max_tokens: int = 400,
 ) -> str:
-    from openai import OpenAI
-
-    client = OpenAI(timeout=max(timeout_sec + 5.0, 35.0))
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.3,
-        max_completion_tokens=max_tokens,
+    from agent.responses_api import (
+        extract_response_text,
+        get_openai_client,
+        reasoning_param_for_model,
+        supports_temperature,
     )
-    return (response.choices[0].message.content or "").strip()
+
+    system = messages[0]["content"] if messages else SYNTHESISER_SYSTEM_PROMPT
+    user_text = "\n\n".join(m.get("content", "") for m in messages[1:] if m.get("content"))
+    client = get_openai_client(max(timeout_sec, 35.0))
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "instructions": system,
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": user_text}],
+            }
+        ],
+        "max_output_tokens": max_tokens,
+    }
+    if supports_temperature(model):
+        kwargs["temperature"] = 0.3
+    rpar = reasoning_param_for_model(model, "low")
+    if rpar is not None:
+        kwargs["reasoning"] = rpar
+    response = client.responses.create(**kwargs)
+    return extract_response_text(response).strip()
 
 
 def infer_synth_max_tokens(execution_results: list[dict[str, Any]]) -> int:
@@ -1574,9 +1820,14 @@ def build_openai_first_turn_messages(
     last_assistant_context: str = "",
     resolved_intent: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
-    """Stack: static rules + schema first in system; dynamic state in user block (cache-friendly)."""
-    schema_text = f"{live_schema_context}\n\n=== STATIC SCHEMA REFERENCE ===\n{static_schema}"
-    system = OPENAI_TOOLS_FIRST_SYSTEM_PREFIX + "\n\n" + schema_text
+    """Stack static content first, dynamic context last for prompt-cache hit rate."""
+    system = (
+        OPENAI_TOOLS_FIRST_SYSTEM_PREFIX
+        + "\n\n=== STATIC SCHEMA REFERENCE ===\n"
+        + static_schema
+        + "\n\n---\n\n=== LIVE DATABASE STATE ===\n"
+        + live_schema_context
+    )
     correction_section = ""
     if correction_hint:
         correction_section = f"""
@@ -1596,11 +1847,11 @@ def build_openai_first_turn_messages(
             + "\n"
         )
 
-    user_block = f"""Last assistant response (for resolving references like "estos", "this", "them"):
-{last_block}
-
-{correction_section}{ri}Conversation state (JSON):
+    user_block = f"""{correction_section}{ri}=== CONVERSATION MEMORY ===
 {json.dumps(conversation_state, indent=2, default=str)}
+
+=== LAST ASSISTANT CONTEXT ===
+{last_block}
 
 Recent transcript:
 {conversation_context or "(none)"}
@@ -1637,6 +1888,24 @@ def openai_tool_calls_to_plan_calls(tool_calls: list[Any]) -> list[dict[str, Any
             }
         )
     return out
+
+
+def extract_output_intent_from_tool_args(tool_calls: list[Any]) -> str:
+    """Return the first valid output_intent emitted by the planner, else auto."""
+    for tc in tool_calls or []:
+        fn = getattr(tc, "function", None)
+        raw_args = getattr(fn, "arguments", None) if fn else None
+        try:
+            args = json.loads(raw_args or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            continue
+        name = getattr(fn, "name", "") if fn else ""
+        oi = normalize_output_intent_for_tool(str(name or ""), args.get("output_intent"))
+        if oi != "auto":
+            return oi
+    return "auto"
 
 
 def _infer_plan_neighborhood_resolved(plan: dict[str, Any]) -> None:
@@ -1702,6 +1971,7 @@ def run_openai_function_calling_pipeline(
     last_assistant_context: str = "",
     prompt_cache_key: str | None = None,
     previous_planner_response_id: str | None = None,
+    preamble_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """
     OpenAI native function calling: first response may request tools; we execute, then
@@ -1776,6 +2046,11 @@ def run_openai_function_calling_pipeline(
         last_planner_response_id = getattr(response, "id", None)
         tcalls = output_items_to_tool_calls_compat(response)
         rtext = extract_response_text(response)
+        if tcalls and rtext and preamble_callback:
+            try:
+                preamble_callback(rtext.strip())
+            except Exception:
+                pass
         msg = SimpleNamespace(
             content=rtext or None,
             tool_calls=tcalls,
@@ -1799,6 +2074,7 @@ def run_openai_function_calling_pipeline(
             }
 
         raw_plan_calls = openai_tool_calls_to_plan_calls(tcalls)
+        output_intent_fc = extract_output_intent_from_tool_args(tcalls)
         if not raw_plan_calls:
             text = (getattr(msg, "content", None) or rtext or "").strip()
             return {
@@ -1818,6 +2094,7 @@ def run_openai_function_calling_pipeline(
 
         plan: dict[str, Any] = {
             "tool_calls": raw_plan_calls,
+            "output_intent": output_intent_fc,
             "reasoning": "openai_function_calling",
             "neighborhood_resolved": None,
             "combine_maps": False,
@@ -1851,15 +2128,16 @@ def run_openai_function_calling_pipeline(
             }
 
         execution_results = execute_plan(validated, engine, user_input)
-        issues = validate_output_completeness(user_input, execution_results)
+        oi = normalize_output_intent(validated.get("output_intent") or "auto")
+        issues = validate_output_completeness(user_input, oi, execution_results)
 
         if issues and attempt < MAX_OUTPUT_CORRECTION_ATTEMPTS:
-            correction_hint = format_output_completeness_correction(issues, user_input)
+            correction_hint = format_output_completeness_correction(issues, user_input, oi)
             had_output_correction = True
             continue
 
         for res in execution_results:
-            res["renderer"] = decide_renderer(res)
+            res["renderer"] = decide_renderer(res, res.get("output_intent") or oi)
 
         last_tcalls = tcalls
         last_validated = validated
@@ -1973,21 +2251,39 @@ def stream_openai_final_response_messages(
         yield from iter_response_stream_text(stream)
         return
 
-    from openai import OpenAI
+    from agent.responses_api import (
+        get_openai_client,
+        iter_response_stream_text,
+        reasoning_param_for_model,
+        supports_temperature,
+    )
 
     model_name = _resolve_synthesiser_model(model)
-    client = OpenAI(timeout=max(timeout_sec + 5.0, 120.0))
-    stream = client.chat.completions.create(
-        model=model_name,
-        messages=messages or [],
-        temperature=0.3,
-        max_completion_tokens=max_tokens,
-        stream=True,
+    client = get_openai_client(max(timeout_sec, 120.0))
+    instructions = (messages or [{}])[0].get("content", SYNTHESISER_SYSTEM_PROMPT)
+    user_text = "\n\n".join(
+        str(m.get("content") or "") for m in (messages or [])[1:] if m.get("content")
     )
-    for chunk in stream:
-        ch = chunk.choices[0].delta.content if chunk.choices else None
-        if ch:
-            yield ch
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "instructions": instructions,
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": user_text}],
+            }
+        ],
+        "max_output_tokens": max_tokens,
+        "stream": True,
+    }
+    if supports_temperature(model_name):
+        kwargs["temperature"] = 0.3
+    rpar = reasoning_param_for_model(model_name, "low")
+    if rpar is not None:
+        kwargs["reasoning"] = rpar
+    stream = client.responses.create(**kwargs)
+    yield from iter_response_stream_text(stream)
 
 
 def run_synthesiser(

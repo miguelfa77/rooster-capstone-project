@@ -14,12 +14,12 @@ pipeline/idealista/proxies/.env
 proxy.env
 .env.proxy
 
-# Local Railway restore credentials (paste from dashboard)
+# scripts/sync_local_to_railway.sh — paste LOCAL_* and RAILWAY_* URLs here
+scripts/.env
 scripts/railway-restore.env
+scripts/local-dump.env
 scripts/.pgpass_secret
-# pg_dump output for Railway restore (see scripts/pg_dump_for_railway.sh)
 rooster.dump
-/scripts
 
 # Large data directories (not for Git)
 **/data/

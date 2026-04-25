@@ -15,7 +15,7 @@
 | **`pipeline/`** | Data loaders and scrapers: `raw/` (CSV → Postgres), `core/` (enrichment), `idealista/`, `open_data/` (transit, tourist apartments). |
 | **`sql/`** | SQL migrations: bootstrap, `core` DDL, enrichment, open-data tables — not the `analytics` views (those are built by **dbt**). |
 | **`dbt/`** | dbt project: `analytics.*` views + `dbt test`. |
-| **`scripts/`** | Ops helpers (e.g. Railway Postgres restore). |
+| **`scripts/`** | `sync_local_to_railway.sh` — pg_dump local → wipe Railway DB → restore (see `scripts/.env.example`). |
 | **`interface/`** | Static assets (e.g. icons). |
 | **`requirements.txt`** | Python dependencies (Streamlit app, pipelines, scrapers, and **dbt**). |
 | **`Procfile`** | Process type for Railway: `streamlit run app.py` on `$PORT`. |
@@ -83,7 +83,7 @@ The Streamlit app does not invoke dbt on Railway; run dbt locally or in CI when 
 - Connect the GitHub repo; Railway runs the **`Procfile`** web process.
 - Add a **PostgreSQL** plugin and set **`DATABASE_URL`** on the web service (or equivalent `PG*` variables).
 - Set **`OPENAI_API_KEY`** on the web service.
-- Schema and data are **not** applied automatically: run `sql/*.sql`, **`dbt run`** for `analytics` views, or restore a dump (see `scripts/railway-restore.env.example` and `scripts/railway_pg_restore.sh`).
+- Schema and data are **not** applied automatically: run `sql/*.sql`, **`dbt run`** for `analytics` views, or copy your DB to Railway with **`bash scripts/sync_local_to_railway.sh`** (configure `scripts/.env` from `scripts/.env.example`).
 
 ---
 

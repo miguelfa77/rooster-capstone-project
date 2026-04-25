@@ -15,7 +15,7 @@ from typing import Any, Iterator
 
 from openai import OpenAI
 
-CLASSIFIER_MODEL_DEFAULT = os.getenv("ROOSTER_CLASSIFIER_MODEL", "gpt-4o-mini")
+CLASSIFIER_MODEL_DEFAULT = os.getenv("ROOSTER_CLASSIFIER_MODEL", "gpt-5-mini")
 
 
 def get_openai_client(timeout: float) -> OpenAI:
@@ -46,11 +46,21 @@ def chat_tools_to_responses_tools(chat_tools: list[dict[str, Any]]) -> list[dict
     return out
 
 
-def _classifier_reasoning_param(model: str) -> dict[str, str] | None:
+def reasoning_param_for_model(model: str, effort: str) -> dict[str, str] | None:
     m = (model or "").lower()
     if "gpt-5" in m or m.startswith("o"):
-        return {"effort": "minimal"}
+        return {"effort": effort}
     return None
+
+
+def supports_temperature(model: str) -> bool:
+    """Older non-reasoning chat models accept temperature; GPT-5/o reasoning paths may not."""
+    m = (model or "").lower()
+    return not ("gpt-5" in m or m.startswith("o"))
+
+
+def _classifier_reasoning_param(model: str) -> dict[str, str] | None:
+    return reasoning_param_for_model(model, "minimal")
 
 
 def responses_classify_conversational(
@@ -68,8 +78,9 @@ def responses_classify_conversational(
         "instructions": system_prompt,
         "input": user_text,
         "max_output_tokens": 8,
-        "temperature": 0,
     }
+    if supports_temperature(m):
+        kwargs["temperature"] = 0
     rpar = _classifier_reasoning_param(m)
     if rpar is not None:
         kwargs["reasoning"] = rpar
@@ -139,8 +150,10 @@ def create_response_with_tools(
     if prompt_cache_key:
         kwargs["prompt_cache_key"] = prompt_cache_key
     m = (model or "").lower()
-    if reasoning_effort and ("gpt-5" in m or m.startswith("o")):
-        kwargs["reasoning"] = {"effort": reasoning_effort}
+    if reasoning_effort:
+        rpar = reasoning_param_for_model(m, reasoning_effort)
+        if rpar is not None:
+            kwargs["reasoning"] = rpar
     return client.responses.create(**kwargs)
 
 
@@ -189,11 +202,14 @@ def create_response_synthesis(
         "input": input_items,
         "previous_response_id": previous_response_id,
         "max_output_tokens": max_output_tokens,
-        "temperature": 0.3,
     }
+    if supports_temperature(model):
+        kwargs["temperature"] = 0.3
     m = (model or "").lower()
-    if reasoning_effort and ("gpt-5" in m or m.startswith("o")):
-        kwargs["reasoning"] = {"effort": reasoning_effort}
+    if reasoning_effort:
+        rpar = reasoning_param_for_model(m, reasoning_effort)
+        if rpar is not None:
+            kwargs["reasoning"] = rpar
     if stream:
         kwargs["stream"] = True
     return client.responses.create(**kwargs)
