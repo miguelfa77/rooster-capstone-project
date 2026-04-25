@@ -19,10 +19,7 @@ from typing import Any, Iterator
 import pandas as pd
 from sqlalchemy import text
 
-from agent.openai_tools import (
-    DEFAULT_RENDERER_FOR_TOOL,
-    get_rooster_openai_tools,
-)
+from agent.openai_tools import get_rooster_openai_tools
 from agent.llm_sql import (
     DEFAULT_SYNTHESISER_MODEL_OPENAI,
     SUMMARIZE_TIMEOUT_SEC,
@@ -544,42 +541,6 @@ def strip_follow_ups_suffix(text: str) -> tuple[str, list[str]]:
     return prose, labels[:3]
 
 
-def _dedup_params_signature(params: dict[str, Any]) -> str:
-    """Stable fingerprint for render deduplication (excludes display-only keys)."""
-    skip = frozenset({"chart_style"})
-    d = {k: v for k, v in (params or {}).items() if k not in skip}
-    try:
-        return json.dumps(d, sort_keys=True, default=str)
-    except (TypeError, ValueError):
-        return str(d)
-
-
-def _dedupe_render_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop consecutive duplicate intents with same tool + param fingerprint."""
-    seen: set[tuple[str, str, str]] = set()
-    out: list[dict[str, Any]] = []
-    for b in blocks:
-        intent = b.get("intent") or ""
-        meta = dict(b.get("meta") or {})
-        if intent == "combined_map":
-            out.append(b)
-            continue
-        tool = (meta.get("tool") or "").strip()
-        dps = (meta.get("dedup_params") or "").strip()
-        key = (intent, tool, dps)
-        if key in seen:
-            _LOG.warning(
-                "Dropping duplicate render block: intent=%s tool=%s params=%s",
-                intent,
-                tool,
-                (dps[:160] + "…") if len(dps) > 160 else dps,
-            )
-            continue
-        seen.add(key)
-        out.append(b)
-    return out
-
-
 # User asked for a visual chart; profile rows are present but planner chose a tabular intent.
 _CHART_REQUEST_RE = re.compile(
     r"(?:^|\s|[\W_])"
@@ -721,32 +682,6 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
         "resolve_spatial_reference": ["reference"],
         "query_neighborhood_context": ["neighborhood"],
     }
-    valid_renderers = {
-        "query_listings": [
-            "table",
-            "point_map",
-            "combined_map",
-            "metric_cards",
-            "no_coords_fallback",
-        ],
-        "query_transit_stops": ["transit_map", "combined_map"],
-        "query_tourist_apartments": ["tourism_map", "combined_map"],
-        "query_neighborhood_profile": [
-            "bar_chart",
-            "metric_cards",
-            "table",
-            "neighborhood_highlight_map",
-            "profile_scatter",
-        ],
-        "query_price_trends": ["bar_chart", "table"],
-        "query_chart_data": ["chart"],
-        "query_parcel_metrics": ["table", "bar_chart", "search"],
-        "compare_neighborhoods": ["table", "bar_chart", "profile_scatter"],
-        "resolve_spatial_reference": ["search", "table"],
-        "query_neighborhood_density_chart": ["bar_chart", "chart", "table"],
-        "query_neighborhood_context": ["search", "table"],
-    }
-
     for call in plan.get("tool_calls") or []:
         if not isinstance(call, dict):
             continue
@@ -838,11 +773,7 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
             errors.append(f"Tool {tool} missing required params: {missing}")
             continue
 
-        vr = valid_renderers.get(tool, ["table"])
-        ren = call.get("renderer") or "table"
-        if ren not in vr:
-            ren = vr[0]
-        corrected.append({**call, "params": params, "renderer": ren})
+        corrected.append({**call, "params": params})
 
     out = dict(plan)
     out["tool_calls"] = corrected
@@ -1267,14 +1198,12 @@ def execute_plan(
         sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
         if tool == "query_listings":
             sql_params = _normalize_query_listings_room_params(sql_params, user_message)
-        renderer = call.get("renderer") or "table"
         tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
         if not isinstance(tool, str) or tool not in TOOL_FUNCTIONS:
             results.append(
                 {
                     "tool": tool,
                     "params": params,
-                    "renderer": renderer,
                     "rows": [],
                     "row_count": 0,
                     "success": False,
@@ -1289,7 +1218,6 @@ def execute_plan(
                 {
                     "tool": tool,
                     "params": params,
-                    "renderer": renderer,
                     "rows": rows,
                     "row_count": len(rows),
                     "success": True,
@@ -1302,7 +1230,6 @@ def execute_plan(
                 {
                     "tool": tool,
                     "params": params,
-                    "renderer": renderer,
                     "rows": [],
                     "row_count": 0,
                     "success": False,
@@ -1311,140 +1238,6 @@ def execute_plan(
                 }
             )
     return results
-
-
-def decide_renderer(result: dict[str, Any]) -> str:
-    """Fallback renderer heuristic; RenderPlan is the primary display contract."""
-    tool = result.get("tool")
-    rows = result.get("rows") or []
-    planned = result.get("renderer") or "table"
-    row_count = len(rows)
-
-    def _has_coords() -> bool:
-        return any(
-            r.get("lat") is not None and r.get("lng") is not None for r in rows
-        )
-
-    if tool == "query_chart_data":
-        return "chart" if row_count > 0 else "empty"
-    if row_count == 0:
-        return "empty"
-
-    if tool == "query_neighborhood_profile" and row_count >= 2:
-        p = result.get("params") or {}
-        cstyle = (p.get("chart_style") or "auto").strip().lower()
-        if cstyle not in ("bar", "scatter", "auto"):
-            cstyle = "auto"
-        if cstyle == "scatter":
-            return "profile_scatter"
-        if cstyle == "bar":
-            return "metric_cards" if row_count == 1 else "bar_chart"
-
-    if tool == "query_listings":
-        has_coords = _has_coords()
-        if planned == "point_map" and not has_coords:
-            return "table"
-        if row_count <= 3 and planned == "table":
-            return "metric_cards"
-        if row_count > 15 and planned == "metric_cards":
-            return "table"
-        return planned
-    if tool == "query_neighborhood_profile":
-        if row_count == 1:
-            return "metric_cards"
-        if row_count <= 6:
-            return "bar_chart"
-        return "table"
-    if tool == "query_transit_stops":
-        return "transit_map"
-    if tool == "query_tourist_apartments":
-        return "tourism_map"
-    if tool == "query_price_trends":
-        return "table" if row_count > 8 else planned
-    if tool == "query_parcel_metrics":
-        return "table"
-    if tool == "compare_neighborhoods":
-        return "bar_chart" if row_count <= 8 else "table"
-    if tool == "resolve_spatial_reference":
-        return "search"
-    if tool == "query_neighborhood_density_chart":
-        return "bar_chart"
-    if tool == "query_neighborhood_context":
-        return "search"
-    return planned
-
-
-def _llm_synthesiser(
-    messages: list[dict[str, str]],
-    model: str,
-    timeout_sec: float,
-    max_tokens: int = 400,
-) -> str:
-    from agent.responses_api import (
-        extract_response_text,
-        get_openai_client,
-        reasoning_param_for_model,
-        supports_temperature,
-    )
-
-    system = messages[0]["content"] if messages else SYNTHESISER_SYSTEM_PROMPT
-    user_text = "\n\n".join(m.get("content", "") for m in messages[1:] if m.get("content"))
-    client = get_openai_client(max(timeout_sec, 35.0))
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "instructions": system,
-        "input": [
-            {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": user_text}],
-            }
-        ],
-        "max_output_tokens": max_tokens,
-    }
-    if supports_temperature(model):
-        kwargs["temperature"] = 0.3
-    rpar = reasoning_param_for_model(model, "low")
-    if rpar is not None:
-        kwargs["reasoning"] = rpar
-    response = client.responses.create(**kwargs)
-    return extract_response_text(response).strip()
-
-
-def infer_synth_max_tokens(execution_results: list[dict[str, Any]]) -> int:
-    """Higher caps for dense visuals (overview cards, profiles, charts)."""
-    if not execution_results:
-        return 200
-    rends = [r.get("renderer") for r in execution_results]
-    tools = [r.get("tool") for r in execution_results]
-    if "metric_cards" in rends:
-        return 300
-    if "neighborhood_highlight_map" in rends:
-        return 280
-    if "profile_scatter" in rends:
-        return 280
-    if "no_coords_fallback" in rends:
-        return 220
-    if any(t == "query_neighborhood_profile" for t in tools):
-        return 250
-    if any(t == "query_chart_data" for t in tools):
-        return 200
-    return 150
-
-
-def format_confirmed_visuals(execution_results: list[dict[str, Any]]) -> str:
-    """Human-readable list of tools and final renderers for the synthesiser."""
-    if not execution_results:
-        return "ninguno (solo texto)"
-    parts: list[str] = []
-    for r in execution_results:
-        tool = r.get("tool") or "?"
-        ren = (r.get("renderer") or "?").strip()
-        if ren == "empty":
-            parts.append(f"{tool}→sin filas")
-        else:
-            parts.append(f"{tool}→{ren}")
-    return "; ".join(parts)
 
 
 def _build_results_summary_for_synth(
@@ -1459,18 +1252,18 @@ def _build_results_summary_for_synth(
                 {
                     "tool": tool,
                     "chart_type": p.get("chart_type") or "scatter",
-                    "renderer": result.get("renderer"),
                 }
             )
             continue
         if result.get("success") and result.get("row_count", 0) > 0:
-            sample = (result.get("rows") or [])[:3]
+            sample = (result.get("rows") or [])[:12]
+            columns = sorted({k for row in sample if isinstance(row, dict) for k in row})
             results_summary.append(
                 {
                     "tool": tool,
                     "row_count": result.get("row_count"),
+                    "columns": columns,
                     "sample": sample,
-                    "renderer": result.get("renderer"),
                 }
             )
         elif not result.get("success"):
@@ -1679,8 +1472,6 @@ def openai_tool_calls_to_plan_calls(tool_calls: list[Any]) -> list[dict[str, Any
             {
                 "tool": name,
                 "params": args,
-                "renderer": DEFAULT_RENDERER_FOR_TOOL.get(name, "table"),
-                "renderer_rationale": "",
                 "_tool_call_id": getattr(tc, "id", None),
             }
         )
@@ -1736,71 +1527,6 @@ def _openai_fc_first_completion(
         prompt_cache_key=prompt_cache_key,
         previous_response_id=previous_response_id,
     )
-
-
-def stream_openai_final_response_messages(
-    messages: list[dict[str, Any]] | None,
-    model: str,
-    max_tokens: int,
-    timeout_sec: float,
-    *,
-    responses_synthesis: dict[str, Any] | None = None,
-) -> Iterator[str]:
-    """Second-turn streaming completion (Responses API; chat path deprecated)."""
-    if responses_synthesis:
-        from agent.responses_api import (
-            create_response_synthesis,
-            get_openai_client,
-            iter_response_stream_text,
-        )
-
-        model_name = _resolve_synthesiser_model(model)
-        client = get_openai_client(max(timeout_sec, 120.0))
-        stream = create_response_synthesis(
-            client,
-            model=model_name,
-            instructions=str(responses_synthesis.get("instructions") or ""),
-            input_items=list(responses_synthesis.get("input_items") or []),
-            previous_response_id=str(responses_synthesis.get("previous_response_id") or ""),
-            max_output_tokens=int(responses_synthesis.get("max_tokens") or max_tokens),
-            stream=True,
-        )
-        yield from iter_response_stream_text(stream)
-        return
-
-    from agent.responses_api import (
-        get_openai_client,
-        iter_response_stream_text,
-        reasoning_param_for_model,
-        supports_temperature,
-    )
-
-    model_name = _resolve_synthesiser_model(model)
-    client = get_openai_client(max(timeout_sec, 120.0))
-    instructions = (messages or [{}])[0].get("content", SYNTHESISER_SYSTEM_PROMPT)
-    user_text = "\n\n".join(
-        str(m.get("content") or "") for m in (messages or [])[1:] if m.get("content")
-    )
-    kwargs: dict[str, Any] = {
-        "model": model_name,
-        "instructions": instructions,
-        "input": [
-            {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": user_text}],
-            }
-        ],
-        "max_output_tokens": max_tokens,
-        "stream": True,
-    }
-    if supports_temperature(model_name):
-        kwargs["temperature"] = 0.3
-    rpar = reasoning_param_for_model(model_name, "low")
-    if rpar is not None:
-        kwargs["reasoning"] = rpar
-    stream = client.responses.create(**kwargs)
-    yield from iter_response_stream_text(stream)
 
 
 def run_synthesiser(
@@ -1881,101 +1607,3 @@ def update_conversation_state(
             if priority not in state["user_priorities"]:
                 state["user_priorities"].append(priority)
     return state
-
-
-def map_renderer_to_dispatch_intent(renderer: str) -> str:
-    """Map abstract renderer name to existing RENDERERS keys in renderers.py."""
-    mapping = {
-        "table": "search",
-        "point_map": "geo",
-        "transit_map": "transit_map",
-        "tourism_map": "tourism_map",
-        "combined_map": "combined_map",
-        "bar_chart": "ranking",
-        "profile_scatter": "profile_scatter",
-        "metric_cards": "overview",
-        "chart": "chart",
-        "neighborhood_highlight_map": "neighborhood_highlight",
-        "no_coords_fallback": "no_coords",
-        "empty": "search",
-    }
-    return mapping.get(renderer, "search")
-
-
-def build_render_stack(
-    validated_plan: dict[str, Any],
-    execution_results: list[dict[str, Any]],
-    geo_key: int,
-) -> list[dict[str, Any]]:
-    """
-    Build render blocks for dispatch. When combine_maps is True, merge spatial tools
-    into one combined_map block, then append non-spatial tools (e.g. charts, profiles).
-    """
-    combine = bool(validated_plan.get("combine_maps"))
-    spatial_tools = {"query_listings", "query_transit_stops", "query_tourist_apartments"}
-    blocks: list[dict[str, Any]] = []
-    if not execution_results:
-        return blocks
-
-    spatial_merged = False
-    if combine:
-        rl: list = []
-        rt: list = []
-        ru: list = []
-        for res in execution_results:
-            if not res.get("success"):
-                continue
-            t = res.get("tool")
-            r = res.get("rows") or []
-            if t == "query_listings":
-                rl = r
-            elif t == "query_transit_stops":
-                rt = r
-            elif t == "query_tourist_apartments":
-                ru = r
-        if rl or rt or ru:
-            blocks.append(
-                {
-                    "intent": "combined_map",
-                    "rows": [],
-                    "meta": {
-                        "geo_key": geo_key,
-                        "rows_listings": rl,
-                        "rows_transit": rt,
-                        "rows_tourism": ru,
-                        "caveat": "",
-                        "tool": "__combined_map__",
-                        "dedup_params": "",
-                    },
-                }
-            )
-            spatial_merged = True
-
-    for res in execution_results:
-        if combine and spatial_merged and res.get("tool") in spatial_tools:
-            continue
-        ren = (res.get("renderer") or "").strip()
-        if ren == "empty":
-            continue
-        intent = map_renderer_to_dispatch_intent(ren)
-        rows = res.get("rows") or []
-        p = res.get("params") or {}
-        meta: dict[str, Any] = {
-            "geo_key": geo_key,
-            "caveat": "",
-            "tool": (res.get("tool") or "") or "",
-            "dedup_params": _dedup_params_signature(p if isinstance(p, dict) else {}),
-        }
-        if intent == "chart":
-            ct = (p.get("chart_type") or "scatter").strip().lower()
-            if ct not in ("scatter", "amenity", "floor"):
-                ct = "scatter"
-            meta["chart_type"] = ct
-        if intent == "ranking":
-            meta["metric_label"] = "Value"
-        if intent == "ranking" and rows and "value" not in rows[0]:
-            for r in rows:
-                if "value" not in r and r.get("investment_score") is not None:
-                    r["value"] = r["investment_score"]
-        blocks.append({"intent": intent, "rows": rows, "meta": meta})
-    return _dedupe_render_blocks(blocks)

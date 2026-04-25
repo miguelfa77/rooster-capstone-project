@@ -632,6 +632,50 @@ def render_neighborhood_highlight_map(rows: list[dict[str, Any]], metadata: dict
     st.caption(UI.CHAT_NEIGHBORHOOD_HIGHLIGHT_CAPTION.format(n=len(highlight_norms)))
 
 
+def render_choropleth_focus(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    """Metric-aware barrio choropleth for selected neighborhoods."""
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NOTHING_TO_MAP)
+        return
+    metric = str((metadata or {}).get("metric") or "value")
+    if metric not in df.columns:
+        metric = _find_col_df(
+            df,
+            (
+                "gross_rental_yield_pct",
+                "investment_score",
+                "tourist_density_pct",
+                "value",
+                "median_venta_price",
+                "median_alquiler_price",
+            ),
+        ) or ""
+    if not metric:
+        render_neighborhood_highlight_map(rows, metadata)
+        return
+    name_c = _find_col_df(df, ("neighborhood_name", "name", "barrio", "neighborhood"))
+    if not name_c:
+        st.caption(UI.NEED_NEIGHBORHOOD_NAME)
+        return
+    plot_df = df[[name_c, metric]].copy()
+    plot_df.columns = ["neighborhood_name", "value"]
+    plot_df["value"] = pd.to_numeric(plot_df["value"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["value"])
+    if plot_df.empty:
+        render_neighborhood_highlight_map(rows, metadata)
+        return
+    render_mini_choropleth(
+        plot_df,
+        metric_col="value",
+        height=420,
+        zoom_start=11,
+        geo_key=int((metadata or {}).get("geo_key", 0)),
+    )
+    label = (metadata or {}).get("metric_label") or metric.replace("_", " ")
+    st.caption(f"Barrios coloreados por {label}.")
+
+
 def render_mini_choropleth(
     df: pd.DataFrame,
     *,
@@ -829,6 +873,11 @@ def render_profile_scatter(rows: list[dict[str, Any]], metadata: dict[str, Any])
         use_container_width=True,
         key=_st_plotly_key(metadata, "profile_scatter"),
     )
+
+
+def _maybe_neighborhood_profile_dive(rows: list[dict[str, Any]]) -> None:
+    """Reserved hook for optional profile drill-downs."""
+    del rows
 
 
 def render_comparison_chart(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
@@ -1064,6 +1113,106 @@ def render_density_chart(rows: list[dict[str, Any]], metadata: dict[str, Any]) -
     )
     fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False)
     st.plotly_chart(fig, use_container_width=True, key=_st_plotly_key(metadata, "density"))
+
+
+def render_single_kpi(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NO_ROWS_TABLE)
+        return
+    metric = str((metadata or {}).get("metric") or "")
+    if not metric or metric not in df.columns:
+        metric = next((c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])), "")
+    if not metric:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    value = pd.to_numeric(df[metric], errors="coerce").dropna()
+    if value.empty:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    label = (metadata or {}).get("metric_label") or metric.replace("_", " ")
+    delta_col = str((metadata or {}).get("delta_col") or "")
+    delta = None
+    if delta_col in df.columns:
+        delta_val = pd.to_numeric(df[delta_col], errors="coerce").dropna()
+        if not delta_val.empty:
+            delta = f"{delta_val.iloc[0]:,.1f}"
+    st.metric(label, f"{value.iloc[0]:,.1f}", delta=delta)
+
+
+def render_histogram(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NO_RANKING)
+        return
+    metric = str((metadata or {}).get("metric") or "")
+    if not metric or metric not in df.columns:
+        metric = next((c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])), "")
+    if not metric:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    plot_df = df.copy()
+    plot_df[metric] = pd.to_numeric(plot_df[metric], errors="coerce")
+    plot_df = plot_df.dropna(subset=[metric])
+    if plot_df.empty:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+    fig = px.histogram(
+        plot_df,
+        x=metric,
+        nbins=min(20, max(5, len(plot_df) // 2)),
+        template="plotly_dark",
+        color_discrete_sequence=["#534AB7"],
+        labels={metric: (metadata or {}).get("metric_label") or metric.replace("_", " ")},
+    )
+    fig.update_layout(height=320, margin=dict(l=0, r=0, t=0, b=0))
+    st.plotly_chart(fig, use_container_width=True, key=_st_plotly_key(metadata, "histogram"))
+
+
+def render_delta_table(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.caption(UI.NO_ROWS_TABLE)
+        return
+    metric = str((metadata or {}).get("metric") or "")
+    if metric and metric in df.columns and len(df) >= 2:
+        d = df.copy()
+        d[metric] = pd.to_numeric(d[metric], errors="coerce")
+        first = d[metric].iloc[0]
+        last = d[metric].iloc[-1]
+        if pd.notna(first) and pd.notna(last) and first:
+            d["delta_pct"] = ((last - first) / first) * 100
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+def render_trend_line(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    render_trend_chart(rows, metadata)
+
+
+def render_listing_cards(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
+    df = pd.DataFrame(rows[:3])
+    if df.empty:
+        st.caption(UI.NO_ROWS_TABLE)
+        return
+    for row in df.to_dict(orient="records"):
+        title = row.get("neighborhood_name") or row.get("neighborhood_raw") or "Anuncio"
+        price = row.get("price_int") or row.get("price")
+        area = row.get("area_sqm") or row.get("area")
+        rooms = row.get("rooms_int") or row.get("rooms")
+        link = _idealista_link(row.get("url"), "Ver anuncio")
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
+            bits = []
+            if price:
+                bits.append(f"€{int(price):,}")
+            if area:
+                bits.append(f"{area} m²")
+            if rooms:
+                bits.append(f"{rooms} hab.")
+            if bits:
+                st.caption(" · ".join(bits))
+            if link:
+                st.markdown(link, unsafe_allow_html=True)
 
 
 def _underpriced_row_map(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -1725,7 +1874,13 @@ RENDERERS: dict[str, Any] = {
     "conversational": render_conversational,
     "memo": render_memo,
     "trend": render_trend_chart,
+    "trend_line": render_trend_line,
     "chart": render_chart,
+    "choropleth_focus": render_choropleth_focus,
+    "single_kpi": render_single_kpi,
+    "histogram": render_histogram,
+    "delta_table": render_delta_table,
+    "listing_cards": render_listing_cards,
     "density_chart": render_density_chart,
     "score_breakdown": render_score_breakdown,
     "neighborhood_highlight": render_neighborhood_highlight_map,

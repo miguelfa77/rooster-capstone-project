@@ -44,17 +44,14 @@ def run_agent_loop_pipeline(
     budget remains. Rendering is composed later by RenderPlan.
     """
     from agent.agent_pipeline import (
-        SYNTHESISER_SYSTEM_PROMPT,
         _build_results_summary_for_synth,
         _infer_combine_maps_from_tools,
         _infer_plan_neighborhood_resolved,
         _openai_fc_first_completion,
         build_openai_first_turn_messages,
-        decide_renderer,
         execute_plan,
         format_output_completeness_correction,
         format_validation_plan_correction,
-        infer_synth_max_tokens,
         openai_tool_calls_to_plan_calls,
         validate_output_completeness,
         validate_plan,
@@ -230,9 +227,6 @@ def run_agent_loop_pipeline(
             had_output_correction = True
             continue
 
-        for res in execution_results:
-            res["renderer"] = decide_renderer(res)
-
         all_tcalls.extend(tcalls)
         all_execution.extend(execution_results)
         last_validated = validated
@@ -268,37 +262,6 @@ def run_agent_loop_pipeline(
             "resolved_intent": resolved_intent_dict,
         }
 
-    confirmed = "; ".join(
-        f"{r.get('tool') or '?'}→{(r.get('renderer') or '?').strip()}"
-        for r in all_execution
-    )
-    followup_user = (
-        f"Escribe la respuesta final para el usuario con la voz de Rooster (máx. 3 frases, sin negritas markdown). "
-        f"La interfaz mostrará después de tu texto estos visuales: {confirmed}. "
-        f"El texto debe coincidir con ellos. Pregunta del usuario: {user_input!r}\n"
-        f"Todo en **español** salvo que el usuario hubiera escrito solo en inglés.\n"
-        f"Añade al final la línea <!-- FOLLOW_UPS: [...] --> exactamente como indica el system prompt del sintetizador."
-    )
-    max_final = infer_synth_max_tokens(all_execution) + 50
-    pairs = []
-    for tc in all_tcalls:
-        er = next(
-            (r for r in all_execution if r.get("tool_call_id") == getattr(tc, "id", None)),
-            None,
-        )
-        summ = _build_results_summary_for_synth([er]) if er else []
-        payload = summ[0] if summ else {"error": "sin resultado"}
-        pairs.append((str(getattr(tc, "id", "")), json.dumps(payload, default=str)))
-
-    rsyn = None
-    if planner_response_id:
-        rsyn = {
-            "previous_response_id": planner_response_id,
-            "input_items": tool_json_payloads_to_responses_input(pairs, followup_user),
-            "instructions": SYNTHESISER_SYSTEM_PROMPT,
-            "max_tokens": max_final,
-        }
-
     last_validated = dict(last_validated or {})
     last_validated["agent_loop_steps"] = min(max_steps, max(1, len(all_tcalls)))
     return {
@@ -306,12 +269,12 @@ def run_agent_loop_pipeline(
         "conversational_text": None,
         "validated_plan": last_validated,
         "execution_results": all_execution,
-        "max_tokens_final": max_final,
+        "max_tokens_final": 0,
         "validation_failed": False,
         "validation_errors": validation_errors,
         "had_output_correction": had_output_correction,
         "had_validation_replan": had_validation_replan,
         "planner_response_id": planner_response_id or getattr(last_response, "id", None),
-        "responses_synthesis": rsyn,
+        "responses_synthesis": None,
         "resolved_intent": resolved_intent_dict,
     }

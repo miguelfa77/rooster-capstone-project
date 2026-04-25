@@ -7,20 +7,6 @@ from __future__ import annotations
 
 from typing import Any
 
-DEFAULT_RENDERER_FOR_TOOL: dict[str, str] = {
-    "query_listings": "table",
-    "query_neighborhood_profile": "bar_chart",
-    "query_transit_stops": "transit_map",
-    "query_tourist_apartments": "tourism_map",
-    "query_price_trends": "table",
-    "query_chart_data": "chart",
-    "query_parcel_metrics": "table",
-    "compare_neighborhoods": "table",
-    "resolve_spatial_reference": "search",
-    "query_neighborhood_density_chart": "chart",
-    "query_neighborhood_context": "search",
-}
-
 
 def get_rooster_openai_tools() -> list[dict[str, Any]]:
     """Return the ``tools`` argument for OpenAI tool use (Chat or Responses)."""

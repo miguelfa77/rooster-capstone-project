@@ -61,13 +61,11 @@ from agent.agent_loop import run_agent_loop
 from agent.agent_pipeline import (
     CONVERSATIONAL_SYNTH_MAX_TOKENS,
     extract_neighborhood_names_from_schema,
-    format_confirmed_visuals,
     format_last_assistant_for_planner,
     get_live_schema_context,
     pick_conversational_reply,
     run_synthesiser,
     stream_canned_text_word_by_word,
-    stream_openai_final_response_messages,
     strip_follow_ups_suffix,
     update_conversation_state,
     use_conversational_fast_path,
@@ -82,7 +80,8 @@ from agent.llm_sql import (
 )
 from agent import ui_es as UI
 from agent.renderers import dispatch, render_graceful_fallback
-from agent.render_dispatcher import build_blocks_from_results
+from agent.evidence_selector import RenderList, select_evidence
+from agent.synthesizer import synthesize_response, synthesized_text
 
 st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
 
@@ -1379,6 +1378,13 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
             else:
                 st.info(UI.CHAT_EMPTY)
             return
+        if "render_list" in msg:
+            _dispatch_render_list(msg.get("render_list") or {}, idx)
+            val_errs = msg.get("validation_errors") or []
+            if val_errs:
+                st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
+            _render_followup_pills_replay(msg.get("follow_ups") or [])
+            return
         if "render_stack" in msg:
             stack = msg.get("render_stack") or []
             summary = (msg.get("summary") or "").strip()
@@ -1434,16 +1440,26 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
         _render_followup_pills_replay(msg.get("follow_ups") or [])
 
 
-def _dispatch_render_stack_blocks(render_stack: list, geo_key: int) -> None:
-    """Render agent render_stack (maps, tables, charts) without duplicate prose."""
-    for block in render_stack:
-        intent = block.get("intent") or "search"
-        rows = block.get("rows") or []
-        meta = dict(block.get("meta") or {})
-        meta["geo_key"] = geo_key
-        if intent == "ranking":
-            meta.setdefault("metric_label", UI.RANKING_METRIC_DEFAULT)
-        dispatch(intent, rows, meta, "")
+def _dispatch_render_list(render_list: RenderList | dict, geo_key: int) -> None:
+    """Render interleaved Phase 3.5 paragraphs and evidence visuals."""
+    if isinstance(render_list, RenderList):
+        payload = render_list.model_dump()
+    else:
+        payload = dict(render_list or {})
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("kind") == "paragraph":
+            text = str(item.get("text") or "").strip()
+            if text:
+                st.markdown(text.replace("**", "").replace("__", ""))
+            continue
+        if item.get("kind") == "visual":
+            intent = item.get("renderer_intent") or "search"
+            rows = item.get("rows") or []
+            meta = dict(item.get("meta") or {})
+            meta["geo_key"] = geo_key
+            dispatch(intent, rows, meta, "")
 
 
 def _render_followup_pills_interactive(pills: list[str], geo_key: int) -> None:
@@ -1584,12 +1600,10 @@ def render_chat() -> None:
         plan_for_stream: dict | None = None
         validated_for_stream: dict | None = None
         execution_for_stream: list | None = None
-        render_stack_for_stream: list | None = None
-        confirmed_for_stream: str | None = None
+        render_list_for_stream: RenderList | None = None
+        synthesized_for_stream = None
         val_errs_for_stream: list = []
         openai_precomputed: str | None = None
-        openai_responses_synthesis: dict | None = None
-        openai_fc_max_tokens: int = 0
         had_output_correction: bool = False
 
         engine = get_pg_engine()
@@ -1709,8 +1723,6 @@ def render_chat() -> None:
                 elif fc.get("execution_results") is not None:
                     validated_for_stream = fc["validated_plan"]
                     execution_for_stream = fc["execution_results"]
-                    openai_responses_synthesis = fc.get("responses_synthesis")
-                    openai_fc_max_tokens = int(fc.get("max_tokens_final") or 200)
                     if fc.get("planner_response_id"):
                         st.session_state.rooster_openai_planner_response_id = fc[
                             "planner_response_id"
@@ -1721,20 +1733,24 @@ def render_chat() -> None:
                     _LOG.info(
                         "FC tools=%s",
                         [
-                            (r.get("tool"), r.get("row_count"), r.get("renderer"))
+                            (r.get("tool"), r.get("row_count"))
                             for r in (execution_for_stream or [])
                         ],
                     )
-                    geo_key = len(st.session_state.messages)
-                    render_stack_for_stream, _ = build_blocks_from_results(
-                        validated_for_stream or {},
-                        execution_for_stream or [],
-                        geo_key,
+                    status.update(label="Redacto la respuesta y selecciono evidencia…")
+                    synthesized_for_stream = synthesize_response(
+                        user_input,
                         resolved_intent=fc.get("resolved_intent"),
-                        memory=memory_context,
+                        agent_results=execution_for_stream or [],
+                        session_memory=memory_context,
+                        model=model_choice,
+                        timeout_sec=float(timeout_sec),
+                        prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     )
-                    confirmed_for_stream = format_confirmed_visuals(
-                        execution_for_stream or []
+                    render_list_for_stream = select_evidence(
+                        synthesized_for_stream,
+                        execution_for_stream or [],
+                        fc.get("resolved_intent") or {},
                     )
                     stream_kind = "full"
                     status.update(label=UI.STATUS_DONE, state="complete")
@@ -1837,55 +1853,26 @@ def render_chat() -> None:
 
         elif stream_kind == "full" and validated_for_stream is not None:
             response_text = ""
-            follow_ups_save: list[str] = []
             geo_key = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
-                try:
-                    if openai_responses_synthesis:
-                        chunks: list[str] = []
-                        for ch in stream_openai_final_response_messages(
-                            None,
-                            model_choice,
-                            openai_fc_max_tokens,
-                            float(timeout_sec),
-                            responses_synthesis=openai_responses_synthesis,
-                        ):
-                            chunks.append(ch)
-                        full_text = "".join(chunks)
-                        prose, fus = strip_follow_ups_suffix(full_text)
-                    else:
-                        raw = run_synthesiser(
-                            user_input,
-                            validated_for_stream or {},
-                            execution_for_stream or [],
-                            memory_context,
-                            model_choice,
-                            timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
-                            confirmed_visuals=confirmed_for_stream,
-                        )
-                        prose, fus = strip_follow_ups_suffix(raw)
-                    if not fus:
-                        fus = list(UI.FOLLOW_UP_DEFAULTS)
-                    follow_ups_save = fus
-                    st.markdown(prose.replace("**", "").replace("__", ""))
-                    response_text = prose
-                except Exception:
-                    raw = run_synthesiser(
+                if render_list_for_stream is None or synthesized_for_stream is None:
+                    synthesized_for_stream = synthesize_response(
                         user_input,
-                        validated_for_stream or {},
-                        execution_for_stream or [],
-                        memory_context,
-                        model_choice,
-                        timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
-                        confirmed_visuals=confirmed_for_stream,
+                        resolved_intent=None,
+                        agent_results=execution_for_stream or [],
+                        session_memory=memory_context,
+                        model=model_choice,
+                        timeout_sec=float(timeout_sec),
+                        prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     )
-                    prose, fus = strip_follow_ups_suffix(raw)
-                    if not fus:
-                        fus = list(UI.FOLLOW_UP_DEFAULTS)
-                    follow_ups_save = fus
-                    st.markdown(prose.replace("**", "").replace("__", ""))
-                    response_text = prose
-                _dispatch_render_stack_blocks(render_stack_for_stream or [], geo_key)
+                    render_list_for_stream = select_evidence(
+                        synthesized_for_stream,
+                        execution_for_stream or [],
+                        {},
+                    )
+                response_text = synthesized_text(synthesized_for_stream)
+                follow_ups_save = render_list_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
+                _dispatch_render_list(render_list_for_stream, geo_key)
                 _render_followup_pills_interactive(follow_ups_save, geo_key)
                 if had_output_correction:
                     st.caption(UI.CHAT_OUTPUT_CORRECTED)
@@ -1921,13 +1908,23 @@ def render_chat() -> None:
                 )
             except Exception:
                 pass
-            rs = render_stack_for_stream or []
-            first_intent = rs[0]["intent"] if rs else "search"
+            render_list_payload = (
+                render_list_for_stream.model_dump() if render_list_for_stream else {"items": []}
+            )
+            first_visual = next(
+                (
+                    item
+                    for item in render_list_payload.get("items", [])
+                    if isinstance(item, dict) and item.get("kind") == "visual"
+                ),
+                {},
+            )
+            first_intent = first_visual.get("renderer_intent") or "conversational"
             st.session_state.messages.append({
                 "role": "assistant",
                 "agent_turn": True,
                 "summary": response_text or "",
-                "render_stack": rs,
+                "render_list": render_list_payload,
                 "validation_errors": val_errs_for_stream,
                 "intent": first_intent,
                 "rows": None,
