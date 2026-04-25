@@ -6,13 +6,12 @@ models:
     columns:
       - name: neighborhood_id
         description: "FK to core.neighborhoods.id"
-        tests:
+        data_tests:
           - unique
           - not_null
           - relationships:
-              arguments:
-                to: source('core', 'neighborhoods')
-                field: id
+              to: source('core', 'neighborhoods')
+              field: id
       - name: gross_rental_yield_pct
         description: "12 * median(alquiler) / median(venta) * 100 when both medians exist."
 
@@ -20,7 +19,7 @@ models:
     description: "Global counts and price stats by operation."
     columns:
       - name: operation
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
               values: ["alquiler", "venta"]
@@ -29,7 +28,7 @@ models:
     description: "Listings where price dropped vs previous observation."
     columns:
       - name: url
-        tests:
+        data_tests:
           - not_null
           - unique
 
@@ -37,38 +36,45 @@ models:
     description: "Transit stop counts and centroid-to-stop distance heuristic."
     columns:
       - name: neighborhood_id
-        tests:
+        data_tests:
           - unique
           - not_null
           - relationships:
-              arguments:
-                to: source('core', 'neighborhoods')
-                field: id
+              to: source('core', 'neighborhoods')
+              field: id
 
   - name: neighborhood_tourism
     description: "VUT counts and density vs total Idealista listings in barrio."
     columns:
       - name: neighborhood_id
-        tests:
+        data_tests:
           - unique
           - not_null
           - relationships:
-              arguments:
-                to: source('core', 'neighborhoods')
-                field: id
+              to: source('core', 'neighborhoods')
+              field: id
 
   - name: neighborhood_profile
     description: "Join of metrics + transport + tourism + investment_score."
     columns:
       - name: neighborhood_id
-        tests:
+        data_tests:
           - unique
           - not_null
           - relationships:
-              arguments:
-                to: source('core', 'neighborhoods')
-                field: id
+              to: source('core', 'neighborhoods')
+              field: id
       - name: investment_score
         description: "Hand-tuned composite (yield, transit bands, tourism pressure)."
-        tests:
+        data_tests:
           - not_null
+
+  - name: parcel_metrics
+    description: "Catastro parcel counts and area distribution per barrio (spatial join)."
+    columns:
+      - name: neighborhood_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: source('core', 'neighborhoods')
+              field: id
