@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 from pathlib import Path
 
 import streamlit as st
@@ -51,6 +52,11 @@ from psycopg2 import errors as pg_errors
 from psycopg2 import sql
 from streamlit_folium import st_folium
 
+from agent.session_memory import (
+    coalesce_session_memory,
+    sync_flat_conversation_state_v1,
+    update_session_memory_from_turn,
+)
 from agent.agent_pipeline import (
     CONVERSATIONAL_SYNTH_MAX_TOKENS,
     build_render_stack,
@@ -1471,6 +1477,12 @@ def render_chat() -> None:
             "turns": 0,
         }
 
+    if "rooster_prompt_cache_key" not in st.session_state:
+        st.session_state.rooster_prompt_cache_key = f"rooster_{uuid.uuid4().hex[:16]}"
+
+    if "session_memory_v2" not in st.session_state:
+        st.session_state.session_memory_v2 = {}
+
     timeout_sec = float(st.session_state.get("query_timeout", QUERY_TIMEOUT_SEC))
     model_choice = st.session_state.get("selected_model") or DEFAULT_SYNTHESISER_MODEL_OPENAI
 
@@ -1569,7 +1581,7 @@ def render_chat() -> None:
         confirmed_for_stream: str | None = None
         val_errs_for_stream: list = []
         openai_precomputed: str | None = None
-        openai_fc_final_messages: list | None = None
+        openai_responses_synthesis: dict | None = None
         openai_fc_max_tokens: int = 0
         had_output_correction: bool = False
 
@@ -1595,6 +1607,8 @@ def render_chat() -> None:
                     float(timeout_sec),
                     engine,
                     last_assistant_context=last_assistant_for_planner,
+                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
+                    previous_planner_response_id=None,
                 )
                 had_output_correction = bool(fc.get("had_output_correction"))
                 if fc.get("error") == "timeout":
@@ -1678,11 +1692,15 @@ def render_chat() -> None:
                         len(openai_precomputed or ""),
                     )
                     _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
-                elif fc.get("final_messages"):
+                elif fc.get("execution_results") is not None:
                     validated_for_stream = fc["validated_plan"]
                     execution_for_stream = fc["execution_results"]
-                    openai_fc_final_messages = fc["final_messages"]
+                    openai_responses_synthesis = fc.get("responses_synthesis")
                     openai_fc_max_tokens = int(fc.get("max_tokens_final") or 200)
+                    if fc.get("planner_response_id"):
+                        st.session_state.rooster_openai_planner_response_id = fc[
+                            "planner_response_id"
+                        ]
                     val_errs_for_stream = list(
                         (validated_for_stream or {}).get("validation_errors") or []
                     )
@@ -1807,13 +1825,14 @@ def render_chat() -> None:
             geo_key = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
                 try:
-                    if openai_fc_final_messages:
+                    if openai_responses_synthesis:
                         chunks: list[str] = []
                         for ch in stream_openai_final_response_messages(
-                            openai_fc_final_messages,
+                            None,
                             model_choice,
                             openai_fc_max_tokens,
                             float(timeout_sec),
+                            responses_synthesis=openai_responses_synthesis,
                         ):
                             chunks.append(ch)
                         full_text = "".join(chunks)
@@ -1864,6 +1883,28 @@ def render_chat() -> None:
                 validated_for_stream,
                 execution_for_stream or [],
             )
+            try:
+                mem0 = coalesce_session_memory(st.session_state.session_memory_v2)
+                tools_used = [
+                    c.get("tool")
+                    for c in (validated_for_stream or {}).get("tool_calls") or []
+                    if isinstance(c, dict)
+                ]
+                mem1 = update_session_memory_from_turn(
+                    mem0,
+                    user_input,
+                    response_text or "",
+                    tools_used=[t for t in tools_used if t],
+                    timeout_sec=min(float(timeout_sec), 20.0),
+                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
+                )
+                st.session_state.session_memory_v2 = mem1.model_dump()
+                st.session_state.conversation_state = sync_flat_conversation_state_v1(
+                    st.session_state.conversation_state,
+                    mem1,
+                )
+            except Exception:
+                pass
             rs = render_stack_for_stream or []
             first_intent = rs[0]["intent"] if rs else "search"
             st.session_state.messages.append({

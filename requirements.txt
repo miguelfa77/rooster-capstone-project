@@ -17,7 +17,9 @@ shapely>=2.0.0
 
 # LLM for natural language → SQL
 google-generativeai>=0.8.0
-openai>=1.0.0
+openai>=1.60.0
+pydantic>=2.5.0
+pyyaml>=6.0.1
 
 # UI (use recent streamlit for protobuf 5 compatibility)
 # blinker>=1.8 removed blinker._saferef (used by selenium-wire / some Streamlit paths). Pin 1.7.x.

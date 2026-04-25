@@ -530,6 +530,9 @@ def render_neighborhood_map(rows: list[dict[str, Any]], metadata: dict[str, Any]
         ),
     ).add_to(m)
     cmap.add_to(m)
+    st.caption(
+        f"Leyenda en el mapa: de {vmin:.3g} (claro) a {vmax:.3g} (intenso) — {cap_lbl}."
+    )
     st_folium(
         m,
         use_container_width=True,
@@ -548,7 +551,7 @@ def render_no_coords_fallback(rows: list[dict[str, Any]], metadata: dict[str, An
 def render_neighborhood_highlight_map(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
     """
     Highlight specific neighborhoods on a basemap; others muted.
-    Used when output_intent is map_neighborhoods (barrio polygons).
+    Used when the planner sets renderer `neighborhood_highlight_map` (barrio polygons).
     """
     df = pd.DataFrame(rows)
     name_c = _find_col_df(df, ("neighborhood_name", "name", "barrio", "neighborhood_raw"))

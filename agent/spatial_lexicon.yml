@@ -1,0 +1,20 @@
+# Qualitative place descriptors -> neighborhood names (as stored in core.neighborhoods / analytics).
+# Keys are controlled vocabulary for intent resolution; values are lists of exact names.
+centro:
+  - "EL CARMEN"
+  - "LA SEU"
+  - "LA XEREA"
+  - "SANT FRANCESC"
+cerca_playa:
+  - "EL CABANYAL - EL CANYAMELAR"
+  - "LA MARINA DE VALÈNCIA (FRONT MARÍTIM)"
+universitario:
+  - "BENIMACLET"
+  - "CIUTAT UNIVERSITARIA"
+familiar:
+  - "BENIMACLET"
+  - "ALBORS"
+  - "BENIFERRI"
+nocturno:
+  - "EL CARMEN"
+  - "RUZAFA"

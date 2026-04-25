@@ -274,10 +274,13 @@ TIMEOUT_PHASE_HINTS = {
 
 # —— Analytics aviso ——
 ANALYTICS_SETUP_MD = (
-    "Faltan las vistas de analytics. Con `dbt/.env` configurado (ver README):\n\n"
-    "`cd dbt && set -a && source .env && set +a && dbt run`\n\n"
-    "Si la vista falla por columnas antiguas en `core.listings` (p. ej. enriquecimiento o `first_seen_at`/`last_seen_at`), ejecuta antes:\n\n"
-    "`psql -d rooster -f sql/migrate_listing_enrichment.sql`"
+    "Faltan las vistas **analytics** (`listing_summary`, `neighborhood_metrics`, etc.). "
+    "Hay que ejecutar **dbt** contra la **misma base** a la que apunta el Streamlit (local o Railway).\n\n"
+    "**1.** En `dbt/`, pon en `.env` el mismo `DATABASE_URL` (o `PG*`) que usa la app.\n\n"
+    "**2.** `cd dbt && set -a && source .env && set +a && dbt run`\n\n"
+    "Si compila y falla por columnas antiguas en `core.listings` (enriquecimiento, "
+    "`first_seen_at`/`last_seen_at`), aplica primero la migración SQL desde la raíz del repo:\n\n"
+    "`psql \"$DATABASE_URL\" -f sql/migrate_listing_enrichment.sql`  (o `psql -d rooster -f ...` en local con DB `rooster`)."
 )
 
 # —— Contexto asistente (LLM) ——

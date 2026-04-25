@@ -1,16 +1,12 @@
 """
-OpenAI Chat Completions tool schemas for Rooster.
-Used with the UI-selected model (no hardcoded model id in call sites).
-
-Each data tool requires ``output_intent`` in its parameters so display intent is
-declared with the same call as the data request.
+OpenAI tool schemas for Rooster (Chat + Responses API).
+Display composition is handled by the render layer; tools only fetch validated data.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# Default renderer before decide_renderer() overrides (matches validate_plan defaults).
 DEFAULT_RENDERER_FOR_TOOL: dict[str, str] = {
     "query_listings": "table",
     "query_neighborhood_profile": "bar_chart",
@@ -18,11 +14,16 @@ DEFAULT_RENDERER_FOR_TOOL: dict[str, str] = {
     "query_tourist_apartments": "tourism_map",
     "query_price_trends": "table",
     "query_chart_data": "chart",
+    "query_parcel_metrics": "table",
+    "compare_neighborhoods": "table",
+    "resolve_spatial_reference": "search",
+    "query_neighborhood_density_chart": "chart",
+    "query_neighborhood_context": "search",
 }
 
 
 def get_rooster_openai_tools() -> list[dict[str, Any]]:
-    """Return the `tools` argument for `client.chat.completions.create`."""
+    """Return the ``tools`` argument for OpenAI tool use (Chat or Responses)."""
     return [
         {
             "type": "function",
@@ -31,7 +32,9 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                 "description": (
                     "Query individual property listings in Valencia. Use when the user wants "
                     "specific properties, apartments to buy or rent, underpriced deals, listings "
-                    "with amenities, or what is available in an area."
+                    "with amenities, or what is available in an area. "
+                    "Do NOT use for barrio-only rankings (use query_neighborhood_profile). "
+                    "Common errors: wrong operation (venta vs alquiler) — follow RESOLVED INTENT."
                 ),
                 "parameters": {
                     "type": "object",
@@ -93,20 +96,7 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "type": "integer",
                             "description": "Max rows (1–100, default 25).",
                         },
-                        "output_intent": {
-                            "type": "string",
-                            "enum": ["map_listings", "table", "cards", "auto"],
-                            "description": (
-                                "REQUIRED. How to display results. "
-                                "map_listings: user said mapa, map, localización, ubicación, "
-                                "enséñame en mapa, show on map, where is. "
-                                "table: user wants a list to browse. "
-                                "cards: single property or brief summary. "
-                                "auto: no clear signal."
-                            ),
-                        },
                     },
-                    "required": ["output_intent"],
                 },
             },
         },
@@ -116,7 +106,9 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                 "name": "query_neighborhood_profile",
                 "description": (
                     "Neighborhood rankings and profiles: yield, investment score, price/m², "
-                    "comparisons, market overview."
+                    "comparisons, market overview. Use for barrio comparisons and investment KPIs. "
+                    "Set chart_style when user asks for charts. "
+                    "Do NOT use for individual listings (use query_listings)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -139,33 +131,11 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "type": "string",
                             "enum": ["bar", "scatter", "auto"],
                             "description": (
-                                "When showing charts (bar_chart or chart intent): "
-                                "bar = horizontal bar ranking (default for many barrios); "
-                                "scatter = yield vs investment score (two metrics); "
-                                "auto = pick from row count."
-                            ),
-                        },
-                        "output_intent": {
-                            "type": "string",
-                            "enum": [
-                                "map_neighborhoods",
-                                "bar_chart",
-                                "chart",
-                                "table",
-                                "cards",
-                                "auto",
-                            ],
-                            "description": (
-                                "REQUIRED. How to display results. "
-                                "map_neighborhoods: barrio polygons on a map. "
-                                "bar_chart or chart: gráfica, chart, graph, visualización, "
-                                "rankings, comparisons — use chart_style for bar vs scatter. "
-                                "cards: KPI cards. table: detailed list. "
-                                "auto: no clear signal."
+                                "For charts: bar = horizontal bar ranking; "
+                                "scatter = yield vs investment score; auto = pick from row count."
                             ),
                         },
                     },
-                    "required": ["output_intent"],
                 },
             },
         },
@@ -174,7 +144,8 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
             "function": {
                 "name": "query_transit_stops",
                 "description": (
-                    "Transit stops (metro, bus) for transport, walkability, connectivity."
+                    "Transit stops (metro, bus) for transport, walkability, connectivity. "
+                    "Prefer this over listings when the user only asks for transport / metro / bus map."
                 ),
                 "parameters": {
                     "type": "object",
@@ -183,16 +154,7 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "type": "string",
                             "description": "Optional barrio filter; omit for city-wide sample.",
                         },
-                        "output_intent": {
-                            "type": "string",
-                            "enum": ["transit_map", "table", "auto"],
-                            "description": (
-                                "REQUIRED. Almost always transit_map. "
-                                "Use table only if the user explicitly asks for a list of stops."
-                            ),
-                        },
                     },
-                    "required": ["output_intent"],
                 },
             },
         },
@@ -201,7 +163,8 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
             "function": {
                 "name": "query_tourist_apartments",
                 "description": (
-                    "Tourist / VUT / short-term rental pressure (viviendas turísticas)."
+                    "Tourist / VUT / short-term rental pressure (viviendas turísticas). "
+                    "Not for long-term rental listings — those are in query_listings (alquiler)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -210,15 +173,7 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "type": "string",
                             "description": "Optional barrio filter; omit for city-wide sample.",
                         },
-                        "output_intent": {
-                            "type": "string",
-                            "enum": ["tourism_map", "table", "auto"],
-                            "description": (
-                                "REQUIRED. Almost always tourism_map."
-                            ),
-                        },
                     },
-                    "required": ["output_intent"],
                 },
             },
         },
@@ -227,7 +182,8 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
             "function": {
                 "name": "query_price_trends",
                 "description": (
-                    "Listings with price drops or price changes (analytics.price_changes)."
+                    "Listings with price drops or price changes (analytics.price_changes). "
+                    "For trend / bajada / subida de precio questions."
                 ),
                 "parameters": {
                     "type": "object",
@@ -241,13 +197,7 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "enum": ["up", "down", "both"],
                             "description": "Price movement direction (default both).",
                         },
-                        "output_intent": {
-                            "type": "string",
-                            "enum": ["bar_chart", "table", "auto"],
-                            "description": "REQUIRED. How to display results.",
-                        },
                     },
-                    "required": ["output_intent"],
                 },
             },
         },
@@ -257,7 +207,7 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                 "name": "query_chart_data",
                 "description": (
                     "Prepare chart data from listings: scatter price vs area, amenity bars, "
-                    "€/m² by floor. UI renders Plotly chart."
+                    "€/m² by floor. NOT for VUT density by barrio (use query_neighborhood_density_chart)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -267,15 +217,135 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                             "enum": ["scatter", "amenity", "floor"],
                             "description": "Chart type (default scatter).",
                         },
-                        "output_intent": {
-                            "type": "string",
-                            "enum": ["chart", "table", "auto"],
-                            "description": (
-                                "REQUIRED. Usually chart for scatter/amenity/floor visuals."
-                            ),
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "query_parcel_metrics",
+                "description": (
+                    "Catastro parcel aggregates by barrio: counts, area distribution (analytics.parcel_metrics). "
+                    "Use for build year / parcel stock questions when the user wants structural stock stats."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "neighborhoods": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Filter to these barrio names; empty = all with parcels.",
                         },
                     },
-                    "required": ["output_intent"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "compare_neighborhoods",
+                "description": (
+                    "One call returning aligned yield, transport, tourism, listing volume, price "
+                    "for several barrios. Use instead of many separate query_neighborhood_profile calls "
+                    "when the user compares 2+ barrios on multiple dimensions."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "neighborhoods": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                            "maxItems": 12,
+                            "description": "Barrio names to compare (exact from LIVE list).",
+                        },
+                        "dimensions": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "yield",
+                                    "investment_score",
+                                    "tourism",
+                                    "transit",
+                                    "prices",
+                                    "volume",
+                                ],
+                            },
+                            "description": "Optional subset; default = all key dimensions.",
+                        },
+                    },
+                    "required": ["neighborhoods"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "resolve_spatial_reference",
+                "description": (
+                    "Map qualitative place phrases (e.g. centro, cerca de la playa) to barrio name lists. "
+                    "Call before filtering listings when the user did not name specific barrios."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reference": {
+                            "type": "string",
+                            "description": "Short phrase, Spanish (e.g. cerca de la playa, zona universitaria).",
+                        },
+                    },
+                    "required": ["reference"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "query_neighborhood_density_chart",
+                "description": (
+                    "VUT / tourist density percentage by barrio for charts (from neighborhood_profile / tourism). "
+                    "Use when the user wants density / pressure visual, not a map of VUT points."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "neighborhoods": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Filter; empty = top barrios by tourist_density_pct.",
+                        },
+                        "metric": {
+                            "type": "string",
+                            "enum": ["tourist_density_pct", "tourist_apt_count"],
+                            "description": "Density % vs raw VUT count.",
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "query_neighborhood_context",
+                "description": (
+                    "Phase 4 / optional: qualitative context snippets about a barrio. "
+                    "Returns empty when knowledge base is disabled. Use for 'vivir en…' / reputation questions."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "neighborhood": {
+                            "type": "string",
+                            "description": "Barrio name.",
+                        },
+                        "topic": {
+                            "type": "string",
+                            "description": "Optional: schools, night life, family, etc.",
+                        },
+                    },
+                    "required": ["neighborhood"],
                 },
             },
         },

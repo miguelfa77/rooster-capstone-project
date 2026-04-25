@@ -17,6 +17,9 @@ proxy.env
 # Local Railway restore credentials (paste from dashboard)
 scripts/railway-restore.env
 scripts/.pgpass_secret
+# pg_dump output for Railway restore (see scripts/pg_dump_for_railway.sh)
+rooster.dump
+/scripts
 
 # Large data directories (not for Git)
 **/data/
