@@ -185,6 +185,29 @@ section[data-testid="stMain"] > div {
   max-width: 24rem;
 }
 
+/* Compact live agent-thought panel inside st.status */
+.rooster-thought-box {
+  margin-top: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  max-height: 9rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.rooster-thought-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 /* User messages: avatar on the right (opposite of assistant) — see Streamlit stChatMessage testids */
 .stChatMessage:has([data-testid="stChatMessageAvatarUser"]) {
   flex-direction: row-reverse !important;
@@ -1483,6 +1506,16 @@ def _render_followup_pills_replay(pills: list[str]) -> None:
     st.caption(" · ".join(pills))
 
 
+def _thought_box_html(text: str) -> str:
+    safe = html.escape(text.strip())
+    return (
+        '<div class="rooster-thought-box">'
+        '<span class="rooster-thought-label">Proceso del agente</span>'
+        f"{safe}"
+        "</div>"
+    )
+
+
 def render_chat() -> None:
     _warn_analytics_missing_once()
 
@@ -1583,6 +1616,21 @@ def render_chat() -> None:
         }
 
         with st.status(UI.STATUS_THINKING, expanded=False) as status:
+            thought_placeholder = st.empty()
+
+            def _update_agent_thought(text: str) -> None:
+                clean = str(text or "").strip()
+                if not clean:
+                    status.update(label=UI.STATUS_QUERY)
+                    thought_placeholder.empty()
+                    return
+                label = clean if len(clean) <= 84 else clean[:81].rstrip() + "…"
+                status.update(label=label, expanded=True)
+                thought_placeholder.markdown(
+                    _thought_box_html(clean),
+                    unsafe_allow_html=True,
+                )
+
             try:
                 t_chat0 = time.perf_counter()
                 status.update(label=UI.STATUS_QUERY)
@@ -1600,9 +1648,7 @@ def render_chat() -> None:
                     last_assistant_context=last_assistant_for_planner,
                     prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     previous_planner_response_id=None,
-                    preamble_callback=lambda text: status.update(
-                        label=text[:140] if text else UI.STATUS_QUERY
-                    ),
+                    preamble_callback=_update_agent_thought,
                 )
                 had_output_correction = bool(fc.get("had_output_correction"))
                 reviewer_verdict_for_stream = fc.get("reviewer_verdict")
