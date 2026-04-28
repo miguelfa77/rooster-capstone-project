@@ -93,7 +93,7 @@ class ResolvedHeuristic(BaseModel):
 
 
 class LiteralValue(BaseModel):
-    kind: Literal["currency", "rooms", "number", "neighborhood", "presentation"]
+    kind: Literal["currency", "rooms", "number", "neighborhood"]
     value: Any
     raw: str
     unit: str | None = None
@@ -105,7 +105,6 @@ class ResolvedQuery(BaseModel):
     resolved_concepts: list[ResolvedConcept] = Field(default_factory=list)
     resolved_heuristics: list[ResolvedHeuristic] = Field(default_factory=list)
     literals: list[LiteralValue] = Field(default_factory=list)
-    presentation_hints: list[str] = Field(default_factory=list)
     unresolved_essential_terms: list[str] = Field(default_factory=list)
     unresolved_flavour_terms: list[str] = Field(default_factory=list)
     match_spans: list[MatchSpan] = Field(default_factory=list)

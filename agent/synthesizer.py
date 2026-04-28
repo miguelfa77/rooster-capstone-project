@@ -115,20 +115,41 @@ CompositePrimitive.model_rebuild()
 
 _HARD_CONSTRAINTS = """HARD CONSTRAINTS — these override all other instructions:
 
-1. PRESENTATION HINTS ARE MANDATORY.
-   The field PRESENTATION_HINTS in your input lists what the user explicitly asked for.
-   These are requirements, not suggestions.
+1. HONOUR THE USER'S OUTPUT REQUEST.
+   Read the USER_MESSAGE carefully. If the user requested a specific output format — in any
+   phrasing, in Spanish or English — you must include the corresponding primitive in your response.
 
-   If PRESENTATION_HINTS contains "map": your primitive list MUST include a map primitive.
-   If PRESENTATION_HINTS contains "scatter": your primitive list MUST include a chart primitive with spec.type = "scatter".
-   If PRESENTATION_HINTS contains "table" or "tabla": your primitive list MUST include a table primitive.
-   If PRESENTATION_HINTS contains "quick_number" or "número rápido": respond with a single kpi primitive and at most one short text primitive.
-   If PRESENTATION_HINTS contains "memo" or "informe": respond with a composite primitive containing structured sections.
+   Use your language understanding. Examples of what this means in practice, though this list is
+   not exhaustive:
+
+   Any request to see data on a map, geographically, spatially, "sobre el plano", "en el mapa",
+   "visualización geográfica", "distribución por zonas", or similar → must include a map primitive.
+
+   Any request for a scatter plot, scatter chart, "gráfico de dispersión", "nube de puntos",
+   "x contra y", "correlación entre", or similar → must include a chart primitive with
+   spec.type "scatter".
+
+   Any request for a table, "en tabla", "listado", "dame los datos", "muéstramelo ordenado",
+   or similar → must include a table primitive.
+
+   Any request for a quick number, "solo el número", "cuánto es", "dime solo",
+   "el dato concreto", or similar → respond with a single kpi primitive and at most one short
+   text primitive. Nothing else.
+
+   Any request for a report, memo, "informe", "análisis completo", "resumen detallado",
+   or similar → respond with a composite primitive with structured sections.
+
+   Any request for a bar chart, ranking chart, "ranking visual", "ordenados en gráfico",
+   or similar → must include a chart primitive with spec.type "bar".
+
+   Any request for a trend, evolution, "cómo ha evolucionado", "a lo largo del tiempo",
+   or similar → must include a chart primitive with spec.type "line".
 
    You may add additional primitives around the required one if they add genuine value.
    You may never omit the required one.
 
-   PRESENTATION_HINTS: {presentation_hints}
+   If the user made no explicit format request, choose the primitives that best answer the
+   question. Use your judgement.
 
 2. NEVER USE RAW FIELD NAMES.
    Internal database identifiers must never appear in text primitives. Always use the Spanish display name.
@@ -165,7 +186,7 @@ Hard rules:
 - Never use raw database field names in text. Use natural Spanish names from resolved_intent where available.
 - Number formatting: Spanish style, e.g. 188.950 €, 7,2 %, counts as integers.
 - Data confidence belongs inline next to the named item, not as a generic trailing caveat.
-- Honor presentation_hints. If the user asked for scatter, produce chart.type=scatter. If they asked for número rápido, produce one kpi plus at most one short text primitive.
+- Honor explicit output-format requests in USER_MESSAGE.
 - Visuals must serve the answer. Do not emit default maps/charts just because data exists.
 - Maximum six top-level primitives.
 
@@ -375,11 +396,9 @@ def synthesize_response(
 
     result_summaries = _build_results_summary_for_synth(agent_results)
     resolved = resolved_intent or {}
-    presentation_hints = list(resolved.get("presentation_hints") or [])
     input_payload: dict[str, Any] = {
         "user_message": user_message,
         "resolved_intent": resolved,
-        "presentation_hints": presentation_hints,
         "session_memory": session_memory or {},
         "agent_results": result_summaries,
     }
@@ -393,7 +412,7 @@ def synthesize_response(
     }
     instructions = "\n\n".join(
         [
-            _HARD_CONSTRAINTS.format(presentation_hints=json.dumps(presentation_hints, ensure_ascii=False)),
+            _HARD_CONSTRAINTS,
             SYNTHESIZER_INSTRUCTIONS,
         ]
     )

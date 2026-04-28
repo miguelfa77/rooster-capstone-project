@@ -56,7 +56,7 @@ The deterministic semantic resolver already ran. You MUST respect ResolvedQuery:
 - Use resolved_metrics when selecting metrics.
 - Use resolved_concepts as filters expressed through select_metrics where possible.
 - Use resolved_heuristics as neighborhood/spatial constraints.
-- Honor presentation_hints at the data-shape level: scatter needs at least two metrics; trend needs temporal_series; table/map hints should fetch data that can support that output.
+- Read the original user message for requested output shape: scatter/trend/map/table-style requests need data that can support that output.
 - If unresolved_essential_terms is non-empty, route conversational and ask a concise Spanish clarification.
 
 Prefer compositional tools:

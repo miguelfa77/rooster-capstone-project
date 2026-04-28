@@ -20,16 +20,12 @@ from agent.responses_api import get_openai_client, reasoning_param_for_model, su
 from agent.semantic_layer.loader import load_registry
 from agent.stage_logging import log_stage
 from agent.synthesizer import (
-    AxisSpec,
     ChartPrimitive,
-    ChartSpec,
     CompositePrimitive,
     KpiPrimitive,
-    MapLayer,
     MapPrimitive,
     PrimitiveBlock,
     SynthesizedResponse,
-    TableColumn,
     TablePrimitive,
     TextPrimitive,
 )
@@ -39,7 +35,7 @@ _LOG = logging.getLogger("rooster.response_reviewer")
 
 class ResponseReviewFailure(BaseModel):
     type: Literal[
-        "presentation_hint_ignored",
+        "output_format_ignored",
         "raw_field_name",
         "confidence_trailing",
         "primitive_count",
@@ -64,15 +60,35 @@ honest, and matches the user's explicit requests.
 
 You will receive:
 - USER_MESSAGE: the original user message in Spanish
-- PRESENTATION_HINTS: list of explicit format requests extracted from the user's message
 - PRIMITIVES: the list of primitives the synthesiser emitted, each with its type and key fields
 - TEXT_CONTENT: the full text of all text primitives combined
 - FORBIDDEN_FIELD_NAMES: list of raw database column names that must never appear in user-facing prose
 
 Check:
-1. PRESENTATION HINTS HONOURED: map requires map; scatter requires chart spec.type=scatter;
-   table/tabla requires table; quick_number/número rápido requires kpi and no more than one
-   additional text primitive; memo/informe requires composite.
+1. OUTPUT FORMAT HONOURED:
+   Read USER_MESSAGE carefully. Determine whether the user requested a specific output format.
+   Use your language understanding — do not look for exact keyword matches.
+
+   If the user requested a map or geographic visualisation in any phrasing: a primitive of type
+   "map" must be present in PRIMITIVES.
+
+   If the user requested a scatter plot or dispersion chart in any phrasing: a primitive of type
+   "chart" with spec.type "scatter" must be present.
+
+   If the user requested a table or ordered list in any phrasing: a primitive of type "table"
+   must be present.
+
+   If the user requested a quick number or single figure in any phrasing: only kpi and at most
+   one text primitive should be present.
+
+   If the user requested a report or detailed analysis in any phrasing: a "composite" primitive
+   must be present.
+
+   If the user made no explicit format request, the synthesiser had discretion. Do not fail on
+   presentation grounds if no format was requested.
+
+   When failing on this check, quote the exact phrase from USER_MESSAGE that constituted the
+   format request, and state which primitive type is missing.
 2. NO RAW FIELD NAMES: no forbidden field name may appear verbatim in TEXT_CONTENT.
 3. CONFIDENCE INLINE: low-confidence caveats must be inline with the named item, not trailing.
 4. PRIMITIVE COUNT APPROPRIATENESS: single-value lookups at most 2 primitives; comparisons or
@@ -80,7 +96,7 @@ Check:
    is a failure unless explicitly conversational.
 5. FOLLOW-UPS PLAUSIBLE: follow_ups should contain 2-3 questions answerable by existing tools.
 
-Return JSON only matching the schema. A presentation_hint_ignored failure is always a hard failure.
+Return JSON only matching the schema. An output_format_ignored failure is always a hard failure.
 """
 
 
@@ -119,55 +135,6 @@ def forbidden_field_names() -> list[str]:
     return sorted(field_name_map())
 
 
-def _rows(raw_json: str) -> list[dict[str, Any]]:
-    try:
-        data = json.loads(raw_json or "[]")
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [row for row in data if isinstance(row, dict)]
-
-
-def _result_rows(agent_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    for result in agent_results or []:
-        rows = result.get("rows") or []
-        if result.get("success") and rows:
-            return [row for row in rows if isinstance(row, dict)]
-    return []
-
-
-def _numeric_fields(rows: list[dict[str, Any]]) -> list[str]:
-    seen: list[str] = []
-    for row in rows:
-        for key, value in row.items():
-            if key in seen or isinstance(value, bool):
-                continue
-            try:
-                float(value)
-            except (TypeError, ValueError):
-                continue
-            seen.append(key)
-    return seen
-
-
-def _name_field(rows: list[dict[str, Any]]) -> str | None:
-    if not rows:
-        return None
-    for key in ("neighborhood_name", "name", "barrio", "neighborhood", "neighborhood_raw"):
-        if any(row.get(key) for row in rows):
-            return key
-    return None
-
-
-def _json_rows(rows: list[dict[str, Any]], limit: int = 40) -> str:
-    return json.dumps(rows[:limit], ensure_ascii=False, default=str)
-
-
-def _display(field: str) -> str:
-    return field_name_map().get(field, field.replace("_", " "))
-
-
 def _text_blocks(primitives: list[PrimitiveBlock]) -> list[str]:
     parts: list[str] = []
     for primitive in primitives:
@@ -197,64 +164,13 @@ def _primitive_summary(primitives: list[PrimitiveBlock]) -> list[dict[str, Any]]
     return out
 
 
-def _has_hint_primitive(hint: str, response: SynthesizedResponse) -> bool:
-    primitives = response.primitives
-    if hint == "scatter":
-        return any(isinstance(p, ChartPrimitive) and p.spec.type == "scatter" for p in primitives)
-    if hint in {"map"}:
-        return any(isinstance(p, MapPrimitive) for p in primitives)
-    if hint in {"table", "tabla"}:
-        return any(isinstance(p, TablePrimitive) for p in primitives)
-    if hint in {"quick_number", "número rápido"}:
-        return any(isinstance(p, KpiPrimitive) for p in primitives)
-    if hint in {"memo", "informe"}:
-        return any(isinstance(p, CompositePrimitive) for p in primitives)
-    return True
-
-
-def _fail(
-    failure_type: Literal[
-        "presentation_hint_ignored",
-        "raw_field_name",
-        "confidence_trailing",
-        "primitive_count",
-        "implausible_followup",
-    ],
-    description: str,
-    correction: str,
-) -> ResponseReviewerVerdict:
-    return ResponseReviewerVerdict(
-        verdict="fail",
-        failures=[
-            ResponseReviewFailure(
-                type=failure_type,
-                description=description,
-                suggested_correction=correction,
-            )
-        ],
-        source="deterministic",
-    )
-
-
 def deterministic_response_review(
     *,
     user_message: str,
-    presentation_hints: list[str],
     response: SynthesizedResponse,
     field_names: list[str] | None = None,
 ) -> ResponseReviewerVerdict | None:
     failures: list[ResponseReviewFailure] = []
-    hints = set(presentation_hints or [])
-    for hint in hints:
-        if not _has_hint_primitive(hint, response):
-            failures.append(
-                ResponseReviewFailure(
-                    type="presentation_hint_ignored",
-                    description=f"Presentation hint '{hint}' was not represented in the primitive list.",
-                    suggested_correction=f"Add the required primitive for presentation hint '{hint}'.",
-                )
-            )
-
     text = "\n".join(_text_blocks(response.primitives))
     lowered_text = text.lower()
     for raw in field_names or forbidden_field_names():
@@ -278,28 +194,12 @@ def deterministic_response_review(
             )
         )
 
-    if len(response.primitives) > 4 and not hints.intersection({"memo", "informe"}):
-        failures.append(
-            ResponseReviewFailure(
-                type="primitive_count",
-                description=f"Response emitted {len(response.primitives)} top-level primitives.",
-                suggested_correction="Keep the response to the required primitive and the smallest useful context.",
-            )
-        )
     if len(response.primitives) > MAX_PRIMITIVES:
         failures.append(
             ResponseReviewFailure(
                 type="primitive_count",
                 description=f"Response emitted more than {MAX_PRIMITIVES} top-level primitives.",
                 suggested_correction=f"Trim the response to at most {MAX_PRIMITIVES} primitives.",
-            )
-        )
-    if hints.intersection({"quick_number", "número rápido"}) and len(response.primitives) > 2:
-        failures.append(
-            ResponseReviewFailure(
-                type="primitive_count",
-                description="Quick-number response used more than two primitives.",
-                suggested_correction="Use one KPI primitive and at most one short text primitive.",
             )
         )
     has_data_primitive = any(
@@ -332,7 +232,6 @@ def deterministic_response_review(
 def review_synthesized_response(
     *,
     user_message: str,
-    presentation_hints: list[str],
     response: SynthesizedResponse,
     model: str | None = None,
     timeout_sec: float = 10.0,
@@ -341,7 +240,6 @@ def review_synthesized_response(
     field_names = forbidden_field_names()
     precheck = deterministic_response_review(
         user_message=user_message,
-        presentation_hints=presentation_hints,
         response=response,
         field_names=field_names,
     )
@@ -356,7 +254,6 @@ def review_synthesized_response(
 
     payload = {
         "user_message": user_message,
-        "presentation_hints": presentation_hints,
         "primitives": _primitive_summary(response.primitives),
         "text_content": "\n".join(_text_blocks(response.primitives)),
         "forbidden_field_names": field_names,
@@ -411,107 +308,13 @@ def format_response_reviewer_correction(verdict: ResponseReviewerVerdict) -> str
     return "\n".join(lines)
 
 
-def _build_table(rows: list[dict[str, Any]]) -> TablePrimitive | None:
-    if not rows:
-        return None
-    columns = [
-        TableColumn(
-            field=key,
-            header=_display(key),
-            formatter="number" if key in _numeric_fields(rows) else "text",
-            alignment="right" if key in _numeric_fields(rows) else "left",
-        )
-        for key in list(rows[0])[:8]
-    ]
-    return TablePrimitive(rows_json=_json_rows(rows), columns=columns)
-
-
-def build_forced_primitive(
-    required_type: str,
-    hint: str,
-    agent_results: list[dict[str, Any]],
-) -> PrimitiveBlock | None:
-    rows = _result_rows(agent_results)
-    if not rows:
-        return None
-    numeric = _numeric_fields(rows)
-    name_field = _name_field(rows)
-    if required_type == "map" and name_field:
-        metric = numeric[0] if numeric else "value"
-        return MapPrimitive(
-            layers=[
-                MapLayer(
-                    type="choropleth",
-                    data_json=_json_rows(rows),
-                    encoding={"metric": metric, "metric_label": _display(metric)},
-                )
-            ],
-            focus=None,
-        )
-    if required_type == "chart" and hint == "scatter" and len(numeric) >= 2:
-        label = name_field or "neighborhood_name"
-        return ChartPrimitive(
-            spec=ChartSpec(
-                type="scatter",
-                x=AxisSpec(field=numeric[0], title=_display(numeric[0]), formatter="number"),
-                y=AxisSpec(field=numeric[1], title=_display(numeric[1]), formatter="number"),
-                label_field=label if label in rows[0] else None,
-                title="Comparativa solicitada",
-            ),
-            data_json=_json_rows(rows),
-        )
-    if required_type == "table":
-        return _build_table(rows)
-    if required_type == "kpi" and numeric:
-        return KpiPrimitive(label=_display(numeric[0]), value=str(rows[0].get(numeric[0])))
-    if required_type == "composite":
-        table = _build_table(rows)
-        blocks: list[PrimitiveBlock] = [
-            TextPrimitive(content="Resumen estructurado con los datos disponibles.", role="lead")
-        ]
-        if table:
-            blocks.append(table)
-        return CompositePrimitive(heading="Informe", blocks=blocks)
-    return None
-
-
 def enforce_hard_constraints(
     response: SynthesizedResponse,
     *,
-    presentation_hints: list[str],
-    agent_results: list[dict[str, Any]],
     mapping: dict[str, str] | None = None,
 ) -> SynthesizedResponse:
     primitives = list(response.primitives)
     fmap = mapping or field_name_map()
-    hint_to_type = {
-        "map": "map",
-        "scatter": "chart",
-        "table": "table",
-        "tabla": "table",
-        "quick_number": "kpi",
-        "número rápido": "kpi",
-        "memo": "composite",
-        "informe": "composite",
-    }
-    for hint in presentation_hints or []:
-        required_type = hint_to_type.get(hint)
-        if not required_type:
-            continue
-        has_required = _has_hint_primitive(hint, response.model_copy(update={"primitives": primitives}))
-        if has_required:
-            continue
-        forced = build_forced_primitive(required_type, hint, agent_results)
-        if forced:
-            primitives.insert(0, forced)
-            log_stage(
-                "reviewer_2",
-                "enforcement",
-                action="presentation_hint_forced",
-                hint=hint,
-                required_type=required_type,
-            )
-
     cleaned: list[PrimitiveBlock] = []
     for primitive in primitives:
         if isinstance(primitive, TextPrimitive):

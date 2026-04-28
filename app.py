@@ -1535,7 +1535,6 @@ def _synthesize_with_response_review(
     prompt_cache_key: str | None,
 ) -> tuple[SynthesizedResponse, dict | None]:
     results = agent_results or []
-    hints = list((resolved_intent or {}).get("presentation_hints") or [])
     synthesized = synthesize_response(
         user_message,
         resolved_intent=resolved_intent,
@@ -1548,7 +1547,6 @@ def _synthesize_with_response_review(
     )
     verdict = review_synthesized_response(
         user_message=user_message,
-        presentation_hints=hints,
         response=synthesized,
         timeout_sec=min(float(timeout_sec), REVIEWER_TIMEOUT_SEC),
         prompt_cache_key=prompt_cache_key,
@@ -1568,7 +1566,6 @@ def _synthesize_with_response_review(
         )
         retry_verdict = review_synthesized_response(
             user_message=user_message,
-            presentation_hints=hints,
             response=synthesized,
             timeout_sec=min(float(timeout_sec), REVIEWER_TIMEOUT_SEC),
             prompt_cache_key=prompt_cache_key,
@@ -1577,8 +1574,6 @@ def _synthesize_with_response_review(
         if retry_verdict.verdict == "fail":
             synthesized = enforce_hard_constraints(
                 synthesized,
-                presentation_hints=hints,
-                agent_results=results,
             )
     linted = lint_primitive_response(synthesized)
     if linted.errors:

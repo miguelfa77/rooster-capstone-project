@@ -45,7 +45,7 @@ charts, or output format — only whether the right data was fetched.
 
 You will receive:
 - RESOLVED_QUERY: the structured interpretation of the user's question,
-  including resolved metrics, concept filters, and presentation hints
+  including resolved metrics and concept filters
 - TOOL_CALLS: the tool calls the planner made, with their parameters
 - DATA_SAMPLE: the first rows of the returned data, with column names
 
@@ -56,10 +56,6 @@ Check the following, in order:
    reflected in the tool call parameters.
 3. NO SILENT SUBSTITUTION: No metric was replaced by a proxy without
    acknowledgment.
-4. DATA SHAPE FOR PRESENTATION: scatter needs two quantitative metrics on
-   the same rows; trend needs temporal_series; map needs neighborhood
-   identifiers or geometry that can support a map.
-
 Do not judge prose, rendering, formatting, or investment quality.
 Return JSON only matching the schema. Be strict. When in doubt, fail with a clear reason.
 """
@@ -175,7 +171,7 @@ def deterministic_review(
     tool_calls: list[dict[str, Any]],
     execution_results: list[dict[str, Any]],
 ) -> ReviewerVerdict | None:
-    requested, filtered, tools = _tool_param_metrics(tool_calls)
+    requested, filtered, _tools = _tool_param_metrics(tool_calls)
     returned = _result_metrics(execution_results)
     available = requested | returned
 
@@ -208,25 +204,6 @@ def deterministic_review(
                 "filter_missing",
             )
 
-    hints = set(resolved_query.presentation_hints)
-    if "scatter" in hints:
-        max_metrics = 0
-        for call in tool_calls or []:
-            params = call.get("params") if isinstance(call.get("params"), dict) else {}
-            metrics = [m for m in params.get("metrics") or [] if isinstance(m, str)]
-            max_metrics = max(max_metrics, len(metrics))
-        if max_metrics < 2:
-            return _fail(
-                "Scatter presentation hint needs at least two fetched metrics.",
-                "Use select_metrics with at least two metrics for the scatter axes.",
-                "shape_mismatch",
-            )
-    if "trend" in hints and "temporal_series" not in tools:
-        return _fail(
-            "Trend presentation hint was not backed by temporal_series.",
-            "Use temporal_series for trend questions.",
-            "shape_mismatch",
-        )
     return None
 
 

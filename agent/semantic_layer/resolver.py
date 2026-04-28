@@ -22,15 +22,6 @@ from agent.semantic_layer.models import (
     SemanticRegistry,
 )
 
-_PRESENTATION_HINTS: dict[str, tuple[str, ...]] = {
-    "scatter": ("scatter", "dispersión", "grafico de dispersion", "gráfico de dispersión"),
-    "table": ("tabla", "table", "en tabla"),
-    "map": ("mapa", "map", "en mapa"),
-    "chart": ("gráfico", "grafico", "chart", "plot"),
-    "quick_number": ("número rápido", "numero rapido", "solo el número", "solo el numero"),
-    "memo": ("memo", "informe", "resumen largo"),
-}
-
 
 @dataclass(frozen=True)
 class _Candidate:
@@ -119,14 +110,6 @@ def _literal_values(text: str) -> list[LiteralValue]:
         out.append(LiteralValue(kind="currency", value=value, raw=match.group(0), unit="EUR"))
     for match in re.finditer(r"(?P<n>\d+)\s*(?:habitaciones|dormitorios|rooms|bedrooms|hab\.?)", text, re.I):
         out.append(LiteralValue(kind="rooms", value=int(match.group("n")), raw=match.group(0)))
-    return out
-
-
-def _presentation_hints(folded_text: str) -> list[str]:
-    out: list[str] = []
-    for hint, terms in _PRESENTATION_HINTS.items():
-        if any(fold_text(term) in folded_text for term in terms):
-            out.append(hint)
     return out
 
 
@@ -243,7 +226,6 @@ def resolve_query(
         resolved_concepts=concepts,
         resolved_heuristics=heuristics,
         literals=literals,
-        presentation_hints=_presentation_hints(folded),
         unresolved_essential_terms=unresolved_essential,
         unresolved_flavour_terms=unresolved_flavour,
         match_spans=[_to_match_span(m) for m in matches],

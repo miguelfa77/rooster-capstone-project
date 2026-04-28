@@ -69,7 +69,6 @@ def run_agent_loop_pipeline(
             "resolved_concepts": [c.model_dump() for c in rq.resolved_concepts],
             "resolved_heuristics": [h.model_dump() for h in rq.resolved_heuristics],
             "literals": [l.model_dump() for l in rq.literals],
-            "presentation_hints": list(rq.presentation_hints),
             "unresolved_essential_terms": list(rq.unresolved_essential_terms),
             "unresolved_flavour_terms": list(rq.unresolved_flavour_terms),
             "needs_clarification": rq.needs_clarification,
@@ -81,15 +80,7 @@ def run_agent_loop_pipeline(
             "recommendation_requested": any(
                 c.key.startswith("buena_zona") for c in rq.resolved_concepts
             ),
-            "depth_preference": "quick" if "quick_number" in rq.presentation_hints else "analytical",
-            "explicit_format_request": next(
-                (
-                    h
-                    for h in rq.presentation_hints
-                    if h in {"table", "map", "chart", "scatter", "memo"}
-                ),
-                "none",
-            ),
+            "depth_preference": "analytical",
         }
 
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
@@ -102,7 +93,6 @@ def run_agent_loop_pipeline(
             metrics=[m.key for m in resolved_query.resolved_metrics],
             concepts=[c.key for c in resolved_query.resolved_concepts],
             heuristics=[h.key for h in resolved_query.resolved_heuristics],
-            presentation_hints=resolved_query.presentation_hints,
             unresolved_essential_terms=resolved_query.unresolved_essential_terms,
             unresolved_flavour_terms=resolved_query.unresolved_flavour_terms,
         )
