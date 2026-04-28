@@ -1,4 +1,4 @@
-"""Meaning reviewer for Rooster v2 Phase D."""
+"""Reviewer 1: data correctness checks for Rooster v2."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent.config import (
     REASONING_REVIEWER,
@@ -23,25 +23,45 @@ from agent.stage_logging import log_stage
 _LOG = logging.getLogger("rooster.reviewer")
 
 
+class ReviewerFailure(BaseModel):
+    type: Literal["substitution", "filter_missing", "metric_absent", "shape_mismatch"]
+    description: str
+    suggested_correction: str
+
+
 class ReviewerVerdict(BaseModel):
     verdict: Literal["pass", "fail"]
     reason: str = ""
     suggested_correction: str = ""
+    failures: list[ReviewerFailure] = Field(default_factory=list)
     source: Literal["deterministic", "llm", "fallback"] = "llm"
 
 
-REVIEWER_INSTRUCTIONS = """You are Rooster's meaning reviewer.
+REVIEWER_INSTRUCTIONS = """You are a data correctness reviewer for a real estate analytics assistant.
 
-Check only whether the executed data requests match the deterministic ResolvedQuery.
-Return JSON matching the schema.
+Your job is narrow and specific: check whether the executed database query
+correctly implements what the user asked for. You are NOT reviewing prose,
+charts, or output format — only whether the right data was fetched.
 
-Fail if:
-- A metric explicitly resolved from the user message is missing from executed tool parameters and result data.
-- A resolved concept's expression is not reflected in filters or fetched metrics.
-- A presentation hint required a data shape that was not fetched: scatter needs at least two metrics; trend needs temporal_series.
-- A tool silently substituted a different metric than the user asked for.
+You will receive:
+- RESOLVED_QUERY: the structured interpretation of the user's question,
+  including resolved metrics, concept filters, and presentation hints
+- TOOL_CALLS: the tool calls the planner made, with their parameters
+- DATA_SAMPLE: the first rows of the returned data, with column names
 
-Do not judge prose, rendering, formatting, or investment quality. Keep reason and suggested_correction concise.
+Check the following, in order:
+1. METRIC PRESENCE: Every metric listed in resolved_metrics appears as a
+   column in the returned data or as an explicit fetched metric.
+2. FILTER IMPLEMENTATION: Every concept expression in resolved_concepts is
+   reflected in the tool call parameters.
+3. NO SILENT SUBSTITUTION: No metric was replaced by a proxy without
+   acknowledgment.
+4. DATA SHAPE FOR PRESENTATION: scatter needs two quantitative metrics on
+   the same rows; trend needs temporal_series; map needs neighborhood
+   identifiers or geometry that can support a map.
+
+Do not judge prose, rendering, formatting, or investment quality.
+Return JSON only matching the schema. Be strict. When in doubt, fail with a clear reason.
 """
 
 
@@ -130,11 +150,22 @@ def _sample_execution(execution_results: list[dict[str, Any]]) -> list[dict[str,
     return sample
 
 
-def _fail(reason: str, correction: str) -> ReviewerVerdict:
+def _fail(
+    reason: str,
+    correction: str,
+    failure_type: Literal["substitution", "filter_missing", "metric_absent", "shape_mismatch"],
+) -> ReviewerVerdict:
     return ReviewerVerdict(
         verdict="fail",
         reason=reason,
         suggested_correction=correction,
+        failures=[
+            ReviewerFailure(
+                type=failure_type,
+                description=reason,
+                suggested_correction=correction,
+            )
+        ],
         source="deterministic",
     )
 
@@ -155,6 +186,7 @@ def deterministic_review(
         return _fail(
             "Missing resolved metric(s): " + ", ".join(missing_metrics),
             "Replan using the exact resolved metric(s): " + ", ".join(missing_metrics),
+            "metric_absent",
         )
 
     for concept in resolved_query.resolved_concepts:
@@ -165,6 +197,7 @@ def deterministic_review(
                 f"Concept '{concept.key}' did not fetch required metric(s): "
                 + ", ".join(missing_concept_metrics),
                 "Fetch the metrics required by the resolved concept expression.",
+                "metric_absent",
             )
         unfiltered = sorted(concept_metrics - filtered)
         if unfiltered:
@@ -172,6 +205,7 @@ def deterministic_review(
                 f"Concept '{concept.key}' was not applied as data-layer filter(s): "
                 + ", ".join(unfiltered),
                 "Apply the resolved concept expression as tool filters before answering.",
+                "filter_missing",
             )
 
     hints = set(resolved_query.presentation_hints)
@@ -185,11 +219,13 @@ def deterministic_review(
             return _fail(
                 "Scatter presentation hint needs at least two fetched metrics.",
                 "Use select_metrics with at least two metrics for the scatter axes.",
+                "shape_mismatch",
             )
     if "trend" in hints and "temporal_series" not in tools:
         return _fail(
             "Trend presentation hint was not backed by temporal_series.",
             "Use temporal_series for trend questions.",
+            "shape_mismatch",
         )
     return None
 
@@ -262,6 +298,12 @@ def review_execution(
 
 
 def format_reviewer_correction(verdict: ReviewerVerdict) -> str:
+    if verdict.failures:
+        failures = "; ".join(
+            f"[{failure.type}] {failure.description} Fix: {failure.suggested_correction}"
+            for failure in verdict.failures
+        )
+        return f"Reviewer 1 failed the executed plan. {failures}"
     reason = verdict.reason.strip() or "Reviewer found a mismatch."
     correction = verdict.suggested_correction.strip() or "Replan with tools that match ResolvedQuery."
-    return f"Reviewer failed the executed plan. Reason: {reason} Correction: {correction}"
+    return f"Reviewer 1 failed the executed plan. Reason: {reason} Correction: {correction}"

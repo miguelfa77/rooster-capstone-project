@@ -175,7 +175,7 @@ def run_agent_loop_pipeline(
         )
         if decision.reasoning_summary and preamble_callback and decision.route == "data":
             try:
-                preamble_callback(decision.reasoning_summary[:140])
+                preamble_callback(decision.reasoning_summary)
             except Exception:
                 pass
 

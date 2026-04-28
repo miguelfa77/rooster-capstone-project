@@ -113,6 +113,49 @@ class SynthesizedResponse(BaseModel):
 CompositePrimitive.model_rebuild()
 
 
+_HARD_CONSTRAINTS = """HARD CONSTRAINTS — these override all other instructions:
+
+1. PRESENTATION HINTS ARE MANDATORY.
+   The field PRESENTATION_HINTS in your input lists what the user explicitly asked for.
+   These are requirements, not suggestions.
+
+   If PRESENTATION_HINTS contains "map": your primitive list MUST include a map primitive.
+   If PRESENTATION_HINTS contains "scatter": your primitive list MUST include a chart primitive with spec.type = "scatter".
+   If PRESENTATION_HINTS contains "table" or "tabla": your primitive list MUST include a table primitive.
+   If PRESENTATION_HINTS contains "quick_number" or "número rápido": respond with a single kpi primitive and at most one short text primitive.
+   If PRESENTATION_HINTS contains "memo" or "informe": respond with a composite primitive containing structured sections.
+
+   You may add additional primitives around the required one if they add genuine value.
+   You may never omit the required one.
+
+   PRESENTATION_HINTS: {presentation_hints}
+
+2. NEVER USE RAW FIELD NAMES.
+   Internal database identifiers must never appear in text primitives. Always use the Spanish display name.
+
+   yield_pct → "rentabilidad bruta de alquiler"
+   median_sale → "precio mediano de venta"
+   median_alquiler → "precio mediano de alquiler"
+   venta_count → "anuncios de venta"
+   alquiler_count → "anuncios de alquiler"
+   investment_score → "puntuación de inversión"
+   tourism_pressure → "presión turística"
+   transit_stop_count → "paradas de transporte cercanas"
+   data_confidence → describe inline as "muestra reducida" for low; do not mention the field
+   eur_per_sqm → "precio por metro cuadrado"
+   value → "puntuación de inversión" when it represents that metric
+
+3. CONFIDENCE IS ALWAYS INLINE.
+   If a neighborhood has data_confidence "low", write "muestra reducida" immediately after the
+   neighborhood's name or value in the same sentence.
+
+   CORRECT: "Sant Isidre (7,5 %, muestra reducida) y Els Orriols (7,6 %)..."
+   WRONG: "Sant Isidre (7,5 %) y Els Orriols (7,6 %)... Ojo: Sant Isidre tiene muestra reducida."
+
+   Never write a trailing caveat paragraph about sample size.
+"""
+
+
 SYNTHESIZER_INSTRUCTIONS = """You are Rooster's Spanish real-estate analyst for Valencia.
 
 Return ONLY JSON matching the provided schema. Compose the answer from the six allowed primitives:
@@ -320,24 +363,44 @@ def synthesize_response(
     model: str | None = None,
     timeout_sec: float = 45.0,
     prompt_cache_key: str | None = None,
+    correction_block: str | None = None,
+    apply_chart_lint: bool = True,
 ) -> SynthesizedResponse:
     """Generate an ordered primitive response."""
     from agent.chart_linter import lint_primitive_response
 
     if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY")):
-        return lint_primitive_response(_sanitize_response(_fallback_response(agent_results))).response
+        fallback = _sanitize_response(_fallback_response(agent_results))
+        return lint_primitive_response(fallback).response if apply_chart_lint else fallback
 
     result_summaries = _build_results_summary_for_synth(agent_results)
-    payload = {
+    resolved = resolved_intent or {}
+    presentation_hints = list(resolved.get("presentation_hints") or [])
+    input_payload: dict[str, Any] = {
         "user_message": user_message,
-        "resolved_intent": resolved_intent or {},
+        "resolved_intent": resolved,
+        "presentation_hints": presentation_hints,
         "session_memory": session_memory or {},
         "agent_results": result_summaries,
     }
+    if correction_block:
+        input_payload = {
+            "correction_required": correction_block,
+            **input_payload,
+        }
+    payload = {
+        **input_payload,
+    }
+    instructions = "\n\n".join(
+        [
+            _HARD_CONSTRAINTS.format(presentation_hints=json.dumps(presentation_hints, ensure_ascii=False)),
+            SYNTHESIZER_INSTRUCTIONS,
+        ]
+    )
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
     kwargs: dict[str, Any] = {
         "model": model_name,
-        "instructions": SYNTHESIZER_INSTRUCTIONS,
+        "instructions": instructions,
         "input": json.dumps(payload, ensure_ascii=False, default=str),
         "text_format": SynthesizedResponse,
         "max_output_tokens": SYNTHESIZER_MAX_OUTPUT_TOKENS,
@@ -355,22 +418,25 @@ def synthesize_response(
         out = parsed.output_parsed
         if isinstance(out, SynthesizedResponse):
             sanitized = _sanitize_response(out)
-            linted = lint_primitive_response(sanitized)
-            if linted.errors:
+            linted = lint_primitive_response(sanitized) if apply_chart_lint else None
+            response = linted.response if linted else sanitized
+            if linted and linted.errors:
                 _LOG.warning("primitive_linter_errors=%s", linted.errors)
-            _LOG.info("synthesized_response=%s", linted.response.model_dump_json())
+            _LOG.info("synthesized_response=%s", response.model_dump_json())
             log_stage(
                 "synthesizer",
                 "primitive_response",
-                primitive_kinds=[p.kind for p in linted.response.primitives],
-                follow_up_count=len(linted.response.follow_ups),
-                linter_errors=linted.errors,
-                linter_modifications=linted.modifications,
+                primitive_kinds=[p.kind for p in response.primitives],
+                follow_up_count=len(response.follow_ups),
+                linter_errors=linted.errors if linted else [],
+                linter_modifications=linted.modifications if linted else [],
+                reviewer_retry=bool(correction_block),
             )
-            return linted.response
+            return response
     except Exception as exc:
         _LOG.exception("primitive_synthesis_failed: %s", exc)
-    return lint_primitive_response(_sanitize_response(_fallback_response(agent_results))).response
+    fallback = _sanitize_response(_fallback_response(agent_results))
+    return lint_primitive_response(fallback).response if apply_chart_lint else fallback
 
 
 def synthesized_text(synthesized: SynthesizedResponse) -> str:
