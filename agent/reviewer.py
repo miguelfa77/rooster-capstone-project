@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent.config import (
     REASONING_REVIEWER,
@@ -15,7 +15,12 @@ from agent.config import (
     REVIEWER_RESULT_SAMPLE_DISPLAY_ROWS,
     REVIEWER_RESULT_SAMPLE_ROWS,
 )
-from agent.responses_api import get_openai_client, reasoning_param_for_model, supports_temperature
+from agent.responses_api import (
+    get_openai_client,
+    parse_strict_response,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 from agent.semantic_layer.models import ResolvedQuery
 from agent.semantic_layer.sql_builder import metric_keys
 from agent.stage_logging import log_stage
@@ -23,13 +28,17 @@ from agent.stage_logging import log_stage
 _LOG = logging.getLogger("rooster.reviewer")
 
 
-class ReviewerFailure(BaseModel):
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReviewerFailure(StrictBaseModel):
     type: Literal["substitution", "filter_missing", "metric_absent", "shape_mismatch"]
     description: str
     suggested_correction: str
 
 
-class ReviewerVerdict(BaseModel):
+class ReviewerVerdict(StrictBaseModel):
     verdict: Literal["pass", "fail"]
     reason: str = ""
     suggested_correction: str = ""
@@ -256,8 +265,11 @@ def review_execution(
         kwargs["reasoning"] = rpar
 
     try:
-        parsed = get_openai_client(timeout_sec).responses.parse(**kwargs)
-        out = parsed.output_parsed
+        out, _response = parse_strict_response(
+            get_openai_client(timeout_sec),
+            ReviewerVerdict,
+            **kwargs,
+        )
         if isinstance(out, ReviewerVerdict):
             out.source = "llm"
             _LOG.info("reviewer_verdict=%s", out.model_dump_json())

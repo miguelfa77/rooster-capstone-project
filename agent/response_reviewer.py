@@ -8,7 +8,7 @@ import os
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent.config import (
     MAX_PRIMITIVES,
@@ -16,7 +16,12 @@ from agent.config import (
     REVIEWER_MAX_OUTPUT_TOKENS,
     REVIEWER_MODEL_DEFAULT,
 )
-from agent.responses_api import get_openai_client, reasoning_param_for_model, supports_temperature
+from agent.responses_api import (
+    get_openai_client,
+    parse_strict_response,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 from agent.semantic_layer.loader import load_registry
 from agent.stage_logging import log_stage
 from agent.synthesizer import (
@@ -33,7 +38,11 @@ from agent.synthesizer import (
 _LOG = logging.getLogger("rooster.response_reviewer")
 
 
-class ResponseReviewFailure(BaseModel):
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ResponseReviewFailure(StrictBaseModel):
     type: Literal[
         "output_format_ignored",
         "raw_field_name",
@@ -45,7 +54,7 @@ class ResponseReviewFailure(BaseModel):
     suggested_correction: str
 
 
-class ResponseReviewerVerdict(BaseModel):
+class ResponseReviewerVerdict(StrictBaseModel):
     verdict: Literal["pass", "fail"]
     failures: list[ResponseReviewFailure] = Field(default_factory=list)
     source: Literal["deterministic", "llm", "fallback"] = "llm"
@@ -276,8 +285,11 @@ def review_synthesized_response(
         kwargs["reasoning"] = rpar
 
     try:
-        parsed = get_openai_client(timeout_sec).responses.parse(**kwargs)
-        out = parsed.output_parsed
+        out, _response = parse_strict_response(
+            get_openai_client(timeout_sec),
+            ResponseReviewerVerdict,
+            **kwargs,
+        )
         if isinstance(out, ResponseReviewerVerdict):
             out.source = "llm"
             log_stage("reviewer_2", "verdict", **out.model_dump())

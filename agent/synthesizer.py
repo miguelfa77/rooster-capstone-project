@@ -5,11 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
-from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent.config import (
     MAX_PRIMITIVES,
@@ -19,80 +17,31 @@ from agent.config import (
     SYNTHESIZER_MAX_OUTPUT_TOKENS,
     SYNTHESIZER_MODEL_DEFAULT,
 )
-from agent.responses_api import get_openai_client, reasoning_param_for_model, supports_temperature
+from agent.responses_api import (
+    get_openai_client,
+    parse_strict_response,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 from agent.stage_logging import log_stage
 
 _LOG = logging.getLogger("rooster.synthesizer")
-_DEBUG_LOG_PATH = Path("/Users/miguelfa/Projects/rooster-capstone-project/.cursor/debug-3ce0b8.log")
-
-
-# region agent log
-def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    try:
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "sessionId": "3ce0b8",
-            "runId": "initial",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-    except Exception:
-        pass
-
-
-def _schema_object_violations(schema: dict[str, Any]) -> list[dict[str, Any]]:
-    violations: list[dict[str, Any]] = []
-
-    def walk(node: Any, path: str) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "object" or "properties" in node:
-                props = node.get("properties") if isinstance(node.get("properties"), dict) else {}
-                required = node.get("required")
-                prop_keys = sorted(props)
-                required_keys = sorted(required) if isinstance(required, list) else None
-                if required_keys != prop_keys:
-                    violations.append(
-                        {
-                            "path": path,
-                            "kind": "required_mismatch",
-                            "properties": prop_keys,
-                            "required": required,
-                        }
-                    )
-                if node.get("additionalProperties") is not False:
-                    violations.append(
-                        {
-                            "path": path,
-                            "kind": "additionalProperties_not_false",
-                            "additionalProperties": node.get("additionalProperties"),
-                        }
-                    )
-            for key, value in node.items():
-                walk(value, f"{path}.{key}")
-        elif isinstance(node, list):
-            for idx, value in enumerate(node):
-                walk(value, f"{path}[{idx}]")
-
-    walk(schema, "$")
-    return violations
-# endregion
 
 PrimitiveKind = Literal["text", "kpi", "table", "chart", "map", "composite"]
 
 
-class TextPrimitive(BaseModel):
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class TextPrimitive(StrictBaseModel):
     kind: Literal["text"] = "text"
     content: str
     role: Literal["lead", "analysis", "recommendation", "caveat", "enumeration_intro"] = "analysis"
     cited_data: list[str] = Field(default_factory=list)
 
 
-class KpiPrimitive(BaseModel):
+class KpiPrimitive(StrictBaseModel):
     kind: Literal["kpi"] = "kpi"
     label: str
     value: str
@@ -100,7 +49,7 @@ class KpiPrimitive(BaseModel):
     delta: str | None = None
 
 
-class TableColumn(BaseModel):
+class TableColumn(StrictBaseModel):
     field: str
     header: str
     formatter: Literal["text", "currency", "percentage", "integer", "number", "link", "neighborhood-name"] = "text"
@@ -108,20 +57,20 @@ class TableColumn(BaseModel):
     width_hint: Literal["narrow", "medium", "wide"] = "medium"
 
 
-class TablePrimitive(BaseModel):
+class TablePrimitive(StrictBaseModel):
     kind: Literal["table"] = "table"
     rows_json: str = Field(default="[]", description="JSON array of row objects.")
     columns: list[TableColumn] = Field(default_factory=list)
 
 
-class AxisSpec(BaseModel):
+class AxisSpec(StrictBaseModel):
     field: str
     title: str
     type: Literal["quantitative", "nominal", "temporal"] = "quantitative"
     formatter: Literal["currency", "percentage", "integer", "number", "text", "date"] = "number"
 
 
-class ChartSpec(BaseModel):
+class ChartSpec(StrictBaseModel):
     type: Literal["bar", "line", "scatter", "histogram", "choropleth", "density"]
     x: AxisSpec | None = None
     y: AxisSpec | None = None
@@ -131,25 +80,32 @@ class ChartSpec(BaseModel):
     title: str | None = None
 
 
-class ChartPrimitive(BaseModel):
+class ChartPrimitive(StrictBaseModel):
     kind: Literal["chart"] = "chart"
     spec: ChartSpec
     data_json: str = Field(default="[]", description="JSON array of row objects.")
 
 
-class MapLayer(BaseModel):
+class MapEncoding(StrictBaseModel):
+    metric: str | None = None
+    metric_label: str | None = None
+    color_field: str | None = None
+    label_field: str | None = None
+
+
+class MapLayer(StrictBaseModel):
     type: Literal["markers", "choropleth", "polygons"]
     data_json: str = Field(default="[]", description="JSON array of row objects for this layer.")
-    encoding: dict[str, str] = Field(default_factory=dict)
+    encoding: MapEncoding = Field(default_factory=MapEncoding)
 
 
-class MapPrimitive(BaseModel):
+class MapPrimitive(StrictBaseModel):
     kind: Literal["map"] = "map"
     layers: list[MapLayer] = Field(default_factory=list)
     focus: str | None = None
 
 
-class CompositePrimitive(BaseModel):
+class CompositePrimitive(StrictBaseModel):
     kind: Literal["composite"] = "composite"
     heading: str | None = None
     blocks: list["PrimitiveBlock"] = Field(default_factory=list)
@@ -165,7 +121,7 @@ PrimitiveBlock = (
 )
 
 
-class SynthesizedResponse(BaseModel):
+class SynthesizedResponse(StrictBaseModel):
     primitives: list[PrimitiveBlock] = Field(default_factory=list)
     follow_ups: list[str] = Field(default_factory=list)
 
@@ -477,16 +433,6 @@ def synthesize_response(
         ]
     )
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
-    schema_violations = _schema_object_violations(SynthesizedResponse.model_json_schema())
-    _debug_log(
-        "H4",
-        "agent/synthesizer.py:synthesize_response",
-        "SynthesizedResponse structured output schema audit before OpenAI call",
-        {
-            "violation_count": len(schema_violations),
-            "violations_sample": schema_violations[:12],
-        },
-    )
     kwargs: dict[str, Any] = {
         "model": model_name,
         "instructions": instructions,
@@ -503,8 +449,11 @@ def synthesize_response(
         kwargs["reasoning"] = rpar
 
     try:
-        parsed = get_openai_client(timeout_sec).responses.parse(**kwargs)
-        out = parsed.output_parsed
+        out, _response = parse_strict_response(
+            get_openai_client(timeout_sec),
+            SynthesizedResponse,
+            **kwargs,
+        )
         if isinstance(out, SynthesizedResponse):
             sanitized = _sanitize_response(out)
             linted = lint_primitive_response(sanitized) if apply_chart_lint else None

@@ -7,10 +7,15 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from agent.config import REASONING_REVIEWER, REVIEWER_MODEL_DEFAULT
-from agent.responses_api import get_openai_client, reasoning_param_for_model, supports_temperature
+from agent.responses_api import (
+    get_openai_client,
+    parse_strict_response,
+    reasoning_param_for_model,
+    supports_temperature,
+)
 from agent.semantic_layer.loader import load_registry
 from agent.semantic_layer.models import (
     ConceptEntry,
@@ -29,6 +34,8 @@ from agent.stage_logging import log_stage
 
 
 class ClarificationNeed(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     needs_clarification: bool
     reason: str = ""
 
@@ -210,8 +217,11 @@ def _classify_clarification_need(term: str, user_message: str) -> ClarificationN
     if rpar is not None:
         kwargs["reasoning"] = rpar
     try:
-        parsed = get_openai_client(8.0).responses.parse(**kwargs)
-        out = parsed.output_parsed
+        out, _response = parse_strict_response(
+            get_openai_client(8.0),
+            ClarificationNeed,
+            **kwargs,
+        )
         if isinstance(out, ClarificationNeed):
             log_stage(
                 "semantic_resolver",

@@ -131,7 +131,12 @@ def _render_chart(primitive: ChartPrimitive, geo_key: int) -> None:
 def _render_map(primitive: MapPrimitive, geo_key: int) -> None:
     for idx, layer in enumerate(primitive.layers):
         rows = _rows(layer.data_json)
-        meta = {"geo_key": f"{geo_key}_{idx}", **dict(layer.encoding or {})}
+        encoding = (
+            layer.encoding.model_dump(exclude_none=True)
+            if hasattr(layer.encoding, "model_dump")
+            else dict(layer.encoding or {})
+        )
+        meta = {"geo_key": f"{geo_key}_{idx}", **encoding}
         if layer.type == "markers":
             dispatch("geo_map", rows, meta, "")
         elif layer.type == "choropleth":

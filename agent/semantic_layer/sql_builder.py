@@ -7,9 +7,6 @@ plus listing snapshot trends.
 
 from __future__ import annotations
 
-import json
-import time
-from pathlib import Path
 from typing import Any
 
 from agent.render_thresholds import (
@@ -22,27 +19,6 @@ from agent.semantic_layer.models import MetricEntry
 FILTER_OPERATORS = {">=", "<=", ">", "<", "=", "!=", "in", "not_in"}
 AGGREGATIONS = {"mean", "median", "p25", "p75", "min", "max", "count", "stddev"}
 TIME_GRANULARITIES = {"month", "quarter", "snapshot"}
-_DEBUG_LOG_PATH = Path("/Users/miguelfa/Projects/rooster-capstone-project/.cursor/debug-3ce0b8.log")
-
-
-# region agent log
-def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    try:
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "sessionId": "3ce0b8",
-            "runId": "initial",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-    except Exception:
-        pass
-# endregion
 
 _AGG_SQL = {
     "mean": "AVG({col})",
@@ -134,12 +110,29 @@ def _range_check(metric: str, value: Any) -> None:
 
 
 def _filters_sql(filters: Any, bind: dict[str, Any]) -> list[str]:
+    if isinstance(filters, list):
+        converted: dict[str, dict[str, Any]] = {}
+        for item in filters:
+            if not isinstance(item, dict):
+                continue
+            metric = item.get("field") or item.get("metric")
+            if not isinstance(metric, str):
+                continue
+            op = item.get("op") or item.get("operator")
+            spec: dict[str, Any] = {"operator": op, "value": item.get("value")}
+            if op == "not_null" or item.get("not_null") is True:
+                spec["not_null"] = True
+            converted[metric] = spec
+        filters = converted
     if not isinstance(filters, dict):
         return []
     out: list[str] = []
     for metric, spec in filters.items():
         if metric not in metric_entries() or not isinstance(spec, dict):
             raise ValueError(f"Invalid filter metric: {metric}")
+        if spec.get("not_null") is True or spec.get("op") == "not_null" or spec.get("operator") == "not_null":
+            out.append(f"{metric_column(metric)} IS NOT NULL")
+            continue
         op = str(spec.get("operator") or "=").strip()
         if op not in FILTER_OPERATORS:
             raise ValueError(f"Invalid operator for {metric}: {op}")
@@ -188,21 +181,8 @@ def build_select_metrics_sql(params: dict[str, Any]) -> tuple[str, dict[str, Any
         if keys:
             where.append(f"np.neighborhood_name IN ({', '.join(keys)})")
     order_by = params.get("order_by") or {}
-    _debug_log(
-        "H3",
-        "agent/semantic_layer/sql_builder.py:build_select_metrics_sql",
-        "select_metrics SQL builder pre-order_by access",
-        {
-            "params_type": type(params).__name__,
-            "metrics": metrics,
-            "filters_type": type(params.get("filters")).__name__,
-            "filters_preview": params.get("filters"),
-            "order_by_type": type(order_by).__name__,
-            "order_by_preview": order_by,
-            "min_listings_type": type(params.get("min_listings")).__name__,
-            "neighborhoods_type": type(nbs).__name__,
-        },
-    )
+    if not isinstance(order_by, dict):
+        order_by = {}
     if isinstance(order_by, dict) and order_by.get("metric") in metrics:
         order_metric = str(order_by["metric"])
     else:

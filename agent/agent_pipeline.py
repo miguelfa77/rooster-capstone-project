@@ -9,7 +9,6 @@ import re
 import time
 import unicodedata
 from difflib import SequenceMatcher
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -28,27 +27,6 @@ from agent.semantic_layer.sql_builder import (
 )
 
 _LOG = logging.getLogger("rooster.agent")
-_DEBUG_LOG_PATH = Path("/Users/miguelfa/Projects/rooster-capstone-project/.cursor/debug-3ce0b8.log")
-
-
-# region agent log
-def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    try:
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "sessionId": "3ce0b8",
-            "runId": "initial",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-    except Exception:
-        pass
-# endregion
 
 
 def _sql_escape(s: str) -> str:
@@ -386,7 +364,7 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
         if not isinstance(call, dict):
             continue
         tool = call.get("tool")
-        params = dict(call.get("params") or {})
+        params = _coerce_tool_params(call.get("params"))
         if not isinstance(tool, str) or not tool:
             errors.append("Invalid tool call")
             continue
@@ -665,19 +643,22 @@ def resolve_spatial_reference_fn(params: dict[str, Any], engine) -> list[dict[st
     return out
 
 
+def _coerce_tool_params(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(raw, dict):
+            return dict(raw)
+    if isinstance(raw, list) and len(raw) == 1 and isinstance(raw[0], dict):
+        return dict(raw[0])
+    return {}
+
+
 def select_metrics_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
-    _debug_log(
-        "H2,H3",
-        "agent/agent_pipeline.py:select_metrics_fn",
-        "select_metrics executor received params",
-        {
-            "params_type": type(params).__name__,
-            "params_preview": params,
-            "order_by_type": type(params.get("order_by")).__name__ if isinstance(params, dict) else None,
-            "filters_type": type(params.get("filters")).__name__ if isinstance(params, dict) else None,
-            "metrics_type": type(params.get("metrics")).__name__ if isinstance(params, dict) else None,
-        },
-    )
     sql, bind = build_select_metrics_sql(params)
     df = pd.read_sql(text(sql), engine, params=bind)
     return add_data_confidence(df.to_dict("records"))
@@ -714,23 +695,9 @@ def execute_plan(
     results: list[dict[str, Any]] = []
     for call in validated_plan.get("tool_calls") or []:
         tool = call.get("tool")
-        params = dict(call.get("params") or {})
+        params = _coerce_tool_params(call.get("params"))
         _sql_meta_keys = frozenset({"chart_style"})
         sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
-        if tool == "select_metrics":
-            _debug_log(
-                "H2",
-                "agent/agent_pipeline.py:execute_plan",
-                "execute_plan prepared select_metrics params",
-                {
-                    "call_type": type(call).__name__,
-                    "raw_params_type": type(call.get("params")).__name__,
-                    "raw_params_preview": call.get("params"),
-                    "params_keys": list(params.keys()),
-                    "sql_params_preview": sql_params,
-                    "nested_types": {k: type(v).__name__ for k, v in sql_params.items()},
-                },
-            )
         if tool == "query_listings":
             sql_params = _normalize_query_listings_room_params(sql_params, user_message)
         tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
