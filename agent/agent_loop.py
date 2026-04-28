@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
-import json
-import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
-MAX_STEPS_DEFAULT = int(os.environ.get("ROOSTER_MAX_AGENT_STEPS", "3"))
+from agent.config import (
+    MAX_AGENT_STEPS_DEFAULT,
+    MAX_AGENT_STEPS_RECOMMENDATION,
+    REVIEWER_TIMEOUT_SEC,
+    SYNTHESIZER_MODEL_DEFAULT,
+)
+from agent.stage_logging import log_stage
+
+MAX_STEPS_DEFAULT = MAX_AGENT_STEPS_DEFAULT
 
 
 def compute_max_steps(resolved_intent: dict[str, Any] | None) -> int:
     if not resolved_intent:
-        return min(MAX_STEPS_DEFAULT, 3)
+        return MAX_STEPS_DEFAULT
     if resolved_intent.get("comparison_mode") == "find_best" or resolved_intent.get(
         "recommendation_requested"
     ):
-        return min(5, max(MAX_STEPS_DEFAULT, 5))
-    return min(MAX_STEPS_DEFAULT, 3)
+        return max(MAX_STEPS_DEFAULT, MAX_AGENT_STEPS_RECOMMENDATION)
+    return MAX_STEPS_DEFAULT
 
 
 def run_agent_loop(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -40,133 +45,142 @@ def run_agent_loop_pipeline(
     preamble_callback=None,
 ) -> dict[str, Any]:
     """
-    Phase 2/3 loop: planner -> validate -> execute -> feed tool outputs back while
-    budget remains. Rendering is composed later by RenderPlan.
+    Unified planner loop: resolve semantics, route conversational/data, validate,
+    execute, then optionally re-plan while budget remains.
     """
     from agent.agent_pipeline import (
         _build_results_summary_for_synth,
         _infer_combine_maps_from_tools,
         _infer_plan_neighborhood_resolved,
-        _openai_fc_first_completion,
-        build_openai_first_turn_messages,
         execute_plan,
         format_output_completeness_correction,
         format_validation_plan_correction,
-        openai_tool_calls_to_plan_calls,
         validate_output_completeness,
         validate_plan,
     )
-    from agent.intent_resolver import resolve_intent
-    from agent.responses_api import (
-        chat_tools_to_responses_tools,
-        create_response_with_tools,
-        extract_response_text,
-        get_openai_client,
-        output_items_to_tool_calls_compat,
-        tool_json_payloads_to_responses_input,
-    )
-    from agent.openai_tools import get_rooster_openai_tools
+    from agent.planner import plan_query, planner_tool_calls_to_plan_calls
+    from agent.reviewer import format_reviewer_correction, review_execution
+    from agent.semantic_layer.resolver import clarification_message, resolve_query
+    from agent.semantic_layer.models import ResolvedQuery
 
-    model_name = model or os.getenv("SYNTHESISER_MODEL", "gpt-5.5")
-    combined_schema = f"{live_schema_context}\n\n=== STATIC ===\n{static_schema}"
+    def _intent_from_resolved_query(rq: ResolvedQuery) -> dict[str, Any]:
+        return {
+            "resolved_metrics": [m.model_dump() for m in rq.resolved_metrics],
+            "resolved_concepts": [c.model_dump() for c in rq.resolved_concepts],
+            "resolved_heuristics": [h.model_dump() for h in rq.resolved_heuristics],
+            "literals": [l.model_dump() for l in rq.literals],
+            "presentation_hints": list(rq.presentation_hints),
+            "unresolved_essential_terms": list(rq.unresolved_essential_terms),
+            "unresolved_flavour_terms": list(rq.unresolved_flavour_terms),
+            "needs_clarification": rq.needs_clarification,
+            "comparison_mode": (
+                "find_best"
+                if any(c.key.startswith("buena_zona") for c in rq.resolved_concepts)
+                else "explore"
+            ),
+            "recommendation_requested": any(
+                c.key.startswith("buena_zona") for c in rq.resolved_concepts
+            ),
+            "depth_preference": "quick" if "quick_number" in rq.presentation_hints else "analytical",
+            "explicit_format_request": next(
+                (
+                    h
+                    for h in rq.presentation_hints
+                    if h in {"table", "map", "chart", "scatter", "memo"}
+                ),
+                "none",
+            ),
+        }
+
+    model_name = model or SYNTHESIZER_MODEL_DEFAULT
     try:
-        ri = resolve_intent(
-            user_input,
-            conversation_state,
-            combined_schema,
-            timeout_sec=min(float(timeout_sec), 25.0),
-            prompt_cache_key=prompt_cache_key,
+        resolved_query = resolve_query(user_input)
+        resolved_intent_dict: dict[str, Any] | None = _intent_from_resolved_query(resolved_query)
+        log_stage(
+            "semantic_resolver",
+            "resolved",
+            metrics=[m.key for m in resolved_query.resolved_metrics],
+            concepts=[c.key for c in resolved_query.resolved_concepts],
+            heuristics=[h.key for h in resolved_query.resolved_heuristics],
+            presentation_hints=resolved_query.presentation_hints,
+            unresolved_essential_terms=resolved_query.unresolved_essential_terms,
+            unresolved_flavour_terms=resolved_query.unresolved_flavour_terms,
         )
-        resolved_intent_dict: dict[str, Any] | None = ri.model_dump()
     except Exception:
+        resolved_query = resolve_query("")
         resolved_intent_dict = None
+        log_stage("semantic_resolver", "failed", user_message=user_input)
+
+    clarification = clarification_message(resolved_query)
+    if clarification:
+        log_stage(
+            "semantic_resolver",
+            "clarification_required",
+            unresolved_essential_terms=resolved_query.unresolved_essential_terms,
+        )
+        return {
+            "error": None,
+            "conversational_text": clarification,
+            "validated_plan": None,
+            "execution_results": None,
+            "max_tokens_final": 0,
+            "validation_failed": False,
+            "validation_errors": [],
+            "had_output_correction": False,
+            "had_validation_replan": False,
+            "had_reviewer_replan": False,
+            "reviewer_verdict": None,
+            "planner_response_id": None,
+            "responses_synthesis": None,
+            "resolved_intent": resolved_intent_dict,
+        }
 
     max_steps = compute_max_steps(resolved_intent_dict)
     correction_hint: str | None = None
     had_output_correction = False
     had_validation_replan = False
+    had_reviewer_replan = False
+    reviewer_verdict: dict[str, Any] | None = None
 
-    all_tcalls: list[Any] = []
     all_execution: list[dict[str, Any]] = []
     validation_errors: list[str] = []
     last_validated: dict[str, Any] = {}
     planner_response_id: str | None = previous_planner_response_id
     completed_tool_path = False
-    last_response: Any = None
-
-    client = get_openai_client(max(timeout_sec, 35.0))
-    tools = chat_tools_to_responses_tools(get_rooster_openai_tools())
+    planned_call_count = 0
 
     for step in range(max_steps):
-        if step == 0 or correction_hint:
-            first_messages = build_openai_first_turn_messages(
-                user_input,
-                conversation_state,
-                conversation_context,
-                live_schema_context,
-                static_schema,
-                correction_hint=correction_hint,
-                last_assistant_context=last_assistant_context,
-                resolved_intent=resolved_intent_dict,
-            )
-
-            def _run_first() -> Any:
-                return _openai_fc_first_completion(
-                    first_messages,
-                    model_name,
-                    timeout_sec,
-                    prompt_cache_key=prompt_cache_key,
-                    previous_response_id=planner_response_id,
-                )
-
+        previous_results = _build_results_summary_for_synth(all_execution[-8:])
+        decision, response_id = plan_query(
+            user_input,
+            resolved_query=resolved_query,
+            session_memory=conversation_state,
+            live_schema_snapshot=f"{live_schema_context}\n\n=== STATIC ===\n{static_schema}",
+            conversation_context=conversation_context,
+            last_assistant_context=last_assistant_context,
+            correction_hint=correction_hint,
+            previous_results=previous_results,
+            model=model_name,
+            prompt_cache_key=prompt_cache_key,
+            timeout_sec=timeout_sec,
+        )
+        planner_response_id = response_id or planner_response_id
+        log_stage(
+            "planner",
+            "decision",
+            step=step + 1,
+            route=decision.route,
+            tool_calls=[call.tool for call in decision.tool_calls],
+            correction_hint=bool(correction_hint),
+        )
+        if decision.reasoning_summary and preamble_callback and decision.route == "data":
             try:
-                with ThreadPoolExecutor(max_workers=1) as ex:
-                    response = ex.submit(_run_first).result(timeout=timeout_sec)
-            except FuturesTimeoutError:
-                return {
-                    "error": "timeout",
-                    "had_validation_replan": had_validation_replan,
-                    "resolved_intent": resolved_intent_dict,
-                }
-        else:
-            followup_user = (
-                "Ya tienes estos resultados. Si falta una consulta necesaria para responder, "
-                "llama otra herramienta. Si no falta nada, responde solo DONE."
-            )
-            pairs: list[tuple[str, str]] = []
-            for tc in all_tcalls[-8:]:
-                er = next(
-                    (r for r in all_execution if r.get("tool_call_id") == getattr(tc, "id", None)),
-                    None,
-                )
-                summ = _build_results_summary_for_synth([er]) if er else []
-                payload = summ[0] if summ else {"error": "sin resultado"}
-                pairs.append((str(getattr(tc, "id", "")), json.dumps(payload, default=str)))
-            response = create_response_with_tools(
-                client,
-                model=model_name,
-                instructions="Continúa el bucle de herramientas de Rooster solo si falta información.",
-                user_input=tool_json_payloads_to_responses_input(pairs, followup_user),
-                tools=tools,
-                previous_response_id=planner_response_id,
-                prompt_cache_key=prompt_cache_key,
-                max_output_tokens=700,
-                parallel_tool_calls=True,
-                reasoning_effort="medium",
-            )
-
-        planner_response_id = getattr(response, "id", None) or planner_response_id
-        last_response = response
-        tcalls = output_items_to_tool_calls_compat(response)
-        rtext = extract_response_text(response)
-        if tcalls and rtext and preamble_callback:
-            try:
-                preamble_callback(rtext.strip())
+                preamble_callback(decision.reasoning_summary[:140])
             except Exception:
                 pass
 
-        if not tcalls:
-            text = (rtext or "").strip()
+        if decision.route == "conversational":
+            text = (decision.conversational_response or "").strip()
             if completed_tool_path:
                 break
             return {
@@ -179,18 +193,20 @@ def run_agent_loop_pipeline(
                 "validation_errors": [],
                 "had_output_correction": False,
                 "had_validation_replan": had_validation_replan,
+                "had_reviewer_replan": had_reviewer_replan,
+                "reviewer_verdict": reviewer_verdict,
                 "planner_response_id": planner_response_id,
                 "responses_synthesis": None,
                 "resolved_intent": resolved_intent_dict,
             }
 
-        raw_plan_calls = openai_tool_calls_to_plan_calls(tcalls)
+        raw_plan_calls = planner_tool_calls_to_plan_calls(decision.tool_calls)
         if not raw_plan_calls:
             if completed_tool_path:
                 break
             return {
                 "error": None,
-                "conversational_text": (rtext or "").strip() or "No valid tool calls.",
+                "conversational_text": (decision.conversational_response or "").strip() or "No valid tool calls.",
                 "validated_plan": None,
                 "execution_results": None,
                 "max_tokens_final": 0,
@@ -198,6 +214,8 @@ def run_agent_loop_pipeline(
                 "validation_errors": [],
                 "had_output_correction": False,
                 "had_validation_replan": had_validation_replan,
+                "had_reviewer_replan": had_reviewer_replan,
+                "reviewer_verdict": reviewer_verdict,
                 "planner_response_id": planner_response_id,
                 "responses_synthesis": None,
                 "resolved_intent": resolved_intent_dict,
@@ -215,19 +233,56 @@ def run_agent_loop_pipeline(
         validated = validate_plan(plan, live_schema_context)
         ve = list(validated.get("validation_errors") or [])
         validation_errors.extend(ve)
+        log_stage(
+            "validator",
+            "validated",
+            step=step + 1,
+            tool_calls=[c.get("tool") for c in validated.get("tool_calls") or []],
+            errors=ve,
+        )
         if plan.get("tool_calls") and not (validated.get("tool_calls") or []):
             correction_hint = format_validation_plan_correction(ve, raw_plan_calls)
             had_validation_replan = True
             continue
 
         execution_results = execute_plan(validated, engine, user_input)
+        log_stage(
+            "executor",
+            "executed",
+            step=step + 1,
+            results=[
+                {
+                    "tool": r.get("tool"),
+                    "success": r.get("success"),
+                    "row_count": r.get("row_count"),
+                    "error": r.get("error"),
+                }
+                for r in execution_results
+            ],
+        )
         issues = validate_output_completeness(user_input, execution_results)
         if issues:
             correction_hint = format_output_completeness_correction(issues, user_input)
             had_output_correction = True
             continue
 
-        all_tcalls.extend(tcalls)
+        verdict = review_execution(
+            resolved_query=resolved_query,
+            tool_calls=validated.get("tool_calls") or [],
+            execution_results=execution_results,
+            timeout_sec=min(float(timeout_sec), REVIEWER_TIMEOUT_SEC),
+            prompt_cache_key=prompt_cache_key,
+        )
+        reviewer_verdict = verdict.model_dump()
+        log_stage("reviewer", "verdict", step=step + 1, **reviewer_verdict)
+        if verdict.verdict == "fail":
+            correction_hint = format_reviewer_correction(verdict)
+            had_reviewer_replan = True
+            if step < max_steps - 1:
+                all_execution.extend(execution_results)
+                continue
+
+        planned_call_count += len(raw_plan_calls)
         all_execution.extend(execution_results)
         last_validated = validated
         completed_tool_path = True
@@ -257,13 +312,23 @@ def run_agent_loop_pipeline(
             "validation_errors": validation_errors,
             "had_output_correction": had_output_correction,
             "had_validation_replan": had_validation_replan,
+            "had_reviewer_replan": had_reviewer_replan,
+            "reviewer_verdict": reviewer_verdict,
             "planner_response_id": planner_response_id,
             "responses_synthesis": None,
             "resolved_intent": resolved_intent_dict,
         }
 
     last_validated = dict(last_validated or {})
-    last_validated["agent_loop_steps"] = min(max_steps, max(1, len(all_tcalls)))
+    last_validated["agent_loop_steps"] = min(max_steps, max(1, planned_call_count))
+    if reviewer_verdict:
+        last_validated["reviewer_verdict"] = reviewer_verdict
+    if resolved_intent_dict is not None:
+        resolved_intent_dict = {
+            **resolved_intent_dict,
+            "reviewer_verdict": reviewer_verdict,
+            "had_reviewer_replan": had_reviewer_replan,
+        }
     return {
         "error": None,
         "conversational_text": None,
@@ -274,7 +339,9 @@ def run_agent_loop_pipeline(
         "validation_errors": validation_errors,
         "had_output_correction": had_output_correction,
         "had_validation_replan": had_validation_replan,
-        "planner_response_id": planner_response_id or getattr(last_response, "id", None),
+        "had_reviewer_replan": had_reviewer_replan,
+        "reviewer_verdict": reviewer_verdict,
+        "planner_response_id": planner_response_id,
         "responses_synthesis": None,
         "resolved_intent": resolved_intent_dict,
     }

@@ -1,12 +1,13 @@
-"""Tunable thresholds for chat data quality and rendering decisions."""
+"""Data-confidence helpers backed by central Rooster config."""
 
 from __future__ import annotations
 
-MIN_VENTA_COUNT_DEFAULT = 3
-MIN_ALQUILER_COUNT_DEFAULT = 3
-
-DATA_CONFIDENCE_STRONG_MIN = 10
-DATA_CONFIDENCE_ADEQUATE_MIN = 5
+from agent.config import (
+    DATA_CONFIDENCE_ADEQUATE_MIN,
+    DATA_CONFIDENCE_STRONG_MIN,
+    MIN_ALQUILER_COUNT_DEFAULT,
+    MIN_VENTA_COUNT_DEFAULT,
+)
 
 
 def data_confidence(venta_count: object, alquiler_count: object) -> str:

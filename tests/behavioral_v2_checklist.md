@@ -1,24 +1,29 @@
-# Rooster v2 — behavioral validation checklist (Phase 5)
+# Rooster v2 — behavioral validation checklist (post Phase F)
 
 Re-run the capstone 19-query set after each major agent change. Record pass/fail and notes.
 
 ## Preconditions
 
-- `analytics` dbt models built (including `parcel_metrics`).
-- `OPENAI_API_KEY` set; optional: `ROOSTER_CLASSIFIER_MODEL`, `ROOSTER_INTENT_MODEL`.
+- `analytics` dbt models built, especially `analytics.neighborhood_profile`.
+- `OPENAI_API_KEY` set for live planner/reviewer/synthesizer tests.
 - Local Postgres with listings + neighborhood data loaded.
 
 ## Smoke checks
 
-1. Greeting / router: one-word classifier via Responses API, no tool calls.
-2. Listings: `operation` matches resolved intent (venta vs alquiler).
-3. Profile: `query_neighborhood_profile` includes `output_intent`; renderer honors it with Python fallback.
-4. Compare: `compare_neighborhoods` returns one aligned table.
-5. Parcel: `query_parcel_metrics` against `analytics.parcel_metrics`.
-6. Density chart: `query_neighborhood_density_chart` yields bar-style profile data.
-7. Session memory: `session_memory_v2` updates after a data turn; `conversation_state` still populated.
+1. Semantic resolver: maps core user terms to canonical metrics/concepts/heuristics; unresolved essential terms clarify before planning.
+2. Unified planner: greeting routes to `conversational`; data questions route to compositional tools.
+3. Tool catalogue: only final tools are exposed: `select_metrics`, `compute_aggregate`, `temporal_series`, `query_listings`, `query_transit_stops`, `query_tourist_apartments`, `resolve_spatial_reference`.
+4. Listings: `operation` matches user intent (venta vs alquiler); exact room counts set both `min_rooms` and `max_rooms`.
+5. Reviewer: catches silent metric substitution and concept filters not applied.
+6. Primitive synthesizer: returns only `text`, `kpi`, `table`, `chart`, `map`, or `composite`.
+7. Chart linter: rejects invalid chart specs before rendering.
+8. Session memory: `session_memory_v2` updates after a data turn; flat `conversation_state` remains populated for compatibility.
 
 ## Tuning
 
-- `ROOSTER_MAX_AGENT_STEPS` (future multi-round)
+- `ROOSTER_MAX_AGENT_STEPS`
+- `ROOSTER_MAX_AGENT_STEPS_RECOMMENDATION`
+- `ROOSTER_MAX_PRIMITIVES`
+- `ROOSTER_MIN_VENTA_COUNT` / `ROOSTER_MIN_ALQUILER_COUNT`
+- `ROOSTER_DATA_CONFIDENCE_STRONG_MIN` / `ROOSTER_DATA_CONFIDENCE_ADEQUATE_MIN`
 - `ROOSTER_PROMPT_CACHE` session key in `st.session_state.rooster_prompt_cache_key`

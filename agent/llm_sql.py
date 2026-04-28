@@ -1,10 +1,4 @@
-"""Database connection helpers and static schema context for Rooster.
-
-The chat agent uses OpenAI **function calling** with fixed Python executors in
-``agent/agent_pipeline.py`` — not ad-hoc SQL generation from this module.
-This file still provides: ``get_schema_context()`` for the planner, PostgreSQL
-connection helpers, and ``summarize_conversation_memo()`` for the investment memo.
-"""
+"""Database helpers, static schema context, and memo summarization for Rooster."""
 
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -15,6 +9,14 @@ from typing import Any
 import psycopg2
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
+
+from agent.config import (
+    MEMO_MAX_OUTPUT_TOKENS,
+    MEMO_MODEL_DEFAULT,
+    REASONING_MEMO,
+    SYNTHESIZER_MODEL_DEFAULT,
+)
+from agent.stage_logging import log_stage
 
 # Load agent/.env for API keys (GOOGLE_API_KEY, OPENAI_API_KEY, etc.)
 def _load_agent_env() -> None:
@@ -63,9 +65,8 @@ def _load_pipeline_env() -> None:
 
 _load_pipeline_env()
 
-# Default models when UI does not override (env-tunable)
-DEFAULT_PLANNER_MODEL_OPENAI = os.getenv("PLANNER_MODEL", "gpt-5.5")
-DEFAULT_SYNTHESISER_MODEL_OPENAI = os.getenv("SYNTHESISER_MODEL", "gpt-5.5")
+# Default model when UI does not override (env-tunable)
+DEFAULT_SYNTHESISER_MODEL_OPENAI = SYNTHESIZER_MODEL_DEFAULT
 
 SCHEMA_DESC = """
 ## Rooster database schema (PostgreSQL)
@@ -139,63 +140,6 @@ Listings with a price decrease vs previous scrape: url, neighborhood_raw, price_
 - **Maps**: Listing dots need **lat**, **lng**, **eur_per_sqm**; **core.transit_stops** / **core.tourist_apartments** need **lat**, **lng**, **neighborhood_name** via join to **core.neighborhoods**.
 - **Barrio rankings**: Prefer **analytics.neighborhood_profile** for yield, **investment_score**, transport/tourism fields.
 """
-
-INTENT_EXAMPLES = """
-INTENT CLASSIFICATION EXAMPLES:
-
-search: "find 2-bed apartments under €200k", "show me listings in Natzaret", "what's available with parking"
-
-compare: "compare Ruzafa and Natzaret", "how does Campanar stack up against Benimaclet", "which is better value — north or south Valencia"
-
-overview: "give me a market summary", "how is the Valencia market", "what are the key stats"
-
-geo: "show me on the map", "where are these listings", "map the cheapest apartments"
-
-underpriced: "find me deals", "what's underpriced", "below median listings", "motivated sellers", "price drops"
-
-ranking: "which neighborhoods have best yield", "rank by price per m²", "best value neighborhoods", "yield comparison across the city"
-
-memo: "summarise what we've found", "give me a summary", "wrap up", "investment memo", "what have we concluded"
-
-conversational: "What is gross rental yield?", "How does your investment score work?", "Is Valencia a good market generally?", "What neighborhoods did we discuss?", "Hi", "What can you do?"
-
-transit_map: "show transport stops on a map", "paradas de metro", "mapa con las paradas de transporte", "how connected is Ruzafa", "walkability map"
-
-tourism_map: "tourist apartments map", "apartamentos turísticos en el mapa", "VUT map", "Airbnb pressure", "short term rental density"
-
-combined_map: "show everything on the map", "listings plus transport and tourist", "full overlay map", "all layers"
-"""
-
-INTENT_MAP_LAYER_RULES = """
-MAP LAYER INTENTS (do not confuse with **geo** listing dots):
-
-- **transit_map**: User wants **stops** (metro/bus/train), not property listings. Query **core.transit_stops t** JOIN **core.neighborhoods n ON n.id = t.neighborhood_id**. SELECT t.name, t.stop_type, t.lat, t.lng, n.name AS neighborhood_name. Filter barrio with similarity(unaccent(lower(n.name)), unaccent(lower('phrase'))) > 0.4 OR ILIKE.
-
-- **tourism_map**: User wants **VUT / tourist licenses** on a map. Query **core.tourist_apartments ta** JOIN **core.neighborhoods n ON n.id = ta.neighborhood_id**. SELECT ta.id, ta.address, ta.lat, ta.lng, n.name AS neighborhood_name.
-
-- **combined_map**: Listings + transit + tourism in one **LayerControl** map — the app merges multiple tool results; each layer still uses the same fuzzy barrio filter when the user names a zone.
-"""
-
-INTENT_CONVERSATIONAL_RULES = """
-INTENT: "conversational" — use this when the question:
-- Asks for a definition or explanation (yield, investment score, etc.)
-- Is a general knowledge question about real estate or Valencia
-- Is a follow-up that can be answered from conversation history alone
-- Is a greeting or meta question about what Rooster can do
-
-Answer from model knowledge and conversation context — no data tools.
-
-Do NOT use conversational when the user needs live listing counts, prices, yields, or maps from the database.
-
-EXAMPLES:
-- "What is gross rental yield?" → conversational
-- "How does your investment score work?" → conversational
-- "Is Valencia a good market generally?" → conversational
-- "What neighborhoods did we discuss?" → conversational
-- "Show me listings in Ruzafa" → search (needs data)
-- "What's the yield in Natzaret?" → overview (needs data)
-"""
-
 
 NEIGHBORHOOD_NAME_MATCHING_SQL = """
 NEIGHBORHOOD NAME MATCHING — CRITICAL (for barrio filters and any SQL):
@@ -272,15 +216,9 @@ Conversación:
 
 
 def get_schema_context() -> str:
-    """Schema text embedded in prompts; use app @st.cache_resource wrapper to avoid recomputation."""
+    """Static schema reference embedded in planner prompts."""
     return (
         SCHEMA_DESC
-        + "\n"
-        + INTENT_EXAMPLES
-        + "\n"
-        + INTENT_CONVERSATIONAL_RULES
-        + "\n"
-        + INTENT_MAP_LAYER_RULES
         + "\n"
         + NEIGHBORHOOD_NAME_MATCHING_SQL
         + "\n"
@@ -309,16 +247,16 @@ def summarize_conversation_memo(
         )
 
         client = get_openai_client(max(timeout_sec, 30.0))
-        model_name = model or os.getenv("OPENAI_MODEL", "gpt-5.5")
+        model_name = model or MEMO_MODEL_DEFAULT
         kwargs: dict[str, Any] = {
             "model": model_name,
             "instructions": MEMO_SYSTEM_PROMPT,
             "input": prompt,
-            "max_output_tokens": 900,
+            "max_output_tokens": MEMO_MAX_OUTPUT_TOKENS,
         }
         if supports_temperature(model_name):
             kwargs["temperature"] = 0.2
-        rpar = reasoning_param_for_model(model_name, "low")
+        rpar = reasoning_param_for_model(model_name, REASONING_MEMO)
         if rpar is not None:
             kwargs["reasoning"] = rpar
         response = client.responses.create(**kwargs)
@@ -327,8 +265,11 @@ def summarize_conversation_memo(
     with ThreadPoolExecutor(max_workers=1) as ex:
         fut = ex.submit(_run)
         try:
-            return fut.result(timeout=timeout_sec)
+            memo = fut.result(timeout=timeout_sec)
+            log_stage("memory", "memo_generated", chars=len(memo))
+            return memo
         except FuturesTimeoutError as e:
+            log_stage("memory", "memo_timeout", timeout_sec=timeout_sec)
             raise TimeoutError("Conversation memo timed out") from e
 
 

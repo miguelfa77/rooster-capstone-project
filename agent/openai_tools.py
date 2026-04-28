@@ -1,16 +1,142 @@
-"""
-OpenAI tool schemas for Rooster (Chat + Responses API).
-Tools fetch validated data; display composition is handled by RenderPlan.
-"""
+"""OpenAI tool schemas for Rooster."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from agent.semantic_layer.sql_builder import AGGREGATIONS, TIME_GRANULARITIES, metric_keys
+
 
 def get_rooster_openai_tools() -> list[dict[str, Any]]:
     """Return the ``tools`` argument for OpenAI tool use (Chat or Responses)."""
+    metric_enum = metric_keys()
     return [
+        {
+            "type": "function",
+            "function": {
+                "name": "select_metrics",
+                "description": (
+                    "Compositional analytical workhorse. Use for neighborhood rankings, comparisons, "
+                    "filters, and ordered metric tables. NOT for individual property listings. "
+                    "Use it for metric questions. Metrics must come from the semantic registry. "
+                    "Default sample filter is venta>=3 and alquiler>=3; "
+                    "set min_listings {venta:0, alquiler:0} only when the user explicitly asks to include thin samples."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "metrics": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": metric_enum},
+                            "minItems": 1,
+                            "description": "Canonical metrics to return.",
+                        },
+                        "filters": {
+                            "type": "object",
+                            "description": (
+                                "Optional filters keyed by canonical metric. Each value: "
+                                "{operator: >=|<=|>|<|=|!=|in|not_in, value: number|string|array}."
+                            ),
+                        },
+                        "group_by": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["neighborhood"]},
+                            "description": "Currently only neighborhood is supported.",
+                        },
+                        "order_by": {
+                            "type": "object",
+                            "properties": {
+                                "metric": {"type": "string", "enum": metric_enum},
+                                "direction": {"type": "string", "enum": ["asc", "desc"]},
+                            },
+                        },
+                        "limit": {"type": "integer", "description": "Max rows, default 20."},
+                        "min_listings": {
+                            "type": "object",
+                            "properties": {
+                                "venta": {"type": "integer"},
+                                "alquiler": {"type": "integer"},
+                            },
+                            "description": "Sample-size minima, default {venta:3, alquiler:3}.",
+                        },
+                        "neighborhoods": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional exact barrio names to restrict the result.",
+                        },
+                    },
+                    "required": ["metrics"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "compute_aggregate",
+                "description": (
+                    "Compute one summary statistic for a canonical metric after optional filters. "
+                    "Use for questions like city median, average, p25/p75, min/max, count, or spread."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "metric": {"type": "string", "enum": metric_enum},
+                        "filters": {
+                            "type": "object",
+                            "description": "Optional metric filters using the same shape as select_metrics.",
+                        },
+                        "aggregation": {
+                            "type": "string",
+                            "enum": sorted(AGGREGATIONS),
+                        },
+                        "min_listings": {
+                            "type": "object",
+                            "properties": {
+                                "venta": {"type": "integer"},
+                                "alquiler": {"type": "integer"},
+                            },
+                        },
+                    },
+                    "required": ["metric", "aggregation"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "temporal_series",
+                "description": (
+                    "Return time series over listing snapshots for trends. Use for price/rent/count "
+                    "over time. Not for static rankings; use select_metrics for those."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "metric": {
+                            "type": "string",
+                            "enum": [
+                                "median_venta_price",
+                                "median_alquiler_price",
+                                "venta_count",
+                                "alquiler_count",
+                            ],
+                        },
+                        "filters": {
+                            "type": "object",
+                            "description": (
+                                "Optional filters. For neighborhoods use "
+                                "{neighborhood_name: {operator: in, value: [...]}}."
+                            ),
+                        },
+                        "time_granularity": {
+                            "type": "string",
+                            "enum": sorted(TIME_GRANULARITIES),
+                        },
+                    },
+                    "required": ["metric", "time_granularity"],
+                },
+            },
+        },
         {
             "type": "function",
             "function": {
@@ -19,7 +145,7 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                     "Query individual property listings in Valencia. Use when the user wants "
                     "specific properties, apartments to buy or rent, underpriced deals, listings "
                     "with amenities, or what is available in an area. "
-                    "Do NOT use for barrio-only rankings (use query_neighborhood_profile). "
+                    "Do NOT use for barrio-only rankings or comparisons (use select_metrics). "
                     "Common errors: wrong operation (venta vs alquiler) — follow RESOLVED INTENT."
                 ),
                 "parameters": {
@@ -89,62 +215,6 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "query_neighborhood_profile",
-                "description": (
-                    "Neighborhood rankings and profiles: yield, investment score, price/m², "
-                    "comparisons, market overview. Use for barrio comparisons and investment KPIs. "
-                    "Set chart_style when user asks for charts. "
-                    "By default this excludes thin samples: venta_count >= 3 and alquiler_count >= 3. "
-                    "Only set min_venta_count=0 and min_alquiler_count=0 if the user explicitly asks "
-                    "to include small/limited-data barrios. "
-                    "Do NOT use for individual listings (use query_listings)."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "neighborhoods": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Filter to these names; empty = all neighborhoods.",
-                        },
-                        "order_by": {
-                            "type": "string",
-                            "enum": ["investment_score", "yield", "price", "listings"],
-                            "description": "Sort order (default investment_score).",
-                        },
-                        "min_listings": {
-                            "type": "integer",
-                            "description": "Minimum listings per neighborhood (default 3).",
-                        },
-                        "min_venta_count": {
-                            "type": "integer",
-                            "description": (
-                                "Minimum sale listing sample size. Default 3. Set 0 only when "
-                                "the user explicitly asks to include thin-sample barrios."
-                            ),
-                        },
-                        "min_alquiler_count": {
-                            "type": "integer",
-                            "description": (
-                                "Minimum rental listing sample size. Default 3. Set 0 only when "
-                                "the user explicitly asks to include thin-sample barrios."
-                            ),
-                        },
-                        "chart_style": {
-                            "type": "string",
-                            "enum": ["bar", "scatter", "auto"],
-                            "description": (
-                                "For charts: bar = horizontal bar ranking; "
-                                "scatter = yield vs investment score; auto = pick from row count."
-                            ),
-                        },
-                    },
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
                 "name": "query_transit_stops",
                 "description": (
                     "Transit stops (metro, bus) for transport, walkability, connectivity. "
@@ -183,126 +253,6 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "query_price_trends",
-                "description": (
-                    "Listings with price drops or price changes (analytics.price_changes). "
-                    "For trend / bajada / subida de precio questions."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "neighborhood": {
-                            "type": "string",
-                            "description": "Optional barrio filter; omit for city-wide.",
-                        },
-                        "direction": {
-                            "type": "string",
-                            "enum": ["up", "down", "both"],
-                            "description": "Price movement direction (default both).",
-                        },
-                    },
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "query_chart_data",
-                "description": (
-                    "Prepare chart data from listings: scatter price vs area, amenity bars, "
-                    "€/m² by floor. NOT for VUT density by barrio (use query_neighborhood_density_chart)."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "chart_type": {
-                            "type": "string",
-                            "enum": ["scatter", "amenity", "floor"],
-                            "description": "Chart type (default scatter).",
-                        },
-                    },
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "query_parcel_metrics",
-                "description": (
-                    "Catastro parcel aggregates by barrio: counts, area distribution (analytics.parcel_metrics). "
-                    "Use for build year / parcel stock questions when the user wants structural stock stats."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "neighborhoods": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Filter to these barrio names; empty = all with parcels.",
-                        },
-                    },
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "compare_neighborhoods",
-                "description": (
-                    "One call returning aligned yield, transport, tourism, listing volume, price "
-                    "for several barrios. Use instead of many separate query_neighborhood_profile calls "
-                    "when the user compares 2+ barrios on multiple dimensions. By default this "
-                    "excludes thin samples: venta_count >= 3 and alquiler_count >= 3. Only set "
-                    "min_venta_count=0 and min_alquiler_count=0 if the user explicitly asks to "
-                    "include small/limited-data barrios."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "neighborhoods": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 1,
-                            "maxItems": 12,
-                            "description": "Barrio names to compare (exact from LIVE list).",
-                        },
-                        "dimensions": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": [
-                                    "yield",
-                                    "investment_score",
-                                    "tourism",
-                                    "transit",
-                                    "prices",
-                                    "volume",
-                                ],
-                            },
-                            "description": "Optional subset; default = all key dimensions.",
-                        },
-                        "min_venta_count": {
-                            "type": "integer",
-                            "description": (
-                                "Minimum sale listing sample size. Default 3. Set 0 only when "
-                                "the user explicitly asks to include thin-sample barrios."
-                            ),
-                        },
-                        "min_alquiler_count": {
-                            "type": "integer",
-                            "description": (
-                                "Minimum rental listing sample size. Default 3. Set 0 only when "
-                                "the user explicitly asks to include thin-sample barrios."
-                            ),
-                        },
-                    },
-                    "required": ["neighborhoods"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
                 "name": "resolve_spatial_reference",
                 "description": (
                     "Map qualitative place phrases (e.g. centro, cerca de la playa) to barrio name lists. "
@@ -317,55 +267,6 @@ def get_rooster_openai_tools() -> list[dict[str, Any]]:
                         },
                     },
                     "required": ["reference"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "query_neighborhood_density_chart",
-                "description": (
-                    "VUT / tourist density percentage by barrio for charts (from neighborhood_profile / tourism). "
-                    "Use when the user wants density / pressure visual, not a map of VUT points."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "neighborhoods": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Filter; empty = top barrios by tourist_density_pct.",
-                        },
-                        "metric": {
-                            "type": "string",
-                            "enum": ["tourist_density_pct", "tourist_apt_count"],
-                            "description": "Density % vs raw VUT count.",
-                        },
-                    },
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "query_neighborhood_context",
-                "description": (
-                    "Phase 4 / optional: qualitative context snippets about a barrio. "
-                    "Returns empty when knowledge base is disabled. Use for 'vivir en…' / reputation questions."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "neighborhood": {
-                            "type": "string",
-                            "description": "Barrio name.",
-                        },
-                        "topic": {
-                            "type": "string",
-                            "description": "Optional: schools, night life, family, etc.",
-                        },
-                    },
-                    "required": ["neighborhood"],
                 },
             },
         },

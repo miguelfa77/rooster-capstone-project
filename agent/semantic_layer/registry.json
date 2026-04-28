@@ -1,0 +1,225 @@
+{
+  "metrics": [
+    {
+      "key": "gross_rental_yield_pct",
+      "column": "analytics.neighborhood_profile.gross_rental_yield_pct",
+      "spanish": ["rentabilidad", "rentabilidad bruta", "rendimiento", "yield", "retorno bruto"],
+      "english": ["rental yield", "gross rental yield", "yield", "return"],
+      "display": "Rentabilidad bruta de alquiler",
+      "formula": "median_alquiler_price * 12 / median_venta_price * 100",
+      "components": ["median_alquiler_price", "median_venta_price"],
+      "unit": "percent",
+      "caveat": "Calculada con precios de oferta, no transacciones cerradas.",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 50}
+    },
+    {
+      "key": "investment_score",
+      "column": "analytics.neighborhood_profile.investment_score",
+      "spanish": ["puntuación de inversión", "score de inversión", "score", "índice de inversión"],
+      "english": ["investment score", "score"],
+      "display": "Puntuación de inversión",
+      "formula": "yield_norm + transport_bonus + low_tourism_bonus",
+      "components": ["gross_rental_yield_pct", "avg_dist_to_stop_m", "tourist_density_pct"],
+      "unit": "0-10",
+      "caveat": "Puntuación compuesta basada en rentabilidad, transporte y presión turística.",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 10}
+    },
+    {
+      "key": "median_venta_price",
+      "column": "analytics.neighborhood_profile.median_venta_price",
+      "spanish": ["precio mediano de venta", "precio de venta", "precio compra", "precio mediano"],
+      "english": ["median sale price", "sale price", "purchase price"],
+      "display": "Precio mediano de venta",
+      "unit": "EUR",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 50000000}
+    },
+    {
+      "key": "median_alquiler_price",
+      "column": "analytics.neighborhood_profile.median_alquiler_price",
+      "spanish": ["precio mediano de alquiler", "alquiler mediano", "precio alquiler", "renta mediana"],
+      "english": ["median rent", "rental price", "rent"],
+      "display": "Precio mediano de alquiler",
+      "unit": "EUR/month",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 100000}
+    },
+    {
+      "key": "median_venta_eur_per_sqm",
+      "column": "analytics.neighborhood_profile.median_venta_eur_per_sqm",
+      "spanish": ["precio por metro", "precio m2", "precio por m2", "€/m2", "€/m²"],
+      "english": ["price per sqm", "price per square meter"],
+      "display": "Precio mediano de venta por m²",
+      "unit": "EUR/m2",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 50000}
+    },
+    {
+      "key": "tourist_density_pct",
+      "column": "analytics.neighborhood_profile.tourist_density_pct",
+      "spanish": ["densidad turística", "presión turística", "vut", "viviendas turísticas", "airbnb"],
+      "english": ["tourist density", "tourism pressure", "short-term rentals", "airbnb"],
+      "display": "Densidad de viviendas turísticas",
+      "unit": "percent",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 100}
+    },
+    {
+      "key": "transit_stop_count",
+      "column": "analytics.neighborhood_profile.transit_stop_count",
+      "spanish": ["paradas de transporte", "transporte", "metro", "bus", "conectividad"],
+      "english": ["transit stops", "transport", "metro", "bus", "connectivity"],
+      "display": "Paradas de transporte",
+      "unit": "count",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 1000}
+    },
+    {
+      "key": "avg_dist_to_stop_m",
+      "column": "analytics.neighborhood_profile.avg_dist_to_stop_m",
+      "spanish": ["distancia a transporte", "distancia media a una parada", "cerca del metro", "cerca del bus"],
+      "english": ["distance to transit", "average distance to stop", "near metro"],
+      "display": "Distancia media a una parada",
+      "unit": "meters",
+      "criticality": "essential",
+      "value_range": {"min": 0, "max": 10000}
+    },
+    {
+      "key": "venta_count",
+      "column": "analytics.neighborhood_profile.venta_count",
+      "spanish": ["muestra de venta", "anuncios de venta", "ventas"],
+      "english": ["sale listing count", "sale sample"],
+      "display": "Anuncios de venta",
+      "unit": "count",
+      "criticality": "flavour",
+      "value_range": {"min": 0, "max": 100000}
+    },
+    {
+      "key": "alquiler_count",
+      "column": "analytics.neighborhood_profile.alquiler_count",
+      "spanish": ["muestra de alquiler", "anuncios de alquiler", "alquileres"],
+      "english": ["rental listing count", "rental sample"],
+      "display": "Anuncios de alquiler",
+      "unit": "count",
+      "criticality": "flavour",
+      "value_range": {"min": 0, "max": 100000}
+    }
+  ],
+  "concepts": [
+    {
+      "key": "buena_zona_inversion",
+      "terms": ["buena zona para invertir", "buena zona", "mejor zona", "good investment area", "good area to invest"],
+      "expression": {
+        "all": [
+          {"metric": "gross_rental_yield_pct", "operator": ">=", "value_ref": "city_median"},
+          {"metric": "tourist_density_pct", "operator": "<", "value": 10},
+          {"metric": "transit_stop_count", "operator": ">=", "value": 3}
+        ]
+      },
+      "display": "buena zona para invertir",
+      "criticality": "essential",
+      "variants": ["buena_zona_vivir"]
+    },
+    {
+      "key": "alta_rentabilidad_bajo_precio",
+      "terms": ["alta rentabilidad y bajo precio", "barato con buen yield", "cheap high yield", "value investment"],
+      "expression": {
+        "all": [
+          {"metric": "gross_rental_yield_pct", "operator": ">=", "value_ref": "p75"},
+          {"metric": "median_venta_price", "operator": "<=", "value_ref": "city_median"}
+        ]
+      },
+      "display": "alta rentabilidad con precio bajo",
+      "criticality": "essential"
+    },
+    {
+      "key": "baja_presion_turistica",
+      "terms": ["baja presión turística", "sin masificación turística", "poco airbnb", "few short-term rentals"],
+      "expression": {"all": [{"metric": "tourist_density_pct", "operator": "<", "value": 5}]},
+      "display": "baja presión turística",
+      "criticality": "essential"
+    },
+    {
+      "key": "buena_conectividad",
+      "terms": ["bien conectado", "buena conectividad", "buen transporte", "good transport"],
+      "expression": {"all": [{"metric": "transit_stop_count", "operator": ">=", "value": 3}]},
+      "display": "buena conectividad",
+      "criticality": "essential"
+    },
+    {
+      "key": "muestra_fiable",
+      "terms": ["datos fiables", "muestra fiable", "evita muestras pequeñas", "reliable sample"],
+      "expression": {
+        "all": [
+          {"metric": "venta_count", "operator": ">=", "value": 5},
+          {"metric": "alquiler_count", "operator": ">=", "value": 5}
+        ]
+      },
+      "display": "muestra fiable",
+      "criticality": "essential"
+    }
+  ],
+  "heuristics": [
+    {
+      "key": "centro",
+      "terms": ["centro", "centro de la ciudad", "downtown"],
+      "barrio_names": ["EL CARMEN", "LA SEU", "LA XEREA", "SANT FRANCESC"],
+      "display": "centro",
+      "criticality": "essential"
+    },
+    {
+      "key": "near_center",
+      "terms": ["cerca del centro", "cerca centro", "near center"],
+      "barrio_names": ["EL CARMEN", "LA SEU", "LA XEREA", "SANT FRANCESC", "RUZAFA"],
+      "display": "cerca del centro",
+      "criticality": "essential"
+    },
+    {
+      "key": "near_beach",
+      "terms": ["cerca de la playa", "playa", "beach", "near beach"],
+      "barrio_names": ["EL CABANYAL - EL CANYAMELAR", "LA MARINA DE VALÈNCIA (FRONT MARÍTIM)"],
+      "display": "cerca de la playa",
+      "criticality": "essential"
+    },
+    {
+      "key": "university_area",
+      "terms": ["zona universitaria", "universidad", "universitario", "students"],
+      "barrio_names": ["BENIMACLET", "CIUTAT UNIVERSITARIA"],
+      "display": "zona universitaria",
+      "criticality": "flavour"
+    },
+    {
+      "key": "family_friendly",
+      "terms": ["familiar", "familia", "niños", "family friendly"],
+      "barrio_names": ["BENIMACLET", "ALBORS", "BENIFERRI"],
+      "display": "zona familiar",
+      "criticality": "flavour"
+    },
+    {
+      "key": "quiet",
+      "terms": ["tranquilo", "tranquila", "quiet", "calmado"],
+      "barrio_names": ["BENIFERRI", "SANT PAU", "MESTALLA"],
+      "display": "zona tranquila",
+      "criticality": "flavour"
+    },
+    {
+      "key": "nightlife",
+      "terms": ["vida nocturna", "bares", "noche", "nightlife"],
+      "barrio_names": ["EL CARMEN", "RUZAFA"],
+      "display": "vida nocturna",
+      "criticality": "flavour"
+    }
+  ],
+  "essential_terms": [
+    {"key": "rentabilidad", "terms": ["rentabilidad", "rendimiento", "yield"], "criticality": "essential"},
+    {"key": "presupuesto", "terms": ["presupuesto", "budget"], "criticality": "essential"},
+    {"key": "barrio", "terms": ["barrio", "barrios", "neighborhood"], "criticality": "flavour"},
+    {"key": "inversion", "terms": ["inversión", "invertir", "investment"], "criticality": "essential"},
+    {"key": "precio", "terms": ["precio", "price"], "criticality": "essential"},
+    {"key": "habitaciones", "terms": ["habitaciones", "dormitorios", "rooms", "bedrooms"], "criticality": "essential"},
+    {"key": "transporte", "terms": ["transporte", "metro", "bus"], "criticality": "essential"},
+    {"key": "turismo", "terms": ["turismo", "vut", "airbnb", "alquiler vacacional"], "criticality": "essential"}
+  ]
+}

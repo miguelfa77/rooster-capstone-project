@@ -57,18 +57,14 @@ from agent.session_memory import (
     sync_flat_conversation_state_v1,
     update_session_memory_from_turn,
 )
+from agent.stage_logging import log_stage
 from agent.agent_loop import run_agent_loop
 from agent.agent_pipeline import (
-    CONVERSATIONAL_SYNTH_MAX_TOKENS,
     extract_neighborhood_names_from_schema,
     format_last_assistant_for_planner,
     get_live_schema_context,
-    pick_conversational_reply,
-    run_synthesiser,
-    stream_canned_text_word_by_word,
     strip_follow_ups_suffix,
     update_conversation_state,
-    use_conversational_fast_path,
 )
 from agent.llm_sql import (
     DEFAULT_SYNTHESISER_MODEL_OPENAI,
@@ -80,8 +76,8 @@ from agent.llm_sql import (
 )
 from agent import ui_es as UI
 from agent.renderers import dispatch, render_graceful_fallback
-from agent.evidence_selector import RenderList, select_evidence
-from agent.synthesizer import synthesize_response, synthesized_text
+from agent.primitive_renderer import render_primitive_response
+from agent.synthesizer import SynthesizedResponse, synthesize_response, synthesized_text
 
 st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
 
@@ -1378,6 +1374,13 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
             else:
                 st.info(UI.CHAT_EMPTY)
             return
+        if "primitive_response" in msg:
+            render_primitive_response(msg.get("primitive_response") or {}, idx)
+            val_errs = msg.get("validation_errors") or []
+            if val_errs:
+                st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
+            _render_followup_pills_replay(msg.get("follow_ups") or [])
+            return
         if "render_list" in msg:
             _dispatch_render_list(msg.get("render_list") or {}, idx)
             val_errs = msg.get("validation_errors") or []
@@ -1440,12 +1443,9 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
         _render_followup_pills_replay(msg.get("follow_ups") or [])
 
 
-def _dispatch_render_list(render_list: RenderList | dict, geo_key: int) -> None:
-    """Render interleaved Phase 3.5 paragraphs and evidence visuals."""
-    if isinstance(render_list, RenderList):
-        payload = render_list.model_dump()
-    else:
-        payload = dict(render_list or {})
+def _dispatch_render_list(render_list: dict, geo_key: int) -> None:
+    """Replay legacy Phase 3.5 paragraphs and evidence visuals."""
+    payload = dict(render_list or {})
     for item in payload.get("items") or []:
         if not isinstance(item, dict):
             continue
@@ -1562,49 +1562,15 @@ def render_chat() -> None:
             })
             st.rerun()
 
-        # Fast path: only for cold open / short chit-chat; grounded follow-ups use full FC
-        if use_conversational_fast_path(st.session_state.messages, user_input):
-            response_text = pick_conversational_reply(
-                st.session_state.messages,
-                user_input,
-            )
-            plan_conv = {"reasoning": "conversational_fast_path", "tool_calls": []}
-            with st.chat_message("assistant", avatar="🐓"):
-                st.write_stream(stream_canned_text_word_by_word(response_text))
-            st.session_state.conversation_state = update_conversation_state(
-                st.session_state.conversation_state,
-                user_input,
-                plan_conv,
-                [],
-            )
-            st.session_state.messages.append({
-                "role": "assistant",
-                "intent": "conversational",
-                "summary": response_text,
-                "render_stack": [],
-                "validation_errors": [],
-                "rows": None,
-                "sql": None,
-                "error": None,
-                "empty": False,
-                "followups": [],
-                "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
-                "confidence": "high",
-                "interpretation": "",
-                "reasoning_focus": "",
-                "caveat": "",
-            })
-            st.rerun()
-
         stream_kind: str | None = None
         plan_for_stream: dict | None = None
         validated_for_stream: dict | None = None
         execution_for_stream: list | None = None
-        render_list_for_stream: RenderList | None = None
-        synthesized_for_stream = None
+        synthesized_for_stream: SynthesizedResponse | None = None
         val_errs_for_stream: list = []
         openai_precomputed: str | None = None
         had_output_correction: bool = False
+        reviewer_verdict_for_stream: dict | None = None
 
         engine = get_pg_engine()
         conv = build_conversation_context(st.session_state.messages[:-1])
@@ -1639,6 +1605,7 @@ def render_chat() -> None:
                     ),
                 )
                 had_output_correction = bool(fc.get("had_output_correction"))
+                reviewer_verdict_for_stream = fc.get("reviewer_verdict")
                 if fc.get("error") == "timeout":
                     st.session_state.messages.append({
                         "role": "assistant",
@@ -1747,11 +1714,6 @@ def render_chat() -> None:
                         timeout_sec=float(timeout_sec),
                         prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     )
-                    render_list_for_stream = select_evidence(
-                        synthesized_for_stream,
-                        execution_for_stream or [],
-                        fc.get("resolved_intent") or {},
-                    )
                     stream_kind = "full"
                     status.update(label=UI.STATUS_DONE, state="complete")
                     _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
@@ -1806,20 +1768,7 @@ def render_chat() -> None:
             follow_ups_save: list[str] = []
             geo_conv = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
-                if openai_precomputed is not None:
-                    prose, fus = strip_follow_ups_suffix(openai_precomputed)
-                else:
-                    raw = run_synthesiser(
-                        user_input,
-                        plan_for_stream,
-                        [],
-                        memory_context,
-                        model_choice,
-                        timeout_sec=float(SUMMARIZE_TIMEOUT_SEC),
-                        confirmed_visuals=None,
-                        max_tokens_override=CONVERSATIONAL_SYNTH_MAX_TOKENS + 50,
-                    )
-                    prose, fus = strip_follow_ups_suffix(raw)
+                prose, fus = strip_follow_ups_suffix(openai_precomputed or "")
                 if not fus:
                     fus = list(UI.FOLLOW_UP_DEFAULTS)
                 follow_ups_save = fus
@@ -1855,7 +1804,7 @@ def render_chat() -> None:
             response_text = ""
             geo_key = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
-                if render_list_for_stream is None or synthesized_for_stream is None:
+                if synthesized_for_stream is None:
                     synthesized_for_stream = synthesize_response(
                         user_input,
                         resolved_intent=None,
@@ -1865,20 +1814,23 @@ def render_chat() -> None:
                         timeout_sec=float(timeout_sec),
                         prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     )
-                    render_list_for_stream = select_evidence(
-                        synthesized_for_stream,
-                        execution_for_stream or [],
-                        {},
-                    )
                 response_text = synthesized_text(synthesized_for_stream)
-                follow_ups_save = render_list_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
-                _dispatch_render_list(render_list_for_stream, geo_key)
+                follow_ups_save = synthesized_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
+                render_primitive_response(synthesized_for_stream, geo_key)
                 _render_followup_pills_interactive(follow_ups_save, geo_key)
                 if had_output_correction:
                     st.caption(UI.CHAT_OUTPUT_CORRECTED)
                 if val_errs_for_stream:
                     st.caption(
                         "Nota: " + ". ".join(str(x) for x in val_errs_for_stream)
+                    )
+                if (
+                    isinstance(reviewer_verdict_for_stream, dict)
+                    and reviewer_verdict_for_stream.get("verdict") == "fail"
+                ):
+                    st.caption(
+                        "Revisión de datos: "
+                        + str(reviewer_verdict_for_stream.get("reason") or "hay una posible discrepancia.")
                     )
             st.session_state.conversation_state = update_conversation_state(
                 st.session_state.conversation_state,
@@ -1902,29 +1854,38 @@ def render_chat() -> None:
                     prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                 )
                 st.session_state.session_memory_v2 = mem1.model_dump()
+                log_stage(
+                    "memory",
+                    "session_memory_updated",
+                    tools_used=tools_used,
+                    neighborhoods=mem1.conversation_state.neighborhoods_in_focus,
+                    priorities=mem1.user_profile.inferred_priorities,
+                )
                 st.session_state.conversation_state = sync_flat_conversation_state_v1(
                     st.session_state.conversation_state,
                     mem1,
                 )
             except Exception:
                 pass
-            render_list_payload = (
-                render_list_for_stream.model_dump() if render_list_for_stream else {"items": []}
+            primitive_payload = (
+                synthesized_for_stream.model_dump()
+                if synthesized_for_stream
+                else {"primitives": []}
             )
             first_visual = next(
                 (
                     item
-                    for item in render_list_payload.get("items", [])
-                    if isinstance(item, dict) and item.get("kind") == "visual"
+                    for item in primitive_payload.get("primitives", [])
+                    if isinstance(item, dict) and item.get("kind") in {"chart", "map", "table", "kpi"}
                 ),
                 {},
             )
-            first_intent = first_visual.get("renderer_intent") or "conversational"
+            first_intent = first_visual.get("kind") or "conversational"
             st.session_state.messages.append({
                 "role": "assistant",
                 "agent_turn": True,
                 "summary": response_text or "",
-                "render_list": render_list_payload,
+                "primitive_response": primitive_payload,
                 "validation_errors": val_errs_for_stream,
                 "intent": first_intent,
                 "rows": None,
