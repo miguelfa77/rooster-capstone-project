@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
@@ -21,6 +23,64 @@ from agent.responses_api import get_openai_client, reasoning_param_for_model, su
 from agent.stage_logging import log_stage
 
 _LOG = logging.getLogger("rooster.synthesizer")
+_DEBUG_LOG_PATH = Path("/Users/miguelfa/Projects/rooster-capstone-project/.cursor/debug-3ce0b8.log")
+
+
+# region agent log
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    try:
+        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "sessionId": "3ce0b8",
+            "runId": "initial",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        pass
+
+
+def _schema_object_violations(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" or "properties" in node:
+                props = node.get("properties") if isinstance(node.get("properties"), dict) else {}
+                required = node.get("required")
+                prop_keys = sorted(props)
+                required_keys = sorted(required) if isinstance(required, list) else None
+                if required_keys != prop_keys:
+                    violations.append(
+                        {
+                            "path": path,
+                            "kind": "required_mismatch",
+                            "properties": prop_keys,
+                            "required": required,
+                        }
+                    )
+                if node.get("additionalProperties") is not False:
+                    violations.append(
+                        {
+                            "path": path,
+                            "kind": "additionalProperties_not_false",
+                            "additionalProperties": node.get("additionalProperties"),
+                        }
+                    )
+            for key, value in node.items():
+                walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for idx, value in enumerate(node):
+                walk(value, f"{path}[{idx}]")
+
+    walk(schema, "$")
+    return violations
+# endregion
 
 PrimitiveKind = Literal["text", "kpi", "table", "chart", "map", "composite"]
 
@@ -417,6 +477,16 @@ def synthesize_response(
         ]
     )
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
+    schema_violations = _schema_object_violations(SynthesizedResponse.model_json_schema())
+    _debug_log(
+        "H4",
+        "agent/synthesizer.py:synthesize_response",
+        "SynthesizedResponse structured output schema audit before OpenAI call",
+        {
+            "violation_count": len(schema_violations),
+            "violations_sample": schema_violations[:12],
+        },
+    )
     kwargs: dict[str, Any] = {
         "model": model_name,
         "instructions": instructions,

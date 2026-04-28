@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -27,6 +29,27 @@ from agent.semantic_layer.models import ResolvedQuery
 from agent.stage_logging import log_stage
 
 _LOG = logging.getLogger("rooster.planner")
+_DEBUG_LOG_PATH = Path("/Users/miguelfa/Projects/rooster-capstone-project/.cursor/debug-3ce0b8.log")
+
+
+# region agent log
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    try:
+        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "sessionId": "3ce0b8",
+            "runId": "initial",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        pass
+# endregion
 
 
 class PlannedToolCall(BaseModel):
@@ -181,6 +204,17 @@ def planner_tool_calls_to_plan_calls(tool_calls: list[PlannedToolCall]) -> list[
             params = json.loads(call.params_json or "{}")
         except json.JSONDecodeError:
             params = {}
+        _debug_log(
+            "H1",
+            "agent/planner.py:planner_tool_calls_to_plan_calls",
+            "params_json parsed before planner call conversion",
+            {
+                "tool": call.tool,
+                "params_json_prefix": (call.params_json or "")[:300],
+                "parsed_type": type(params).__name__,
+                "parsed_preview": params,
+            },
+        )
         if not isinstance(params, dict):
             params = {}
         out.append(
