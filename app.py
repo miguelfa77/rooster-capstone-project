@@ -53,7 +53,9 @@ from psycopg2 import sql
 from streamlit_folium import st_folium
 
 from agent.session_memory import (
+    apply_pending_clarification_response,
     coalesce_session_memory,
+    set_pending_clarification,
     sync_flat_conversation_state_v1,
     update_session_memory_from_turn,
 )
@@ -1625,6 +1627,26 @@ def render_chat() -> None:
 
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
+        actual_user_input = user_input
+        memory_turn_user_message = actual_user_input
+        mem_before_turn = coalesce_session_memory(st.session_state.get("session_memory_v2") or {})
+        if mem_before_turn.pending_clarification is not None:
+            mem_after_clarification, original_query = apply_pending_clarification_response(
+                mem_before_turn,
+                actual_user_input,
+            )
+            st.session_state.session_memory_v2 = mem_after_clarification.model_dump()
+            if original_query:
+                user_input = original_query
+                memory_turn_user_message = (
+                    f"Original query resumed after clarification: {original_query}\n"
+                    f"Clarification response: {actual_user_input}"
+                )
+                _LOG.info(
+                    "clarification_response_applied term=%s original_query=%s",
+                    mem_before_turn.pending_clarification.term,
+                    original_query,
+                )
 
         if _is_summary_request(user_input):
             progress_memo: dict = {}
@@ -1690,6 +1712,7 @@ def render_chat() -> None:
                     status.update(label=UI.STATUS_QUERY)
                     thought_placeholder.empty()
                     return
+                _LOG.info("agent_reasoning_stream_ui text=%s", clean)
                 status.update(label=UI.STATUS_QUERY, expanded=True)
                 thought_placeholder.markdown(
                     _thought_box_html(clean),
@@ -1787,6 +1810,14 @@ def render_chat() -> None:
                     st.rerun()
                 if fc.get("conversational_text") is not None:
                     openai_precomputed = fc["conversational_text"]
+                    pending_clarification = fc.get("pending_clarification")
+                    if isinstance(pending_clarification, dict):
+                        mem = coalesce_session_memory(st.session_state.get("session_memory_v2") or {})
+                        st.session_state.session_memory_v2 = set_pending_clarification(
+                            mem,
+                            term=str(pending_clarification.get("term") or ""),
+                            original_query=str(pending_clarification.get("original_query") or user_input),
+                        ).model_dump()
                     stream_kind = "conversational"
                     plan_for_stream = {
                         "reasoning": "conversational",
@@ -1963,7 +1994,7 @@ def render_chat() -> None:
                 ]
                 mem1 = update_session_memory_from_turn(
                     mem0,
-                    user_input,
+                    memory_turn_user_message,
                     response_text or "",
                     tools_used=[t for t in tools_used if t],
                     timeout_sec=min(float(timeout_sec), 20.0),

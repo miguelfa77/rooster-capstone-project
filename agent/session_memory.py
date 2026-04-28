@@ -46,16 +46,25 @@ class ShownSoFarModel(BaseModel):
     neighborhoods_shown: list[str] = Field(default_factory=list)
 
 
+class PendingClarificationModel(BaseModel):
+    term: str
+    original_query: str
+
+
 class SessionMemoryV2(BaseModel):
     user_profile: UserProfileModel = Field(default_factory=UserProfileModel)
     conversation_state: ConversationStateModel = Field(default_factory=ConversationStateModel)
     shown_so_far: ShownSoFarModel = Field(default_factory=ShownSoFarModel)
+    clarification_resolutions: dict[str, str] = Field(default_factory=dict)
+    pending_clarification: PendingClarificationModel | None = None
 
 
 class MemoryTurnDelta(BaseModel):
     user_profile: UserProfileModel | None = None
     conversation_state: ConversationStateModel | None = None
     shown_so_far: ShownSoFarModel | None = None
+    clarification_resolutions: dict[str, str] | None = None
+    pending_clarification: PendingClarificationModel | None = None
 
 
 MEMORY_UPDATE_INSTRUCTIONS = """You merge new signals into Rooster session memory. Output JSON matching the schema.
@@ -64,6 +73,8 @@ inferred_operation: venta|alquiler|either|null
 inferred_priorities keys may include yield, transit, tourism_avoidance, price_sensitivity in 0..1
 stage: orienting|evaluating|deciding
 Turn counter and thread lists: short Spanish phrases for pending threads.
+clarification_resolutions stores user definitions for previously ambiguous terms, e.g. {"cash flow": "diferencia entre renta y coste"}.
+Only add clarification_resolutions when the user is clearly defining a term Rooster asked about.
 """
 
 
@@ -110,7 +121,56 @@ def merge_session_memory(
         for k, v in msh.items():
             if v is not None and v != "" and v != []:
                 sh[k] = v
+    if delta.clarification_resolutions:
+        d.setdefault("clarification_resolutions", {})
+        for k, v in delta.clarification_resolutions.items():
+            if k and v:
+                d["clarification_resolutions"][str(k)] = str(v)
+    if delta.pending_clarification is not None:
+        d["pending_clarification"] = delta.pending_clarification.model_dump()
     return SessionMemoryV2.model_validate(d)
+
+
+def set_pending_clarification(
+    current: SessionMemoryV2,
+    *,
+    term: str,
+    original_query: str,
+) -> SessionMemoryV2:
+    """Remember that the next user message should define ``term``."""
+    return current.model_copy(
+        update={
+            "pending_clarification": PendingClarificationModel(
+                term=term,
+                original_query=original_query,
+            )
+        }
+    )
+
+
+def apply_pending_clarification_response(
+    current: SessionMemoryV2,
+    user_message: str,
+) -> tuple[SessionMemoryV2, str | None]:
+    """Store the user's clarification and return the original query to rerun."""
+    pending = current.pending_clarification
+    if pending is None:
+        return current, None
+    resolutions = dict(current.clarification_resolutions or {})
+    resolutions[pending.term] = (user_message or "").strip()
+    updated = current.model_copy(
+        update={
+            "clarification_resolutions": resolutions,
+            "pending_clarification": None,
+        }
+    )
+    log_stage(
+        "memory",
+        "clarification_resolution_stored",
+        term=pending.term,
+        original_query=pending.original_query,
+    )
+    return updated, pending.original_query
 
 
 def update_session_memory_from_turn(

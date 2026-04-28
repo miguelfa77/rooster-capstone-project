@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agent.config import (
@@ -13,6 +14,7 @@ from agent.config import (
 from agent.stage_logging import log_stage
 
 MAX_STEPS_DEFAULT = MAX_AGENT_STEPS_DEFAULT
+_LOG = logging.getLogger("rooster.agent_loop")
 
 
 def compute_max_steps(resolved_intent: dict[str, Any] | None) -> int:
@@ -85,7 +87,7 @@ def run_agent_loop_pipeline(
 
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
     try:
-        resolved_query = resolve_query(user_input)
+        resolved_query = resolve_query(user_input, session_memory=conversation_state)
         resolved_intent_dict: dict[str, Any] | None = _intent_from_resolved_query(resolved_query)
         log_stage(
             "semantic_resolver",
@@ -97,16 +99,21 @@ def run_agent_loop_pipeline(
             unresolved_flavour_terms=resolved_query.unresolved_flavour_terms,
         )
     except Exception:
-        resolved_query = resolve_query("")
+        resolved_query = resolve_query("", session_memory=conversation_state)
         resolved_intent_dict = None
         log_stage("semantic_resolver", "failed", user_message=user_input)
 
     clarification = clarification_message(resolved_query)
     if clarification:
+        pending = {
+            "term": resolved_query.unresolved_essential_terms[0],
+            "original_query": user_input,
+        }
         log_stage(
             "semantic_resolver",
             "clarification_required",
             unresolved_essential_terms=resolved_query.unresolved_essential_terms,
+            pending_clarification=pending,
         )
         return {
             "error": None,
@@ -123,6 +130,7 @@ def run_agent_loop_pipeline(
             "planner_response_id": None,
             "responses_synthesis": None,
             "resolved_intent": resolved_intent_dict,
+            "pending_clarification": pending,
         }
 
     max_steps = compute_max_steps(resolved_intent_dict)
@@ -164,6 +172,13 @@ def run_agent_loop_pipeline(
             correction_hint=bool(correction_hint),
         )
         if decision.reasoning_summary and preamble_callback and decision.route == "data":
+            _LOG.info("agent_reasoning_stream step=%s text=%s", step + 1, decision.reasoning_summary)
+            log_stage(
+                "planner",
+                "reasoning_stream",
+                step=step + 1,
+                text=decision.reasoning_summary,
+            )
             try:
                 preamble_callback(decision.reasoning_summary)
             except Exception:
