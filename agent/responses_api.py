@@ -87,15 +87,27 @@ def parse_strict_response(
     model_type: type[ModelT],
     **kwargs: Any,
 ) -> tuple[ModelT | None, Any]:
-    """Call Responses API with an explicit strict JSON schema and validate locally."""
+    """Call Responses API with structured JSON schema output and validate locally.
+
+    Pass ``structured_outputs_strict=False`` when the model must emit partial nested
+    objects (e.g. memory deltas). Strict mode requires every property key on each
+    object, which breaks merge-by-patch semantics and free-form dict fields.
+    """
     kwargs = dict(kwargs)
     kwargs.pop("text_format", None)
+    structured_outputs_strict = bool(kwargs.pop("structured_outputs_strict", True))
+    if structured_outputs_strict:
+        schema = strict_json_schema_for_model(model_type)
+        strict_flag = True
+    else:
+        schema = model_type.model_json_schema()
+        strict_flag = False
     kwargs["text"] = {
         "format": {
             "type": "json_schema",
             "name": model_type.__name__,
-            "schema": strict_json_schema_for_model(model_type),
-            "strict": True,
+            "schema": schema,
+            "strict": strict_flag,
         }
     }
     response = client.responses.create(**kwargs)

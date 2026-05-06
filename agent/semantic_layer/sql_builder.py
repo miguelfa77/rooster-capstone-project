@@ -115,11 +115,14 @@ def _filters_sql(filters: Any, bind: dict[str, Any]) -> list[str]:
         for item in filters:
             if not isinstance(item, dict):
                 continue
-            metric = item.get("field") or item.get("metric")
+            metric = item.get("field") or item.get("metric") or item.get("column")
             if not isinstance(metric, str):
                 continue
             op = item.get("op") or item.get("operator")
-            spec: dict[str, Any] = {"operator": op, "value": item.get("value")}
+            val = item.get("value")
+            if val is None:
+                val = item.get("values")
+            spec: dict[str, Any] = {"operator": op, "value": val}
             if op == "not_null" or item.get("not_null") is True:
                 spec["not_null"] = True
             converted[metric] = spec
@@ -130,15 +133,21 @@ def _filters_sql(filters: Any, bind: dict[str, Any]) -> list[str]:
     for metric, spec in filters.items():
         if metric not in metric_entries() or not isinstance(spec, dict):
             raise ValueError(f"Invalid filter metric: {metric}")
-        if spec.get("not_null") is True or spec.get("op") == "not_null" or spec.get("operator") == "not_null":
+        raw_op = spec.get("op") or spec.get("operator")
+        if spec.get("not_null") is True or raw_op == "not_null":
             out.append(f"{metric_column(metric)} IS NOT NULL")
             continue
-        op = str(spec.get("operator") or "=").strip()
+        if raw_op == "is_null":
+            out.append(f"{metric_column(metric)} IS NULL")
+            continue
+        op = str(raw_op or "=").strip()
         if op not in FILTER_OPERATORS:
             raise ValueError(f"Invalid operator for {metric}: {op}")
         col = metric_column(metric)
         pname = f"filter_{len(bind)}"
         value = spec.get("value")
+        if value is None:
+            value = spec.get("values")
         if op in {"in", "not_in"}:
             if not isinstance(value, list):
                 raise ValueError(f"Filter {metric} requires a list")

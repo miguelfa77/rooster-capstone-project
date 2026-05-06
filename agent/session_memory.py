@@ -207,6 +207,7 @@ Tools called this turn (names): {json.dumps(tools_used)}
             "input": text_in,
             "text_format": MemoryTurnDelta,
             "max_output_tokens": MEMORY_MAX_OUTPUT_TOKENS,
+            "structured_outputs_strict": False,
         }
         if supports_temperature(MEMORY_MODEL):
             parse_kw["temperature"] = 0

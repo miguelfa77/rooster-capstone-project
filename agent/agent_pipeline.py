@@ -582,8 +582,11 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
         for item in raw_filters:
             if not isinstance(item, dict):
                 continue
-            field = str(item.get("field") or "").strip()
-            op = str(item.get("op") or "").strip()
+            field = str(
+                item.get("field") or item.get("metric") or item.get("column") or ""
+            ).strip()
+            op_raw = item.get("op") or item.get("operator")
+            op = str(op_raw or "").strip()
             if field in {"min_venta_count", "min_alquiler_count"}:
                 return None, _select_metrics_error(
                     "select_metrics",
@@ -620,7 +623,12 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
             elif op == "not_null":
                 converted.append({"field": mapped_field, "op": "not_null"})
             else:
-                converted.append({"field": mapped_field, "op": _SQL_OPERATOR_MAP[op], "value": item.get("value")})
+                val = item.get("value")
+                if val is None:
+                    val = item.get("values")
+                converted.append(
+                    {"field": mapped_field, "op": _SQL_OPERATOR_MAP[op], "value": val}
+                )
         normalized["filters"] = converted
     return normalized, None
 
