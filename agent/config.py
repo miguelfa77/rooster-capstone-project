@@ -12,6 +12,7 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+PLANNER_MODEL_DEFAULT = os.getenv("ROOSTER_PLANNER_MODEL", "gpt-5.5")
 REVIEWER_MODEL_DEFAULT = os.getenv("ROOSTER_REVIEWER_MODEL", "gpt-5-mini")
 SYNTHESIZER_MODEL_DEFAULT = os.getenv("ROOSTER_SYNTHESIZER_MODEL", "gpt-5.5")
 MEMO_MODEL_DEFAULT = os.getenv("OPENAI_MODEL", "gpt-5.5")
