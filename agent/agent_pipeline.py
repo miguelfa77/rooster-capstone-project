@@ -506,9 +506,51 @@ def _coerce_tool_params(raw: Any) -> dict[str, Any]:
     return {}
 
 
+def _geom_to_geojson_dict(g: Any) -> dict[str, Any] | None:
+    """Convert PostGIS/shapely/WKB geometry cell values to GeoJSON geometry dicts."""
+    if g is None:
+        return None
+    try:
+        if pd.isna(g):
+            return None
+    except TypeError:
+        pass
+    if isinstance(g, str):
+        s = g.strip()
+        if not s:
+            return None
+        try:
+            parsed = json.loads(s)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    if isinstance(g, (bytes, memoryview)):
+        try:
+            from shapely import from_wkb
+
+            geom = from_wkb(bytes(g))
+            gi = geom.__geo_interface__
+            return gi if isinstance(gi, dict) else None
+        except Exception:
+            return None
+    gi = getattr(g, "__geo_interface__", None)
+    return gi if isinstance(gi, dict) else None
+
+
+def _prepare_select_metrics_geometry(df: pd.DataFrame) -> pd.DataFrame:
+    if "geom" not in df.columns:
+        return df
+    out = df.copy()
+    out["geom"] = out["geom"].map(_geom_to_geojson_dict)
+    return out
+
+
 def select_metrics_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     sql, bind = build_select_metrics_sql(params)
     df = pd.read_sql(text(sql), engine, params=bind)
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated()]
+    df = _prepare_select_metrics_geometry(df)
     return add_data_confidence(df.to_dict("records"))
 
 

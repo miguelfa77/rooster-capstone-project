@@ -16,7 +16,6 @@ COPY sandbox/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY sandbox/main.py /app/main.py
-COPY pipeline/barrios/data/barris-barrios.geojson /data/valencia_barrios.geojson
 
 EXPOSE 8001
 

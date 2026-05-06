@@ -193,11 +193,18 @@ For Plotly charts:
 - End with: print(fig.to_json())
 
 For Folium maps (when user asks for geographic/map output):
-- Import folium and geopandas
-- For marker maps: build from df['lat'] and df['lng'] columns
-- For choropleth maps: load geometry with:
-  gdf = gpd.read_file('/data/valencia_barrios.geojson')
-  then merge with df on neighborhood name
+- Import folium and geopandas as needed
+- For marker maps: build from df['lat'] and df['lng'] columns when present
+- For choropleth maps:
+  - df is already injected with geometry in the 'geom' column as GeoJSON dicts (geometry objects).
+  - Reconstruct GeoDataFrame:
+    import geopandas as gpd
+    from shapely.geometry import shape
+    df['geometry'] = df['geom'].apply(lambda g: shape(g) if g else None)
+    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs='EPSG:4326')
+  - Do NOT read from any file path
+  - Do NOT make any network requests
+  - All data you need is in df
 - End with: print(m.get_root().render())
 
 The code primitive has a fallback_kind field. Set it to "table" always.

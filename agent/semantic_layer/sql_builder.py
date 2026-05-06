@@ -176,6 +176,10 @@ def build_select_metrics_sql(params: dict[str, Any]) -> tuple[str, dict[str, Any
     select_cols = ["np.neighborhood_name"]
     select_cols.extend(f"{metric_column(m)} AS {_metric_alias(m)}" for m in metrics)
     select_cols.extend(["np.venta_count", "np.alquiler_count", "np.total_count"])
+    if bool(params.get("include_geometry")):
+        select_cols.append(
+            "ST_AsGeoJSON(ST_SimplifyPreserveTopology(np.geom, 0.00004), 4)::text AS geom"
+        )
     where = ["TRUE"]
     where.extend(_where_for_samples(params.get("min_listings"), bind))
     where.extend(_filters_sql(params.get("filters"), bind))

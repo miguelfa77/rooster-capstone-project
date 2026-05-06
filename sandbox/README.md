@@ -27,7 +27,8 @@ Response:
 ## Runtime notes
 
 - Timeout enforced at 15 seconds by a subprocess harness.
-- GeoJSON available at `/data/valencia_barrios.geojson`.
+- Choropleth geometry is supplied per row in the request payload: column **`geom`** holds GeoJSON geometry dicts when the executor sets `include_geometry=true`. The sandbox does not read static GeoJSON files from disk.
+- This service does not use a database; do not set **`DATABASE_URL`** (or other DB credentials) on it.
 - For Railway deployment, configure:
   - Memory limit: 512MB
   - Network: private networking only
