@@ -24,6 +24,23 @@ Response:
 }
 ```
 
+## Docker
+
+Use **`sandbox/` as the build context** (not the repo root), so `COPY` paths are relative to this directory:
+
+```bash
+cd sandbox
+docker build -t rooster-sandbox .
+```
+
+From the repo root without changing directory:
+
+```bash
+docker build -f sandbox/Dockerfile sandbox
+```
+
+(`-f` is only where the Dockerfile lives; the **last argument** is the context.)
+
 ## Runtime notes
 
 - Timeout enforced at 15 seconds by a subprocess harness.
