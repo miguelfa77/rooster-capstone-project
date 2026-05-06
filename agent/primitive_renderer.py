@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from typing import Any
 
 import pandas as pd
-import plotly.express as px
+import plotly.io as pio
+import requests
 import streamlit as st
 
-from agent.renderers import dispatch
 from agent.synthesizer import (
-    ChartPrimitive,
+    CodePrimitive,
     CompositePrimitive,
     KpiPrimitive,
-    MapPrimitive,
     PrimitiveBlock,
     SynthesizedResponse,
     TablePrimitive,
     TextPrimitive,
 )
+
+_LOG = logging.getLogger("rooster.primitive_renderer")
+SANDBOX_URL = os.getenv("ROOSTER_SANDBOX_URL", "http://localhost:8001")
 
 
 def _rows(raw_json: str) -> list[dict[str, Any]]:
@@ -81,68 +85,43 @@ def _render_table(primitive: TablePrimitive) -> None:
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
-def _render_chart(primitive: ChartPrimitive, geo_key: int) -> None:
-    rows = _rows(primitive.data_json)
-    if not rows:
-        st.caption("No hay datos suficientes para el gráfico.")
+def _render_code(primitive: CodePrimitive, geo_key: int) -> None:
+    if not st.session_state.get("_rooster_last_execution_results"):
+        st.info("No hay datos para ejecutar la visualización.")
         return
-    spec = primitive.spec
-    df = pd.DataFrame(rows)
-    title = spec.title or ""
-    labels = {}
-    if spec.x:
-        labels[spec.x.field] = spec.x.title
-    if spec.y:
-        labels[spec.y.field] = spec.y.title
-    color = spec.color_field if spec.color_field in df.columns else None
-    if spec.type == "scatter" and spec.x and spec.y:
-        fig = px.scatter(
-            df,
-            x=spec.x.field,
-            y=spec.y.field,
-            color=color,
-            size=spec.size_field if spec.size_field in df.columns else None,
-            hover_name=spec.label_field if spec.label_field in df.columns else None,
-            template="plotly_dark",
-            labels=labels,
-            title=title,
+    execution_results = st.session_state.get("_rooster_last_execution_results") or []
+    rows = (execution_results[0] or {}).get("rows") if execution_results else None
+    if not isinstance(rows, list) or not rows:
+        st.info("No hay datos para ejecutar la visualización.")
+        return
+
+    try:
+        response = requests.post(
+            f"{SANDBOX_URL}/execute",
+            json={"code": primitive.code, "data": rows},
+            timeout=20,
         )
-    elif spec.type == "line" and spec.x and spec.y:
-        fig = px.line(
-            df,
-            x=spec.x.field,
-            y=spec.y.field,
-            color=color,
-            template="plotly_dark",
-            labels=labels,
-            title=title,
-        )
-    elif spec.type == "histogram" and spec.x:
-        fig = px.histogram(df, x=spec.x.field, color=color, template="plotly_dark", labels=labels, title=title)
-    elif spec.type == "bar" and spec.x and spec.y:
-        fig = px.bar(df, x=spec.x.field, y=spec.y.field, color=color, template="plotly_dark", labels=labels, title=title)
+        response.raise_for_status()
+        result = response.json()
+    except Exception as exc:
+        _LOG.warning("Sandbox request failed: %s", exc)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        return
+
+    if result.get("success"):
+        output = result.get("output") or ""
+        if primitive.visualization_type == "plotly":
+            fig = pio.from_json(output)
+            st.plotly_chart(fig, use_container_width=True, key=f"primitive_code_plotly_{geo_key}_{id(primitive)}")
+        elif primitive.visualization_type == "folium":
+            st.components.v1.html(output, height=500, scrolling=True)
     else:
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        return
-    fig.update_layout(height=380, margin=dict(l=0, r=0, t=36 if title else 0, b=0))
-    st.plotly_chart(fig, use_container_width=True, key=f"primitive_chart_{geo_key}_{id(primitive)}")
-
-
-def _render_map(primitive: MapPrimitive, geo_key: int) -> None:
-    for idx, layer in enumerate(primitive.layers):
-        rows = _rows(layer.data_json)
-        encoding = (
-            layer.encoding.model_dump(exclude_none=True)
-            if hasattr(layer.encoding, "model_dump")
-            else dict(layer.encoding or {})
+        _LOG.warning(
+            "Sandbox execution failed: %s\nCode: %s",
+            result.get("error"),
+            primitive.code,
         )
-        meta = {"geo_key": f"{geo_key}_{idx}", **encoding}
-        if layer.type == "markers":
-            dispatch("geo_map", rows, meta, "")
-        elif layer.type == "choropleth":
-            dispatch("choropleth_focus", rows, meta, "")
-        else:
-            dispatch("neighborhood_map", rows, meta, "")
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def render_primitive_block(primitive: PrimitiveBlock, geo_key: int) -> None:
@@ -152,10 +131,8 @@ def render_primitive_block(primitive: PrimitiveBlock, geo_key: int) -> None:
         _render_kpi(primitive)
     elif isinstance(primitive, TablePrimitive):
         _render_table(primitive)
-    elif isinstance(primitive, ChartPrimitive):
-        _render_chart(primitive, geo_key)
-    elif isinstance(primitive, MapPrimitive):
-        _render_map(primitive, geo_key)
+    elif isinstance(primitive, CodePrimitive):
+        _render_code(primitive, geo_key)
     elif isinstance(primitive, CompositePrimitive):
         if primitive.heading:
             st.markdown(f"### {primitive.heading}")

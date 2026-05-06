@@ -8,7 +8,6 @@ from typing import Any
 from agent.config import (
     MAX_AGENT_STEPS_DEFAULT,
     MAX_AGENT_STEPS_RECOMMENDATION,
-    REVIEWER_TIMEOUT_SEC,
     SYNTHESIZER_MODEL_DEFAULT,
 )
 from agent.stage_logging import log_stage
@@ -55,13 +54,10 @@ def run_agent_loop_pipeline(
         _infer_combine_maps_from_tools,
         _infer_plan_neighborhood_resolved,
         execute_plan,
-        format_output_completeness_correction,
         format_validation_plan_correction,
-        validate_output_completeness,
         validate_plan,
     )
     from agent.planner import plan_query, planner_tool_calls_to_plan_calls
-    from agent.reviewer import format_reviewer_correction, review_execution
     from agent.semantic_layer.resolver import clarification_message, resolve_query
     from agent.semantic_layer.models import ResolvedQuery
 
@@ -123,10 +119,7 @@ def run_agent_loop_pipeline(
             "max_tokens_final": 0,
             "validation_failed": False,
             "validation_errors": [],
-            "had_output_correction": False,
             "had_validation_replan": False,
-            "had_reviewer_replan": False,
-            "reviewer_verdict": None,
             "planner_response_id": None,
             "responses_synthesis": None,
             "resolved_intent": resolved_intent_dict,
@@ -135,10 +128,7 @@ def run_agent_loop_pipeline(
 
     max_steps = compute_max_steps(resolved_intent_dict)
     correction_hint: str | None = None
-    had_output_correction = False
     had_validation_replan = False
-    had_reviewer_replan = False
-    reviewer_verdict: dict[str, Any] | None = None
 
     all_execution: list[dict[str, Any]] = []
     validation_errors: list[str] = []
@@ -196,10 +186,7 @@ def run_agent_loop_pipeline(
                 "max_tokens_final": 0,
                 "validation_failed": False,
                 "validation_errors": [],
-                "had_output_correction": False,
                 "had_validation_replan": had_validation_replan,
-                "had_reviewer_replan": had_reviewer_replan,
-                "reviewer_verdict": reviewer_verdict,
                 "planner_response_id": planner_response_id,
                 "responses_synthesis": None,
                 "resolved_intent": resolved_intent_dict,
@@ -217,10 +204,7 @@ def run_agent_loop_pipeline(
                 "max_tokens_final": 0,
                 "validation_failed": False,
                 "validation_errors": [],
-                "had_output_correction": False,
                 "had_validation_replan": had_validation_replan,
-                "had_reviewer_replan": had_reviewer_replan,
-                "reviewer_verdict": reviewer_verdict,
                 "planner_response_id": planner_response_id,
                 "responses_synthesis": None,
                 "resolved_intent": resolved_intent_dict,
@@ -265,32 +249,17 @@ def run_agent_loop_pipeline(
                 for r in execution_results
             ],
         )
-        issues = validate_output_completeness(user_input, execution_results)
-        if issues:
-            correction_hint = format_output_completeness_correction(issues, user_input)
-            had_output_correction = True
-            continue
-
-        verdict = review_execution(
-            resolved_query=resolved_query,
-            tool_calls=validated.get("tool_calls") or [],
-            execution_results=execution_results,
-            timeout_sec=min(float(timeout_sec), REVIEWER_TIMEOUT_SEC),
-            prompt_cache_key=prompt_cache_key,
-        )
-        reviewer_verdict = verdict.model_dump()
-        log_stage("reviewer", "verdict", step=step + 1, **reviewer_verdict)
-        if verdict.verdict == "fail":
-            correction_hint = format_reviewer_correction(verdict)
-            had_reviewer_replan = True
-            if step < max_steps - 1:
-                all_execution.extend(execution_results)
-                continue
-
         planned_call_count += len(raw_plan_calls)
         all_execution.extend(execution_results)
         last_validated = validated
         completed_tool_path = True
+        # Let real execution results drive self-correction on the next loop.
+        if step < max_steps - 1 and any(not r.get("success") for r in execution_results):
+            correction_hint = (
+                "Previous tool execution returned errors. Read those errors and correction hints, "
+                "then emit corrected tool_calls."
+            )
+            continue
         correction_hint = None
 
         # Most Rooster questions are answered by one validated parallel batch. Continue only
@@ -315,10 +284,7 @@ def run_agent_loop_pipeline(
             "max_tokens_final": 0,
             "validation_failed": False,
             "validation_errors": validation_errors,
-            "had_output_correction": had_output_correction,
             "had_validation_replan": had_validation_replan,
-            "had_reviewer_replan": had_reviewer_replan,
-            "reviewer_verdict": reviewer_verdict,
             "planner_response_id": planner_response_id,
             "responses_synthesis": None,
             "resolved_intent": resolved_intent_dict,
@@ -326,14 +292,6 @@ def run_agent_loop_pipeline(
 
     last_validated = dict(last_validated or {})
     last_validated["agent_loop_steps"] = min(max_steps, max(1, planned_call_count))
-    if reviewer_verdict:
-        last_validated["reviewer_verdict"] = reviewer_verdict
-    if resolved_intent_dict is not None:
-        resolved_intent_dict = {
-            **resolved_intent_dict,
-            "reviewer_verdict": reviewer_verdict,
-            "had_reviewer_replan": had_reviewer_replan,
-        }
     return {
         "error": None,
         "conversational_text": None,
@@ -342,10 +300,7 @@ def run_agent_loop_pipeline(
         "max_tokens_final": 0,
         "validation_failed": False,
         "validation_errors": validation_errors,
-        "had_output_correction": had_output_correction,
         "had_validation_replan": had_validation_replan,
-        "had_reviewer_replan": had_reviewer_replan,
-        "reviewer_verdict": reviewer_verdict,
         "planner_response_id": planner_response_id,
         "responses_synthesis": None,
         "resolved_intent": resolved_intent_dict,

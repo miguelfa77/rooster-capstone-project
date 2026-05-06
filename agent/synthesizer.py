@@ -27,7 +27,7 @@ from agent.stage_logging import log_stage
 
 _LOG = logging.getLogger("rooster.synthesizer")
 
-PrimitiveKind = Literal["text", "kpi", "table", "chart", "map", "composite"]
+PrimitiveKind = Literal["text", "kpi", "table", "code", "composite"]
 
 
 class StrictBaseModel(BaseModel):
@@ -63,46 +63,11 @@ class TablePrimitive(StrictBaseModel):
     columns: list[TableColumn] = Field(default_factory=list)
 
 
-class AxisSpec(StrictBaseModel):
-    field: str
-    title: str
-    type: Literal["quantitative", "nominal", "temporal"] = "quantitative"
-    formatter: Literal["currency", "percentage", "integer", "number", "text", "date"] = "number"
-
-
-class ChartSpec(StrictBaseModel):
-    type: Literal["bar", "line", "scatter", "histogram", "choropleth", "density"]
-    x: AxisSpec | None = None
-    y: AxisSpec | None = None
-    color_field: str | None = None
-    size_field: str | None = None
-    label_field: str | None = None
-    title: str | None = None
-
-
-class ChartPrimitive(StrictBaseModel):
-    kind: Literal["chart"] = "chart"
-    spec: ChartSpec
-    data_json: str = Field(default="[]", description="JSON array of row objects.")
-
-
-class MapEncoding(StrictBaseModel):
-    metric: str | None = None
-    metric_label: str | None = None
-    color_field: str | None = None
-    label_field: str | None = None
-
-
-class MapLayer(StrictBaseModel):
-    type: Literal["markers", "choropleth", "polygons"]
-    data_json: str = Field(default="[]", description="JSON array of row objects for this layer.")
-    encoding: MapEncoding = Field(default_factory=MapEncoding)
-
-
-class MapPrimitive(StrictBaseModel):
-    kind: Literal["map"] = "map"
-    layers: list[MapLayer] = Field(default_factory=list)
-    focus: str | None = None
+class CodePrimitive(StrictBaseModel):
+    kind: Literal["code"] = "code"
+    visualization_type: Literal["plotly", "folium"]
+    code: str
+    fallback_kind: Literal["table"] = "table"
 
 
 class CompositePrimitive(StrictBaseModel):
@@ -115,8 +80,7 @@ PrimitiveBlock = (
     TextPrimitive
     | KpiPrimitive
     | TablePrimitive
-    | ChartPrimitive
-    | MapPrimitive
+    | CodePrimitive
     | CompositePrimitive
 )
 
@@ -139,11 +103,12 @@ _HARD_CONSTRAINTS = """HARD CONSTRAINTS — these override all other instruction
    not exhaustive:
 
    Any request to see data on a map, geographically, spatially, "sobre el plano", "en el mapa",
-   "visualización geográfica", "distribución por zonas", or similar → must include a map primitive.
+   "visualización geográfica", "distribución por zonas", or similar → must include a code primitive
+   with visualization_type "folium".
 
    Any request for a scatter plot, scatter chart, "gráfico de dispersión", "nube de puntos",
-   "x contra y", "correlación entre", or similar → must include a chart primitive with
-   spec.type "scatter".
+   "x contra y", "correlación entre", or similar → must include a code primitive with
+   visualization_type "plotly" that creates a scatter plot.
 
    Any request for a table, "en tabla", "listado", "dame los datos", "muéstramelo ordenado",
    or similar → must include a table primitive.
@@ -156,10 +121,10 @@ _HARD_CONSTRAINTS = """HARD CONSTRAINTS — these override all other instruction
    or similar → respond with a composite primitive with structured sections.
 
    Any request for a bar chart, ranking chart, "ranking visual", "ordenados en gráfico",
-   or similar → must include a chart primitive with spec.type "bar".
+   or similar → must include a code primitive with visualization_type "plotly" that creates a bar chart.
 
    Any request for a trend, evolution, "cómo ha evolucionado", "a lo largo del tiempo",
-   or similar → must include a chart primitive with spec.type "line".
+   or similar → must include a code primitive with visualization_type "plotly" that creates a line chart.
 
    You may add additional primitives around the required one if they add genuine value.
    You may never omit the required one.
@@ -195,8 +160,8 @@ _HARD_CONSTRAINTS = """HARD CONSTRAINTS — these override all other instruction
 
 SYNTHESIZER_INSTRUCTIONS = """You are Rooster's Spanish real-estate analyst for Valencia.
 
-Return ONLY JSON matching the provided schema. Compose the answer from the six allowed primitives:
-text, kpi, table, chart, map, composite.
+Return ONLY JSON matching the provided schema. Compose the answer from the five allowed primitives:
+text, kpi, table, code, composite.
 
 Hard rules:
 - Never use raw database field names in text. Use natural Spanish names from resolved_intent where available.
@@ -210,15 +175,36 @@ Primitive guidance:
 - text: Spanish prose, concise. Use for lead, analysis, recommendation, caveat.
 - kpi: one headline number, especially lookup answers.
 - table: comparison/ranking/listing rows. rows_json must be a valid JSON array copied from agent_results.
-- chart: use spec encodings directly. data_json must contain the fields referenced by x/y/color/size/label.
-- map: use only when spatial location is part of the answer. Put layer rows in layer.data_json.
+- code: use for any visualization. Always return complete executable Python with fallback_kind="table".
 - composite: only for longer memo-style answers.
 
 Worked examples:
 - "precio mediano en Russafa" -> kpi(label="Precio mediano de venta", value="...", unit="€") and a short text if needed.
-- "scatter rentabilidad vs precio" -> text lead, chart(type=scatter, x=median_venta_price, y=gross_rental_yield_pct).
+- "scatter rentabilidad vs precio" -> text lead, code(visualization_type=plotly, code prints fig.to_json()).
 - "compara Russafa y Benimaclet" -> text lead, table with both barrios and relevant metrics.
 - "buena zona" -> text explaining the resolved concept, table or bar chart only if useful.
+
+When producing visualizations, write complete executable Python code.
+
+For Plotly charts:
+- Import plotly.express or plotly.graph_objects as needed
+- Build the figure from df (a pandas DataFrame of the executor results)
+- Use exact column names from the data (check cited_data for column names)
+- End with: print(fig.to_json())
+
+For Folium maps (when user asks for geographic/map output):
+- Import folium and geopandas
+- For marker maps: build from df['lat'] and df['lng'] columns
+- For choropleth maps: load geometry with:
+  gdf = gpd.read_file('/data/valencia_barrios.geojson')
+  then merge with df on neighborhood name
+- End with: print(m.get_root().render())
+
+The code primitive has a fallback_kind field. Set it to "table" always.
+If the sandbox returns an error, the renderer will fall back to a table of raw data automatically.
+Column names to use: write code referencing the exact column names present in the executor results.
+The metrics registry canonical names are the column names (e.g. gross_rental_yield_pct, median_sale, etc.).
+Do not invent column names.
 """
 
 
@@ -401,14 +387,10 @@ def synthesize_response(
     timeout_sec: float = 45.0,
     prompt_cache_key: str | None = None,
     correction_block: str | None = None,
-    apply_chart_lint: bool = True,
 ) -> SynthesizedResponse:
     """Generate an ordered primitive response."""
-    from agent.chart_linter import lint_primitive_response
-
     if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY")):
-        fallback = _sanitize_response(_fallback_response(agent_results))
-        return lint_primitive_response(fallback).response if apply_chart_lint else fallback
+        return _sanitize_response(_fallback_response(agent_results))
 
     result_summaries = _build_results_summary_for_synth(agent_results)
     resolved = resolved_intent or {}
@@ -456,25 +438,19 @@ def synthesize_response(
         )
         if isinstance(out, SynthesizedResponse):
             sanitized = _sanitize_response(out)
-            linted = lint_primitive_response(sanitized) if apply_chart_lint else None
-            response = linted.response if linted else sanitized
-            if linted and linted.errors:
-                _LOG.warning("primitive_linter_errors=%s", linted.errors)
+            response = sanitized
             _LOG.info("synthesized_response=%s", response.model_dump_json())
             log_stage(
                 "synthesizer",
                 "primitive_response",
                 primitive_kinds=[p.kind for p in response.primitives],
                 follow_up_count=len(response.follow_ups),
-                linter_errors=linted.errors if linted else [],
-                linter_modifications=linted.modifications if linted else [],
-                reviewer_retry=bool(correction_block),
+                correction_retry=bool(correction_block),
             )
             return response
     except Exception as exc:
         _LOG.exception("primitive_synthesis_failed: %s", exc)
-    fallback = _sanitize_response(_fallback_response(agent_results))
-    return lint_primitive_response(fallback).response if apply_chart_lint else fallback
+    return _sanitize_response(_fallback_response(agent_results))
 
 
 def synthesized_text(synthesized: SynthesizedResponse) -> str:

@@ -5,7 +5,7 @@ Re-run the capstone 19-query set after each major agent change. Record pass/fail
 ## Preconditions
 
 - `analytics` dbt models built, especially `analytics.neighborhood_profile`.
-- `OPENAI_API_KEY` set for live planner/reviewer/synthesizer tests.
+- `OPENAI_API_KEY` set for live planner/synthesizer tests.
 - Local Postgres with listings + neighborhood data loaded.
 
 ## Smoke checks

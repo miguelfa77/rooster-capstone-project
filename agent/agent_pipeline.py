@@ -3,12 +3,7 @@
 from __future__ import annotations
 
 import json
-import logging
-import os
 import re
-import time
-import unicodedata
-from difflib import SequenceMatcher
 from typing import Any
 
 import pandas as pd
@@ -18,15 +13,11 @@ from agent.config import SYNTH_RESULT_SAMPLE_ROWS
 from agent.llm_sql import get_pg_engine
 from agent.render_thresholds import add_data_confidence
 from agent.semantic_layer.sql_builder import (
-    AGGREGATIONS,
-    TIME_GRANULARITIES,
     build_compute_aggregate_sql,
     build_select_metrics_sql,
     build_temporal_series_sql,
     metric_keys,
 )
-
-_LOG = logging.getLogger("rooster.agent")
 
 
 def _sql_escape(s: str) -> str:
@@ -141,36 +132,6 @@ def extract_neighborhood_names_from_schema(schema_context: str) -> list[str]:
     return out
 
 
-def fuzzy_match_neighborhood(user_input: str, valid_names: list[str]) -> dict[str, Any]:
-    """
-    Fuzzy match user neighborhood input against valid DB names.
-    Returns best match and confidence score in [0,1].
-    """
-
-    def normalize(s: str) -> str:
-        s = unicodedata.normalize("NFD", (s or "").lower().strip())
-        return "".join(c for c in s if unicodedata.category(c) != "Mn")
-
-    if not user_input or not valid_names:
-        return {"name": None, "score": 0.0}
-    user_norm = normalize(user_input)
-    best_score = 0.0
-    best_name: str | None = None
-    for name in valid_names:
-        name_norm = normalize(name)
-        score = SequenceMatcher(None, user_norm, name_norm).ratio()
-        if user_norm and (user_norm in name_norm or name_norm in user_norm):
-            score = max(score, 0.82)
-        if score > best_score:
-            best_score = score
-            best_name = name
-    return {"name": best_name, "score": best_score}
-
-
-# One replan attempt after validation or output-completeness issues (total 2 planner calls max).
-MAX_OUTPUT_CORRECTION_ATTEMPTS = 1
-
-
 def _normalize_follow_ups_payload(raw: Any) -> list[str]:
     """Turn JSON array, object with suggestions, or list of objects into pill strings."""
     out: list[str] = []
@@ -251,80 +212,6 @@ def strip_follow_ups_suffix(text: str) -> tuple[str, list[str]]:
     return prose, labels[:3]
 
 
-def validate_output_completeness(
-    question: str,
-    execution_results: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Light checks for required labels/links in executed tool results."""
-    issues: list[dict[str, Any]] = []
-    del question
-
-    for result in execution_results or []:
-        if not result.get("success"):
-            continue
-        rows = result.get("rows") or []
-        tool = str(result.get("tool") or "")
-
-        if not rows:
-            continue
-
-        columns = set(rows[0].keys())
-        if tool in (
-            "select_metrics",
-            "query_listings",
-            "query_transit_stops",
-            "query_tourist_apartments",
-        ):
-            has_name = any(
-                col in columns for col in ("neighborhood_name", "name", "barrio")
-            )
-            if not has_name:
-                issues.append(
-                    {
-                        "type": "missing_neighborhood_name",
-                        "tool": tool,
-                        "columns_present": sorted(columns),
-                        "fix": (
-                            "Include n.name AS neighborhood_name by joining core.neighborhoods "
-                            "when filtering by barrio. Never omit the neighborhood label column."
-                        ),
-                    }
-                )
-
-        if tool == "query_listings" and "url" not in columns:
-            issues.append(
-                {
-                    "type": "missing_url",
-                    "tool": tool,
-                    "columns_present": sorted(columns),
-                    "fix": (
-                        "Always include l.url in listing queries so users can open Idealista."
-                    ),
-                }
-            )
-
-    return issues
-
-
-def format_output_completeness_correction(
-    issues: list[dict[str, Any]],
-    question: str,
-) -> str:
-    """Build user message block for a replan after output completeness issues."""
-    lines: list[str] = []
-    for issue in issues:
-        lines.append(f"- {issue.get('type', '?')}: {issue.get('fix', '')}")
-        lines.append(f"  Columns returned: {issue.get('columns_present', [])}")
-    body = "\n".join(lines)
-    return f"""YOUR PREVIOUS QUERY HAD THESE PROBLEMS — FIX THEM:
-{body}
-
-The user asked: "{question}"
-
-Generate new tool_calls that fix all problems listed above.
-Do not repeat the same mistake."""
-
-
 def format_validation_plan_correction(
     errors: list[str],
     raw_tool_calls: list[dict[str, Any]],
@@ -342,24 +229,25 @@ Validation errors:
 Tools you attempted: {tools_tried}
 
 Rules:
-- For neighborhood filters, use names from the LIVE DATABASE STATE list (fuzzy match in params).
-- Use **select_metrics** for barrio rankings and comparisons.
+- Only documented Rooster tool names are allowed (see planner tools).
 
-Generate new tool_calls that satisfy all validation rules. Do not repeat the same mistakes."""
+Generate corrected tool_calls using known tools only. Do not repeat unknown tool names."""
 
 
 def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
-    """Validate and correct planner output; pure Python."""
-    valid_names = extract_neighborhood_names_from_schema(schema_context)
+    """Minimal safety validation: only allow known tool names."""
+    del schema_context
+    known_tools = {
+        "select_metrics",
+        "query_listings",
+        "query_transit_stops",
+        "query_tourist_apartments",
+        "resolve_spatial_reference",
+        "compute_aggregate",
+        "temporal_series",
+    }
     errors: list[str] = []
     corrected: list[dict[str, Any]] = []
-    required_params = {
-        "select_metrics": ["metrics"],
-        "compute_aggregate": ["metric", "aggregation"],
-        "temporal_series": ["metric", "time_granularity"],
-        "resolve_spatial_reference": ["reference"],
-    }
-    valid_metrics = set(metric_keys())
     for call in plan.get("tool_calls") or []:
         if not isinstance(call, dict):
             continue
@@ -368,49 +256,9 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
         if not isinstance(tool, str) or not tool:
             errors.append("Invalid tool call")
             continue
-        if tool == "select_metrics":
-            metrics = [m for m in (params.get("metrics") or []) if isinstance(m, str)]
-            invalid = [m for m in metrics if m not in valid_metrics]
-            if invalid:
-                errors.append(f"select_metrics invalid metrics: {invalid}")
-                continue
-            if metrics:
-                params["metrics"] = metrics
-        if tool == "compute_aggregate":
-            metric = str(params.get("metric") or "")
-            if metric not in valid_metrics:
-                errors.append(f"compute_aggregate invalid metric: {metric}")
-                continue
-            agg = str(params.get("aggregation") or "").lower()
-            if agg not in AGGREGATIONS:
-                errors.append(f"compute_aggregate invalid aggregation: {agg}")
-                continue
-            params["aggregation"] = agg
-        if tool == "temporal_series":
-            metric = str(params.get("metric") or "")
-            if metric not in valid_metrics:
-                errors.append(f"temporal_series invalid metric: {metric}")
-                continue
-            gran = str(params.get("time_granularity") or "month").lower()
-            if gran not in TIME_GRANULARITIES:
-                errors.append(f"temporal_series invalid time_granularity: {gran}")
-                continue
-            params["time_granularity"] = gran
-        nb = params.get("neighborhood")
-        if isinstance(nb, str) and nb.strip():
-            fm = fuzzy_match_neighborhood(nb.strip(), valid_names)
-            if fm["score"] < 0.28 and valid_names:
-                errors.append(f"Neighborhood '{nb}' not found in live list (best score {fm['score']:.2f})")
-                continue
-            if fm["name"] and fm["name"] != nb.strip():
-                params["neighborhood"] = fm["name"]
-
-        req = required_params.get(tool, [])
-        missing = [r for r in req if not params.get(r)]
-        if missing:
-            errors.append(f"Tool {tool} missing required params: {missing}")
+        if tool not in known_tools:
+            errors.append(f"Unknown tool: {tool}")
             continue
-
         corrected.append({**call, "params": params})
 
     out = dict(plan)
@@ -664,6 +512,119 @@ def select_metrics_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     return add_data_confidence(df.to_dict("records"))
 
 
+_SELECT_METRIC_ALIASES: dict[str, str] = {
+    "median_sale": "median_venta_price",
+    "median_alquiler": "median_alquiler_price",
+    "tourism_pressure": "tourist_density_pct",
+    "eur_per_sqm": "median_venta_eur_per_sqm",
+}
+_VALID_FILTER_OPERATORS = {"gt", "gte", "lt", "lte", "eq", "neq", "not_null", "is_null", "in", "not_in"}
+_SQL_OPERATOR_MAP = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "eq": "=", "neq": "!=", "in": "in", "not_in": "not_in"}
+_SELECT_METRICS_DOC_LIST = (
+    "gross_rental_yield_pct, median_sale, median_alquiler, venta_count, alquiler_count, "
+    "investment_score, transit_stop_count, tourism_pressure, eur_per_sqm, data_confidence"
+)
+
+
+def _select_metrics_error(tool: str, params: dict[str, Any], message: str, hint: str) -> dict[str, Any]:
+    return {
+        "tool": tool,
+        "params": params,
+        "rows": [],
+        "row_count": 0,
+        "success": False,
+        "error": message,
+        "correction_hint": hint,
+    }
+
+
+def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    normalized = dict(params)
+    metrics = [m for m in (normalized.get("metrics") or []) if isinstance(m, str)]
+    if metrics:
+        out_metrics: list[str] = []
+        for metric in metrics:
+            mapped = _SELECT_METRIC_ALIASES.get(metric, metric)
+            if metric == "data_confidence":
+                continue
+            if mapped not in set(metric_keys()):
+                return None, _select_metrics_error(
+                    "select_metrics",
+                    params,
+                    (
+                        f"Unknown metric '{metric}'. Available: {_SELECT_METRICS_DOC_LIST}. "
+                        "Note: no room or bedroom aggregation exists at neighborhood level."
+                    ),
+                    "Replace the unknown metric with one from the available list, or explain data is unavailable.",
+                )
+            out_metrics.append(mapped)
+        if not out_metrics:
+            out_metrics = ["gross_rental_yield_pct"]
+        normalized["metrics"] = out_metrics
+
+    # Allow new top-level params.
+    if normalized.get("min_venta_count") is not None or normalized.get("min_alquiler_count") is not None:
+        normalized["min_listings"] = {
+            "venta": normalized.get("min_venta_count", 3),
+            "alquiler": normalized.get("min_alquiler_count", 3),
+        }
+    order_by = normalized.get("order_by")
+    if isinstance(order_by, list) and order_by:
+        first = order_by[0] if isinstance(order_by[0], dict) else {}
+        field = str(first.get("field") or "").strip()
+        direction = str(first.get("direction") or "desc").strip().lower()
+        mapped_field = _SELECT_METRIC_ALIASES.get(field, field)
+        normalized["order_by"] = {"metric": mapped_field, "direction": ("asc" if direction == "asc" else "desc")}
+
+    raw_filters = normalized.get("filters")
+    if isinstance(raw_filters, list):
+        converted: list[dict[str, Any]] = []
+        for item in raw_filters:
+            if not isinstance(item, dict):
+                continue
+            field = str(item.get("field") or "").strip()
+            op = str(item.get("op") or "").strip()
+            if field in {"min_venta_count", "min_alquiler_count"}:
+                return None, _select_metrics_error(
+                    "select_metrics",
+                    params,
+                    (
+                        f"'{field}' is a top-level parameter, not a filter field. "
+                        f"Pass it directly: select_metrics({field}=5, ...) not as filters."
+                    ),
+                    f"Move '{field}' from filters to a top-level select_metrics parameter.",
+                )
+            if op not in _VALID_FILTER_OPERATORS:
+                return None, _select_metrics_error(
+                    "select_metrics",
+                    params,
+                    (
+                        f"Invalid operator '{op}'. Valid operators: gt, gte, lt, lte, eq, neq, "
+                        "not_null, is_null, in, not_in. For null checks use 'not_null', not 'is_not_null'."
+                    ),
+                    "Use a valid operator from the documented list.",
+                )
+            mapped_field = _SELECT_METRIC_ALIASES.get(field, field)
+            if mapped_field not in set(metric_keys()):
+                return None, _select_metrics_error(
+                    "select_metrics",
+                    params,
+                    (
+                        f"Unknown metric '{field}'. Available: {_SELECT_METRICS_DOC_LIST}. "
+                        "Note: no room or bedroom aggregation exists at neighborhood level."
+                    ),
+                    "Use a valid metric field in filters, or remove the unsupported condition.",
+                )
+            if op == "is_null":
+                converted.append({"field": mapped_field, "op": "eq", "value": None})
+            elif op == "not_null":
+                converted.append({"field": mapped_field, "op": "not_null"})
+            else:
+                converted.append({"field": mapped_field, "op": _SQL_OPERATOR_MAP[op], "value": item.get("value")})
+        normalized["filters"] = converted
+    return normalized, None
+
+
 def compute_aggregate_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     sql, bind = build_compute_aggregate_sql(params)
     df = pd.read_sql(text(sql), engine, params=bind)
@@ -710,11 +671,19 @@ def execute_plan(
                     "row_count": 0,
                     "success": False,
                     "error": f"Unknown tool: {tool}",
+                    "correction_hint": "Use one of the documented tool names.",
                     "tool_call_id": tool_call_id,
                 }
             )
             continue
         try:
+            if tool == "select_metrics":
+                normalized, err = _normalize_select_metrics_params(sql_params)
+                if err is not None:
+                    err["tool_call_id"] = tool_call_id
+                    results.append(err)
+                    continue
+                sql_params = normalized or sql_params
             rows = TOOL_FUNCTIONS[tool](sql_params, engine)
             results.append(
                 {
@@ -724,6 +693,7 @@ def execute_plan(
                     "row_count": len(rows),
                     "success": True,
                     "error": None,
+                    "correction_hint": None,
                     "tool_call_id": tool_call_id,
                 }
             )
@@ -736,6 +706,7 @@ def execute_plan(
                     "row_count": 0,
                     "success": False,
                     "error": str(e),
+                    "correction_hint": "Review the tool error and retry with corrected parameters.",
                     "tool_call_id": tool_call_id,
                 }
             )

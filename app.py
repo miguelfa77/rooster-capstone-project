@@ -59,7 +59,6 @@ from agent.session_memory import (
     sync_flat_conversation_state_v1,
     update_session_memory_from_turn,
 )
-from agent.config import REVIEWER_TIMEOUT_SEC
 from agent.stage_logging import log_stage
 from agent.agent_loop import run_agent_loop
 from agent.agent_pipeline import (
@@ -80,12 +79,6 @@ from agent.llm_sql import (
 from agent import ui_es as UI
 from agent.renderers import dispatch, render_graceful_fallback
 from agent.primitive_renderer import render_primitive_response
-from agent.chart_linter import lint_primitive_response
-from agent.response_reviewer import (
-    enforce_hard_constraints,
-    format_response_reviewer_correction,
-    review_synthesized_response,
-)
 from agent.synthesizer import SynthesizedResponse, synthesize_response, synthesized_text
 
 st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
@@ -1408,6 +1401,7 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
                 st.info(UI.CHAT_EMPTY)
             return
         if "primitive_response" in msg:
+            st.session_state["_rooster_last_execution_results"] = msg.get("execution_results") or []
             render_primitive_response(msg.get("primitive_response") or {}, idx)
             val_errs = msg.get("validation_errors") or []
             if val_errs:
@@ -1545,42 +1539,8 @@ def _synthesize_with_response_review(
         model=model,
         timeout_sec=timeout_sec,
         prompt_cache_key=prompt_cache_key,
-        apply_chart_lint=False,
     )
-    verdict = review_synthesized_response(
-        user_message=user_message,
-        response=synthesized,
-        timeout_sec=min(float(timeout_sec), REVIEWER_TIMEOUT_SEC),
-        prompt_cache_key=prompt_cache_key,
-    )
-    if verdict.verdict == "fail":
-        log_stage("reviewer_2", "retry_requested", failures=[f.model_dump() for f in verdict.failures])
-        synthesized = synthesize_response(
-            user_message,
-            resolved_intent=resolved_intent,
-            agent_results=results,
-            session_memory=session_memory,
-            model=model,
-            timeout_sec=timeout_sec,
-            prompt_cache_key=prompt_cache_key,
-            correction_block=format_response_reviewer_correction(verdict),
-            apply_chart_lint=False,
-        )
-        retry_verdict = review_synthesized_response(
-            user_message=user_message,
-            response=synthesized,
-            timeout_sec=min(float(timeout_sec), REVIEWER_TIMEOUT_SEC),
-            prompt_cache_key=prompt_cache_key,
-        )
-        verdict = retry_verdict
-        if retry_verdict.verdict == "fail":
-            synthesized = enforce_hard_constraints(
-                synthesized,
-            )
-    linted = lint_primitive_response(synthesized)
-    if linted.errors:
-        _LOG.warning("primitive_linter_errors_after_reviewer_2=%s", linted.errors)
-    return linted.response, verdict.model_dump()
+    return synthesized, None
 
 
 def render_chat() -> None:
@@ -1689,9 +1649,6 @@ def render_chat() -> None:
         synthesized_for_stream: SynthesizedResponse | None = None
         val_errs_for_stream: list = []
         openai_precomputed: str | None = None
-        had_output_correction: bool = False
-        reviewer_verdict_for_stream: dict | None = None
-        response_reviewer_verdict_for_stream: dict | None = None
 
         engine = get_pg_engine()
         conv = build_conversation_context(st.session_state.messages[:-1])
@@ -1738,8 +1695,6 @@ def render_chat() -> None:
                     previous_planner_response_id=None,
                     preamble_callback=_update_agent_thought,
                 )
-                had_output_correction = bool(fc.get("had_output_correction"))
-                reviewer_verdict_for_stream = fc.get("reviewer_verdict")
                 if fc.get("error") == "timeout":
                     st.session_state.messages.append({
                         "role": "assistant",
@@ -1847,7 +1802,7 @@ def render_chat() -> None:
                         ],
                     )
                     status.update(label="Redacto la respuesta y selecciono evidencia…")
-                    synthesized_for_stream, response_reviewer_verdict_for_stream = _synthesize_with_response_review(
+                    synthesized_for_stream, _ = _synthesize_with_response_review(
                         user_input,
                         resolved_intent=fc.get("resolved_intent"),
                         agent_results=execution_for_stream or [],
@@ -1947,7 +1902,7 @@ def render_chat() -> None:
             geo_key = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
                 if synthesized_for_stream is None:
-                    synthesized_for_stream, response_reviewer_verdict_for_stream = _synthesize_with_response_review(
+                    synthesized_for_stream, _ = _synthesize_with_response_review(
                         user_input,
                         resolved_intent=None,
                         agent_results=execution_for_stream or [],
@@ -1958,27 +1913,13 @@ def render_chat() -> None:
                     )
                 response_text = synthesized_text(synthesized_for_stream)
                 follow_ups_save = synthesized_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
+                st.session_state["_rooster_last_execution_results"] = execution_for_stream or []
                 render_primitive_response(synthesized_for_stream, geo_key)
                 _render_followup_pills_interactive(follow_ups_save, geo_key)
-                if had_output_correction:
-                    st.caption(UI.CHAT_OUTPUT_CORRECTED)
                 if val_errs_for_stream:
                     st.caption(
                         "Nota: " + ". ".join(str(x) for x in val_errs_for_stream)
                     )
-                if (
-                    isinstance(reviewer_verdict_for_stream, dict)
-                    and reviewer_verdict_for_stream.get("verdict") == "fail"
-                ):
-                    st.caption(
-                        "Revisión de datos: "
-                        + str(reviewer_verdict_for_stream.get("reason") or "hay una posible discrepancia.")
-                    )
-                if (
-                    isinstance(response_reviewer_verdict_for_stream, dict)
-                    and response_reviewer_verdict_for_stream.get("verdict") == "fail"
-                ):
-                    st.caption("Revisión de respuesta: se aplicaron ajustes automáticos de presentación.")
             st.session_state.conversation_state = update_conversation_state(
                 st.session_state.conversation_state,
                 user_input,
@@ -2023,7 +1964,7 @@ def render_chat() -> None:
                 (
                     item
                     for item in primitive_payload.get("primitives", [])
-                    if isinstance(item, dict) and item.get("kind") in {"chart", "map", "table", "kpi"}
+                    if isinstance(item, dict) and item.get("kind") in {"code", "table", "kpi"}
                 ),
                 {},
             )
@@ -2033,8 +1974,8 @@ def render_chat() -> None:
                 "agent_turn": True,
                 "summary": response_text or "",
                 "primitive_response": primitive_payload,
+                "execution_results": execution_for_stream or [],
                 "validation_errors": val_errs_for_stream,
-                "response_reviewer_verdict": response_reviewer_verdict_for_stream,
                 "intent": first_intent,
                 "rows": None,
                 "sql": None,

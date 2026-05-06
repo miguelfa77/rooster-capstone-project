@@ -10,60 +10,74 @@ from agent.semantic_layer.sql_builder import AGGREGATIONS, TIME_GRANULARITIES, m
 def get_rooster_openai_tools() -> list[dict[str, Any]]:
     """Return the ``tools`` argument for OpenAI tool use (Chat or Responses)."""
     metric_enum = metric_keys()
+    select_metrics_enum = [
+        "gross_rental_yield_pct",
+        "median_sale",
+        "median_alquiler",
+        "venta_count",
+        "alquiler_count",
+        "investment_score",
+        "transit_stop_count",
+        "tourism_pressure",
+        "eur_per_sqm",
+        "data_confidence",
+    ]
     return [
         {
             "type": "function",
             "function": {
                 "name": "select_metrics",
                 "description": (
-                    "Compositional analytical workhorse. Use for neighborhood rankings, comparisons, "
-                    "filters, and ordered metric tables. NOT for individual property listings. "
-                    "Use it for metric questions. Metrics must come from the semantic registry. "
-                    "Default sample filter is venta>=3 and alquiler>=3; "
-                    "set min_listings {venta:0, alquiler:0} only when the user explicitly asks to include thin samples."
+                    "Aggregated neighborhood analytics. Use for rankings, comparisons, market analysis. "
+                    "Not for individual listings (use query_listings). metrics: gross_rental_yield_pct, "
+                    "median_sale, median_alquiler, venta_count, alquiler_count, investment_score, "
+                    "transit_stop_count, tourism_pressure, eur_per_sqm, data_confidence. "
+                    "No room/bedroom metrics at neighborhood level. filters use "
+                    "[{field, op, value}] with ops: gt, gte, lt, lte, eq, neq, not_null, is_null, in, not_in. "
+                    "min_venta_count and min_alquiler_count are top-level integers, not filters. "
+                    "include_geometry=true for map output."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "metrics": {
                             "type": "array",
-                            "items": {"type": "string", "enum": metric_enum},
+                            "items": {"type": "string", "enum": select_metrics_enum},
                             "minItems": 1,
-                            "description": "Canonical metrics to return.",
+                            "description": "Neighborhood metrics to return.",
                         },
                         "filters": {
-                            "type": "object",
-                            "description": (
-                                "Optional filters keyed by canonical metric. Each value: "
-                                "{operator: >=|<=|>|<|=|!=|in|not_in, value: number|string|array}."
-                            ),
-                        },
-                        "group_by": {
                             "type": "array",
-                            "items": {"type": "string", "enum": ["neighborhood"]},
-                            "description": "Currently only neighborhood is supported.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "field": {"type": "string"},
+                                    "op": {
+                                        "type": "string",
+                                        "enum": ["gt", "gte", "lt", "lte", "eq", "neq", "not_null", "is_null", "in", "not_in"],
+                                    },
+                                    "value": {},
+                                },
+                                "required": ["field", "op"],
+                            },
+                            "description": "Optional filters as list of field/op/value conditions.",
                         },
                         "order_by": {
-                            "type": "object",
-                            "properties": {
-                                "metric": {"type": "string", "enum": metric_enum},
-                                "direction": {"type": "string", "enum": ["asc", "desc"]},
-                            },
-                        },
-                        "limit": {"type": "integer", "description": "Max rows, default 20."},
-                        "min_listings": {
-                            "type": "object",
-                            "properties": {
-                                "venta": {"type": "integer"},
-                                "alquiler": {"type": "integer"},
-                            },
-                            "description": "Sample-size minima, default {venta:3, alquiler:3}.",
-                        },
-                        "neighborhoods": {
                             "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional exact barrio names to restrict the result.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "field": {"type": "string"},
+                                    "direction": {"type": "string", "enum": ["asc", "desc"]},
+                                },
+                                "required": ["field", "direction"],
+                            },
                         },
+                        "limit": {"type": "integer", "description": "Max rows, default 20, max 100."},
+                        "min_venta_count": {"type": "integer"},
+                        "min_alquiler_count": {"type": "integer"},
+                        "include_geometry": {"type": "boolean"},
+                        "neighborhoods": {"type": "array", "items": {"type": "string"}},
                     },
                     "required": ["metrics"],
                 },
