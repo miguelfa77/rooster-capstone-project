@@ -8,7 +8,7 @@ import json
 import os
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent.config import (
     MEMORY_ASSISTANT_SUMMARY_CHARS,
@@ -55,21 +55,40 @@ class SessionMemoryV2(StrictBaseModel):
     clarification_resolutions: dict[str, str] = Field(default_factory=dict)
 
 
-class MemoryTurnDelta(StrictBaseModel):
+class MemoryTurnDelta(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     user_profile: UserProfileModel | None = None
     conversation_state: ConversationStateModel | None = None
     shown_so_far: ShownSoFarModel | None = None
     clarification_resolutions: dict[str, str] | None = None
 
 
-MEMORY_UPDATE_INSTRUCTIONS = """You merge new signals into Rooster session memory. Output JSON matching the schema.
-Spanish real estate (Valencia). Be conservative: only set fields you can justify from the user message and assistant summary.
-inferred_operation: venta|alquiler|either|null
-inferred_priorities keys may include yield, transit, tourism_avoidance, price_sensitivity in 0..1
-stage: orienting|evaluating|deciding
-Turn counter and thread lists: short Spanish phrases for pending threads.
-clarification_resolutions stores user definitions for previously ambiguous terms, e.g. {"cash flow": "diferencia entre renta y coste"}.
-Only add clarification_resolutions when the user is clearly defining a term Rooster asked about.
+MEMORY_UPDATE_INSTRUCTIONS = """You merge new signals into Rooster session memory. Output JSON matching the schema exactly.
+Spanish real estate (Valencia). Be conservative: only set fields you can justify from the turn.
+
+Schema structure — nest fields correctly:
+
+user_profile:
+  inferred_operation: "venta" | "alquiler" | "either" | null
+  inferred_price_band: {min, max} dict or null
+  inferred_priorities: {yield, transit, tourism_avoidance, price_sensitivity} floats 0..1
+  explicit_constraints: list of strings
+
+conversation_state:
+  neighborhoods_in_focus: list of neighborhood name strings mentioned this turn
+  last_comparison: {barrio_a, barrio_b} dict or null — only when two barrios were directly compared
+  pending_threads: list of short Spanish phrases for unresolved topics the user may return to
+  turn: integer (increment by 1 each turn)
+  stage: "orienting" | "evaluating" | "deciding"
+
+shown_so_far:
+  tools_called: list of tool name strings used this turn
+  neighborhoods_shown: list of neighborhood names shown in results
+
+clarification_resolutions: dict mapping ambiguous term → user's definition. Only when user explicitly defines a term.
+
+IMPORTANT: Do NOT place conversation_state fields (pending_threads, last_comparison, turn, stage) at the top level.
+They must be nested inside conversation_state. Same for user_profile fields.
 """
 
 

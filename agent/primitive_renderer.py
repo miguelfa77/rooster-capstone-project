@@ -23,7 +23,16 @@ from agent.synthesizer import (
 )
 
 _LOG = logging.getLogger("rooster.primitive_renderer")
-SANDBOX_URL = os.getenv("ROOSTER_SANDBOX_URL", "http://localhost:8001")
+
+
+def _normalize_sandbox_url(url: str) -> str:
+    url = (url or "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    return url or "http://localhost:8001"
+
+
+SANDBOX_URL = _normalize_sandbox_url(os.getenv("ROOSTER_SANDBOX_URL", "http://localhost:8001"))
 
 
 def _rows(raw_json: str) -> list[dict[str, Any]]:
