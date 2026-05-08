@@ -10,25 +10,61 @@ from agent.config import (
     MAX_AGENT_STEPS_RECOMMENDATION,
     SYNTHESIZER_MODEL_DEFAULT,
 )
+from agent.semantic_layer.models import ResolvedQuery
 from agent.stage_logging import log_stage
 
-MAX_STEPS_DEFAULT = MAX_AGENT_STEPS_DEFAULT
 _LOG = logging.getLogger("rooster.agent_loop")
 
 
 def compute_max_steps(resolved_intent: dict[str, Any] | None) -> int:
     if not resolved_intent:
-        return MAX_STEPS_DEFAULT
+        return MAX_AGENT_STEPS_DEFAULT
     if resolved_intent.get("comparison_mode") == "find_best" or resolved_intent.get(
         "recommendation_requested"
     ):
-        return max(MAX_STEPS_DEFAULT, MAX_AGENT_STEPS_RECOMMENDATION)
-    return MAX_STEPS_DEFAULT
+        return max(MAX_AGENT_STEPS_DEFAULT, MAX_AGENT_STEPS_RECOMMENDATION)
+    return MAX_AGENT_STEPS_DEFAULT
 
 
-def run_agent_loop(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    """Backwards-compatible positional wrapper around ``run_agent_loop_pipeline``."""
-    return run_agent_loop_pipeline(*args, **kwargs)
+def _intent_from_resolved_query(rq: ResolvedQuery) -> dict[str, Any]:
+    is_best = any(c.key.startswith("buena_zona") for c in rq.resolved_concepts)
+    return {
+        "resolved_metrics": [m.model_dump() for m in rq.resolved_metrics],
+        "resolved_concepts": [c.model_dump() for c in rq.resolved_concepts],
+        "resolved_heuristics": [h.model_dump() for h in rq.resolved_heuristics],
+        "literals": [l.model_dump() for l in rq.literals],
+        "unresolved_essential_terms": list(rq.unresolved_essential_terms),
+        "unresolved_flavour_terms": list(rq.unresolved_flavour_terms),
+        "needs_clarification": rq.needs_clarification,
+        "comparison_mode": "find_best" if is_best else "explore",
+        "recommendation_requested": is_best,
+        "depth_preference": "analytical",
+    }
+
+
+def _loop_result(
+    *,
+    conversational_text: str | None = None,
+    validated_plan: dict[str, Any] | None = None,
+    execution_results: list[dict[str, Any]] | None = None,
+    validation_errors: list[str] | None = None,
+    had_validation_replan: bool = False,
+    planner_response_id: str | None = None,
+    resolved_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "error": None,
+        "conversational_text": conversational_text,
+        "validated_plan": validated_plan,
+        "execution_results": execution_results,
+        "max_tokens_final": 0,
+        "validation_failed": False,
+        "validation_errors": validation_errors or [],
+        "had_validation_replan": had_validation_replan,
+        "planner_response_id": planner_response_id,
+        "responses_synthesis": None,
+        "resolved_intent": resolved_intent,
+    }
 
 
 def run_agent_loop_pipeline(
@@ -50,7 +86,6 @@ def run_agent_loop_pipeline(
     execute, then optionally re-plan while budget remains.
     """
     from agent.agent_pipeline import (
-        _build_results_summary_for_synth,
         _infer_combine_maps_from_tools,
         _infer_plan_neighborhood_resolved,
         execute_plan,
@@ -58,28 +93,8 @@ def run_agent_loop_pipeline(
         validate_plan,
     )
     from agent.planner import plan_query, planner_tool_calls_to_plan_calls
-    from agent.semantic_layer.resolver import clarification_message, resolve_query
-    from agent.semantic_layer.models import ResolvedQuery
-
-    def _intent_from_resolved_query(rq: ResolvedQuery) -> dict[str, Any]:
-        return {
-            "resolved_metrics": [m.model_dump() for m in rq.resolved_metrics],
-            "resolved_concepts": [c.model_dump() for c in rq.resolved_concepts],
-            "resolved_heuristics": [h.model_dump() for h in rq.resolved_heuristics],
-            "literals": [l.model_dump() for l in rq.literals],
-            "unresolved_essential_terms": list(rq.unresolved_essential_terms),
-            "unresolved_flavour_terms": list(rq.unresolved_flavour_terms),
-            "needs_clarification": rq.needs_clarification,
-            "comparison_mode": (
-                "find_best"
-                if any(c.key.startswith("buena_zona") for c in rq.resolved_concepts)
-                else "explore"
-            ),
-            "recommendation_requested": any(
-                c.key.startswith("buena_zona") for c in rq.resolved_concepts
-            ),
-            "depth_preference": "analytical",
-        }
+    from agent.semantic_layer.resolver import resolve_query
+    from agent.synthesizer import _build_results_summary_for_synth
 
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
     try:
@@ -98,33 +113,6 @@ def run_agent_loop_pipeline(
         resolved_query = resolve_query("", session_memory=conversation_state)
         resolved_intent_dict = None
         log_stage("semantic_resolver", "failed", user_message=user_input)
-
-    clarification = clarification_message(resolved_query)
-    if clarification:
-        pending = {
-            "term": resolved_query.unresolved_essential_terms[0],
-            "original_query": user_input,
-        }
-        log_stage(
-            "semantic_resolver",
-            "clarification_required",
-            unresolved_essential_terms=resolved_query.unresolved_essential_terms,
-            pending_clarification=pending,
-        )
-        return {
-            "error": None,
-            "conversational_text": clarification,
-            "validated_plan": None,
-            "execution_results": None,
-            "max_tokens_final": 0,
-            "validation_failed": False,
-            "validation_errors": [],
-            "had_validation_replan": False,
-            "planner_response_id": None,
-            "responses_synthesis": None,
-            "resolved_intent": resolved_intent_dict,
-            "pending_clarification": pending,
-        }
 
     max_steps = compute_max_steps(resolved_intent_dict)
     correction_hint: str | None = None
@@ -178,37 +166,23 @@ def run_agent_loop_pipeline(
             text = (decision.conversational_response or "").strip()
             if completed_tool_path:
                 break
-            return {
-                "error": None,
-                "conversational_text": text,
-                "validated_plan": None,
-                "execution_results": None,
-                "max_tokens_final": 0,
-                "validation_failed": False,
-                "validation_errors": [],
-                "had_validation_replan": had_validation_replan,
-                "planner_response_id": planner_response_id,
-                "responses_synthesis": None,
-                "resolved_intent": resolved_intent_dict,
-            }
+            return _loop_result(
+                conversational_text=text,
+                had_validation_replan=had_validation_replan,
+                planner_response_id=planner_response_id,
+                resolved_intent=resolved_intent_dict,
+            )
 
         raw_plan_calls = planner_tool_calls_to_plan_calls(decision.tool_calls)
         if not raw_plan_calls:
             if completed_tool_path:
                 break
-            return {
-                "error": None,
-                "conversational_text": (decision.conversational_response or "").strip() or "No valid tool calls.",
-                "validated_plan": None,
-                "execution_results": None,
-                "max_tokens_final": 0,
-                "validation_failed": False,
-                "validation_errors": [],
-                "had_validation_replan": had_validation_replan,
-                "planner_response_id": planner_response_id,
-                "responses_synthesis": None,
-                "resolved_intent": resolved_intent_dict,
-            }
+            return _loop_result(
+                conversational_text=(decision.conversational_response or "").strip() or "No valid tool calls.",
+                had_validation_replan=had_validation_replan,
+                planner_response_id=planner_response_id,
+                resolved_intent=resolved_intent_dict,
+            )
 
         plan: dict[str, Any] = {
             "tool_calls": raw_plan_calls,
@@ -219,7 +193,7 @@ def run_agent_loop_pipeline(
         _infer_plan_neighborhood_resolved(plan)
         plan["combine_maps"] = _infer_combine_maps_from_tools(plan)
 
-        validated = validate_plan(plan, live_schema_context)
+        validated = validate_plan(plan)
         ve = list(validated.get("validation_errors") or [])
         validation_errors.extend(ve)
         log_stage(
@@ -234,7 +208,7 @@ def run_agent_loop_pipeline(
             had_validation_replan = True
             continue
 
-        execution_results = execute_plan(validated, engine, user_input)
+        execution_results = execute_plan(validated, engine)
         log_stage(
             "executor",
             "executed",
@@ -276,32 +250,21 @@ def run_agent_loop_pipeline(
             break
 
     if not completed_tool_path:
-        return {
-            "error": None,
-            "conversational_text": "Lo siento, no pude procesar tu mensaje. ¿Puedes reformular?",
-            "validated_plan": None,
-            "execution_results": None,
-            "max_tokens_final": 0,
-            "validation_failed": False,
-            "validation_errors": validation_errors,
-            "had_validation_replan": had_validation_replan,
-            "planner_response_id": planner_response_id,
-            "responses_synthesis": None,
-            "resolved_intent": resolved_intent_dict,
-        }
+        return _loop_result(
+            conversational_text="Lo siento, no pude procesar tu mensaje. ¿Puedes reformular?",
+            validation_errors=validation_errors,
+            had_validation_replan=had_validation_replan,
+            planner_response_id=planner_response_id,
+            resolved_intent=resolved_intent_dict,
+        )
 
     last_validated = dict(last_validated or {})
     last_validated["agent_loop_steps"] = min(max_steps, max(1, planned_call_count))
-    return {
-        "error": None,
-        "conversational_text": None,
-        "validated_plan": last_validated,
-        "execution_results": all_execution,
-        "max_tokens_final": 0,
-        "validation_failed": False,
-        "validation_errors": validation_errors,
-        "had_validation_replan": had_validation_replan,
-        "planner_response_id": planner_response_id,
-        "responses_synthesis": None,
-        "resolved_intent": resolved_intent_dict,
-    }
+    return _loop_result(
+        validated_plan=last_validated,
+        execution_results=all_execution,
+        validation_errors=validation_errors,
+        had_validation_replan=had_validation_replan,
+        planner_response_id=planner_response_id,
+        resolved_intent=resolved_intent_dict,
+    )

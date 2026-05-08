@@ -7,7 +7,7 @@ import os
 from typing import Any, TypeVar
 
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 try:
     from openai.lib._pydantic import to_strict_json_schema
@@ -15,6 +15,10 @@ except Exception:  # pragma: no cover - SDK internals may move
     to_strict_json_schema = None  # type: ignore[assignment]
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 def get_openai_client(timeout: float) -> OpenAI:

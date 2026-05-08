@@ -8,7 +8,7 @@ import os
 import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from agent.config import (
     PLANNER_CONVERSATION_CONTEXT_CHARS,
@@ -19,6 +19,7 @@ from agent.config import (
     REASONING_PLANNER,
 )
 from agent.responses_api import (
+    StrictBaseModel,
     get_openai_client,
     parse_strict_response,
     reasoning_param_for_model,
@@ -28,10 +29,6 @@ from agent.semantic_layer.models import ResolvedQuery
 from agent.stage_logging import log_stage
 
 _LOG = logging.getLogger("rooster.planner")
-
-
-class StrictBaseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class PlannedToolCall(StrictBaseModel):
@@ -71,6 +68,12 @@ Prefer compositional tools:
 - temporal_series for trends over time.
 - query_listings only for individual property listings.
 - query_transit_stops, query_tourist_apartments, resolve_spatial_reference only when those specific records are needed.
+
+Valid select_metrics metric names (use these exact strings — no aliases):
+gross_rental_yield_pct, median_venta_price, median_alquiler_price, venta_count, alquiler_count,
+investment_score, transit_stop_count, tourist_density_pct, median_venta_eur_per_sqm, data_confidence
+
+For query_listings room counts: set both min_rooms AND max_rooms to N for an exact count ("3 habitaciones", "un piso de 2 dormitorios"). Use only min_rooms when the user wants a floor ("al menos 3", "más de 2", "mínimo 3 habitaciones"). Never set only min_rooms for an exact request.
 
 Do not emit prose when route=data. Tool params must be concrete and validated-looking.
 For every tool call, put arguments in params_json as a valid JSON object string, not markdown.

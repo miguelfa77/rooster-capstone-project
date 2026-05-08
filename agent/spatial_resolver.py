@@ -69,9 +69,6 @@ def match_reference_phrase(phrase: str) -> list[dict[str, Any]]:
             w in t for w in key.split("_")
         ):
             return resolve_label(key)
-    # direct keyword hints
-    if "playa" in t or "playas" in t:
-        return resolve_label("cerca_playa")
     if "centro" in t and "cerca" not in t[:5]:
         return resolve_label("centro")
     if "universidad" in t or "universit" in t:

@@ -18,25 +18,26 @@ from agent.config import (
 )
 from agent.stage_logging import log_stage
 
-# Load agent/.env for API keys (GOOGLE_API_KEY, OPENAI_API_KEY, etc.)
-def _load_agent_env() -> None:
-    agent_dir = Path(__file__).resolve().parent
-    dotenv = agent_dir / ".env"
-    if not dotenv.exists():
+def _load_env_file(path: Path, *, overwrite: bool = True) -> None:
+    if not path.exists():
         return
-    for line in dotenv.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export ") :].strip()
+            line = line[len("export "):].strip()
         if "=" not in line:
             continue
         k, v = line.split("=", 1)
         k, v = k.strip(), v.strip().strip("\"'")
-        if k:
-            os.environ[k] = v  # agent/.env overrides shell (expected for local dev)
-    # OpenAI package expects OPENAI_API_KEY; support OPENAI_KEY as alias
+        if k and (overwrite or k not in os.environ):
+            os.environ[k] = v
+
+
+# Load agent/.env for API keys (GOOGLE_API_KEY, OPENAI_API_KEY, etc.)
+def _load_agent_env() -> None:
+    _load_env_file(Path(__file__).resolve().parent / ".env", overwrite=True)
     if os.getenv("OPENAI_KEY") and not os.getenv("OPENAI_API_KEY"):
         os.environ["OPENAI_API_KEY"] = os.environ["OPENAI_KEY"]
 
@@ -45,28 +46,10 @@ _load_agent_env()
 
 # Load pipeline/.env for PG* (DB connection)
 def _load_pipeline_env() -> None:
-    pipeline_dir = Path(__file__).resolve().parents[1] / "pipeline"
-    dotenv = pipeline_dir / ".env"
-    if not dotenv.exists():
-        return
-    for line in dotenv.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        if "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k, v = k.strip(), v.strip().strip("\"'")
-        if k and k not in os.environ:
-            os.environ[k] = v
+    _load_env_file(Path(__file__).resolve().parents[1] / "pipeline" / ".env", overwrite=False)
 
 
 _load_pipeline_env()
-
-# Default model when UI does not override (env-tunable)
-DEFAULT_SYNTHESISER_MODEL_OPENAI = SYNTHESIZER_MODEL_DEFAULT
 
 SCHEMA_DESC = """
 ## Rooster database schema (PostgreSQL)

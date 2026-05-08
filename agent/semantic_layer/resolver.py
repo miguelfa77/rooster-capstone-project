@@ -381,29 +381,3 @@ def resolve_query(
     )
 
 
-def clarification_message(resolved: ResolvedQuery) -> str | None:
-    if not resolved.unresolved_essential_terms:
-        return None
-    terms = ", ".join(resolved.unresolved_essential_terms)
-    registry = load_registry()
-    candidates = [
-        metric.display
-        for metric in registry.metrics
-        if metric.display
-        and any(
-            token in fold_text(metric.display)
-            for term in resolved.unresolved_essential_terms
-            for token in fold_text(term).split()
-            if len(token) > 3
-        )
-    ][:3]
-    if candidates:
-        options = ", ".join(candidates)
-        return (
-            f"Antes de consultar los datos, necesito precisar '{terms}'. "
-            f"¿Te refieres a {options}, u otra definición?"
-        )
-    return (
-        "Necesito que definas un poco mejor estos términos antes de consultar los datos: "
-        f"{terms}. ¿A qué te refieres exactamente?"
-    )

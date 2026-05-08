@@ -7,7 +7,7 @@ import logging
 import os
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from agent.config import (
     MAX_PRIMITIVES,
@@ -18,6 +18,7 @@ from agent.config import (
     SYNTHESIZER_MODEL_DEFAULT,
 )
 from agent.responses_api import (
+    StrictBaseModel,
     get_openai_client,
     parse_strict_response,
     reasoning_param_for_model,
@@ -28,10 +29,6 @@ from agent.stage_logging import log_stage
 _LOG = logging.getLogger("rooster.synthesizer")
 
 PrimitiveKind = Literal["text", "kpi", "table", "code", "composite"]
-
-
-class StrictBaseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class TextPrimitive(StrictBaseModel):
@@ -412,9 +409,6 @@ def synthesize_response(
             "correction_required": correction_block,
             **input_payload,
         }
-    payload = {
-        **input_payload,
-    }
     instructions = "\n\n".join(
         [
             _HARD_CONSTRAINTS,
@@ -425,7 +419,7 @@ def synthesize_response(
     kwargs: dict[str, Any] = {
         "model": model_name,
         "instructions": instructions,
-        "input": json.dumps(payload, ensure_ascii=False, default=str),
+        "input": json.dumps(input_payload, ensure_ascii=False, default=str),
         "text_format": SynthesizedResponse,
         "max_output_tokens": SYNTHESIZER_MAX_OUTPUT_TOKENS,
     }
@@ -445,16 +439,15 @@ def synthesize_response(
         )
         if isinstance(out, SynthesizedResponse):
             sanitized = _sanitize_response(out)
-            response = sanitized
-            _LOG.info("synthesized_response=%s", response.model_dump_json())
+            _LOG.info("synthesized_response=%s", sanitized.model_dump_json())
             log_stage(
                 "synthesizer",
                 "primitive_response",
-                primitive_kinds=[p.kind for p in response.primitives],
-                follow_up_count=len(response.follow_ups),
+                primitive_kinds=[p.kind for p in sanitized.primitives],
+                follow_up_count=len(sanitized.follow_ups),
                 correction_retry=bool(correction_block),
             )
-            return response
+            return sanitized
     except Exception as exc:
         _LOG.exception("primitive_synthesis_failed: %s", exc)
     return _sanitize_response(_fallback_response(agent_results))

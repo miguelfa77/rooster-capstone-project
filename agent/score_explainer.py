@@ -49,32 +49,10 @@ def _tourism_bonus(tourist_density_pct: float | None) -> float:
 
 def explain_investment_score_row(row: dict[str, Any]) -> dict[str, Any]:
     """Pure decomposition mirroring the SQL view logic (yield weight 0.5 in product)."""
-    y = row.get("gross_rental_yield_pct")
     parts = {
-        "yield_contribution": round(_yield_component(
-            float(y) if y is not None and not (isinstance(y, float) and pd.isna(y)) else None
-        ), 2),
-        "transport_bonus": round(_transport_bonus(
-            float(row.get("avg_dist_to_stop_m"))
-            if row.get("avg_dist_to_stop_m") is not None
-            and not (
-                isinstance(row.get("avg_dist_to_stop_m"), float)
-                and pd.isna(row.get("avg_dist_to_stop_m"))
-            )
-            else None
-        ), 2),
-        "tourism_low_density_bonus": round(
-            _tourism_bonus(
-                float(row.get("tourist_density_pct"))
-                if row.get("tourist_density_pct") is not None
-                and not (
-                    isinstance(row.get("tourist_density_pct"), float)
-                    and pd.isna(row.get("tourist_density_pct"))
-                )
-                else None
-            ),
-            2,
-        ),
+        "yield_contribution": round(_yield_component(row.get("gross_rental_yield_pct")), 2),
+        "transport_bonus": round(_transport_bonus(row.get("avg_dist_to_stop_m")), 2),
+        "tourism_low_density_bonus": round(_tourism_bonus(row.get("tourist_density_pct")), 2),
     }
     return parts
 

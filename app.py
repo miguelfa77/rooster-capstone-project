@@ -53,23 +53,19 @@ from psycopg2 import sql
 from streamlit_folium import st_folium
 
 from agent.session_memory import (
-    apply_pending_clarification_response,
     coalesce_session_memory,
-    set_pending_clarification,
-    sync_flat_conversation_state_v1,
     update_session_memory_from_turn,
 )
 from agent.stage_logging import log_stage
-from agent.agent_loop import run_agent_loop
+from agent.agent_loop import run_agent_loop_pipeline
 from agent.agent_pipeline import (
     extract_neighborhood_names_from_schema,
     format_last_assistant_for_planner,
     get_live_schema_context,
     strip_follow_ups_suffix,
-    update_conversation_state,
 )
+from agent.config import SYNTHESIZER_MODEL_DEFAULT as DEFAULT_SYNTHESISER_MODEL_OPENAI
 from agent.llm_sql import (
-    DEFAULT_SYNTHESISER_MODEL_OPENAI,
     SUMMARIZE_TIMEOUT_SEC,
     get_pg_conn,
     get_pg_engine,
@@ -77,7 +73,6 @@ from agent.llm_sql import (
     summarize_conversation_memo,
 )
 from agent import ui_es as UI
-from agent.renderers import dispatch, render_graceful_fallback
 from agent.primitive_renderer import render_primitive_response
 from agent.synthesizer import SynthesizedResponse, synthesize_response, synthesized_text
 
@@ -1372,6 +1367,20 @@ def render_dashboard() -> None:
         _render_yield_liquidity_scatter(_load_yield_liquidity_df())
 
 
+def _render_graceful_fallback(reason: str, suggestion: str) -> None:
+    r = (reason or "").strip()
+    s = (suggestion or "").strip()
+    if not r and not s:
+        return
+    if not r:
+        st.info(s)
+        return
+    if not s:
+        st.info(r)
+        return
+    st.info(UI.GRACEFUL_FALLBACK_FMT.format(reason=r, suggestion=s))
+
+
 def _replay_message(msg: dict, idx: int = 0) -> None:
     if msg["role"] == "user":
         with st.chat_message("user"):
@@ -1380,17 +1389,11 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
     with st.chat_message("assistant", avatar="🐓"):
         if msg.get("graceful_fallback"):
             gf = msg["graceful_fallback"]
-            render_graceful_fallback(
-                str(gf.get("reason", "")),
-                str(gf.get("suggestion", "")),
-            )
+            _render_graceful_fallback(str(gf.get("reason", "")), str(gf.get("suggestion", "")))
             _render_followup_pills_replay(msg.get("follow_ups") or [])
             return
         if msg.get("error"):
-            render_graceful_fallback(
-                str(msg["error"]),
-                UI.CHAT_EXCEPTION_SUGGESTION,
-            )
+            _render_graceful_fallback(str(msg["error"]), UI.CHAT_EXCEPTION_SUGGESTION)
             return
         if msg.get("empty"):
             if msg.get("empty_narrative"):
@@ -1408,85 +1411,30 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
                 st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
             _render_followup_pills_replay(msg.get("follow_ups") or [])
             return
-        if "render_list" in msg:
-            _dispatch_render_list(msg.get("render_list") or {}, idx)
-            val_errs = msg.get("validation_errors") or []
-            if val_errs:
-                st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
-            _render_followup_pills_replay(msg.get("follow_ups") or [])
-            return
-        if "render_stack" in msg:
-            stack = msg.get("render_stack") or []
-            summary = (msg.get("summary") or "").strip()
-            if summary:
-                st.markdown(summary.replace("**", "").replace("__", ""))
-            val_errs = msg.get("validation_errors") or []
-            for block in stack:
-                intent = block.get("intent") or "search"
-                rows = block.get("rows") or []
-                meta = dict(block.get("meta") or {})
-                meta["geo_key"] = idx
-                if intent == "ranking":
-                    meta.setdefault("metric_label", UI.RANKING_METRIC_DEFAULT)
-                dispatch(intent, rows, meta, "")
-            if val_errs:
-                st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
-            _render_followup_pills_replay(msg.get("follow_ups") or [])
-            return
+        # Memo — inline rendering
         intent = msg.get("intent", "search")
         if msg.get("is_memo") or intent == "memo":
-            dispatch(
-                "memo",
-                [],
-                {"memo_text": (msg.get("summary") or "").strip(), "geo_key": idx},
-                "",
-            )
+            text = (msg.get("summary") or "").strip()
+            try:
+                with st.container(border=True):
+                    st.markdown(text)
+            except TypeError:
+                st.markdown(
+                    '<div style="border:0.5px solid #534AB740;border-radius:12px;padding:20px 24px;background:#0f0f1a;margin-top:8px;">',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(text)
+                st.markdown("</div>", unsafe_allow_html=True)
             _render_followup_pills_replay(msg.get("follow_ups") or [])
             return
-        if intent == "combined_map":
-            dispatch(
-                "combined_map",
-                [],
-                {
-                    "geo_key": idx,
-                    "rows_listings": msg.get("rows_listings") or [],
-                    "rows_transit": msg.get("rows_transit") or [],
-                    "rows_tourism": msg.get("rows_tourism") or [],
-                    "caveat": (msg.get("caveat") or "").strip(),
-                },
-                msg.get("summary") or "",
-            )
-            return
-        rows = msg.get("rows")
-        meta: dict = {
-            "geo_key": idx,
-            "caveat": (msg.get("caveat") or "").strip(),
-        }
-        if intent == "chart":
-            meta["chart_type"] = msg.get("chart_type") or "scatter"
-        if intent == "ranking":
-            meta["metric_label"] = (msg.get("reasoning_focus") or "").strip() or UI.RANKING_METRIC_DEFAULT
-        dispatch(intent, rows or [], meta, msg.get("summary") or "")
+        # Legacy session shapes — show prose only
+        summary = (msg.get("summary") or "").strip()
+        if summary:
+            st.markdown(summary.replace("**", "").replace("__", ""))
+        val_errs = msg.get("validation_errors") or []
+        if val_errs:
+            st.caption("Nota: " + ". ".join(str(e) for e in val_errs))
         _render_followup_pills_replay(msg.get("follow_ups") or [])
-
-
-def _dispatch_render_list(render_list: dict, geo_key: int) -> None:
-    """Replay legacy Phase 3.5 paragraphs and evidence visuals."""
-    payload = dict(render_list or {})
-    for item in payload.get("items") or []:
-        if not isinstance(item, dict):
-            continue
-        if item.get("kind") == "paragraph":
-            text = str(item.get("text") or "").strip()
-            if text:
-                st.markdown(text.replace("**", "").replace("__", ""))
-            continue
-        if item.get("kind") == "visual":
-            intent = item.get("renderer_intent") or "search"
-            rows = item.get("rows") or []
-            meta = dict(item.get("meta") or {})
-            meta["geo_key"] = geo_key
-            dispatch(intent, rows, meta, "")
 
 
 def _render_followup_pills_interactive(pills: list[str], geo_key: int) -> None:
@@ -1587,26 +1535,7 @@ def render_chat() -> None:
 
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
-        actual_user_input = user_input
-        memory_turn_user_message = actual_user_input
-        mem_before_turn = coalesce_session_memory(st.session_state.get("session_memory_v2") or {})
-        if mem_before_turn.pending_clarification is not None:
-            mem_after_clarification, original_query = apply_pending_clarification_response(
-                mem_before_turn,
-                actual_user_input,
-            )
-            st.session_state.session_memory_v2 = mem_after_clarification.model_dump()
-            if original_query:
-                user_input = original_query
-                memory_turn_user_message = (
-                    f"Original query resumed after clarification: {original_query}\n"
-                    f"Clarification response: {actual_user_input}"
-                )
-                _LOG.info(
-                    "clarification_response_applied term=%s original_query=%s",
-                    mem_before_turn.pending_clarification.term,
-                    original_query,
-                )
+        memory_turn_user_message = user_input
 
         if _is_summary_request(user_input):
             progress_memo: dict = {}
@@ -1655,10 +1584,7 @@ def render_chat() -> None:
         last_assistant_for_planner = format_last_assistant_for_planner(
             st.session_state.messages[:-1]
         )
-        memory_context = {
-            **dict(st.session_state.conversation_state),
-            "session_memory_v2": st.session_state.get("session_memory_v2") or {},
-        }
+        memory_context = st.session_state.get("session_memory_v2") or {}
 
         with st.status(UI.STATUS_THINKING, expanded=False) as status:
             thought_placeholder = st.empty()
@@ -1681,7 +1607,7 @@ def render_chat() -> None:
                 status.update(label=UI.STATUS_QUERY)
                 live = _cached_live_schema_context()
                 static = _cached_schema_context()
-                fc = run_agent_loop(
+                fc = run_agent_loop_pipeline(
                     user_input,
                     memory_context,
                     live,
@@ -1731,12 +1657,6 @@ def render_chat() -> None:
                     )
                     if ve:
                         summary_text += " " + " ".join(str(x) for x in ve[:3])
-                    st.session_state.conversation_state = update_conversation_state(
-                        st.session_state.conversation_state,
-                        user_input,
-                        fc.get("validated_plan") or {"tool_calls": []},
-                        [],
-                    )
                     st.session_state.messages.append({
                         "role": "assistant",
                         "agent_turn": True,
@@ -1765,14 +1685,6 @@ def render_chat() -> None:
                     st.rerun()
                 if fc.get("conversational_text") is not None:
                     openai_precomputed = fc["conversational_text"]
-                    pending_clarification = fc.get("pending_clarification")
-                    if isinstance(pending_clarification, dict):
-                        mem = coalesce_session_memory(st.session_state.get("session_memory_v2") or {})
-                        st.session_state.session_memory_v2 = set_pending_clarification(
-                            mem,
-                            term=str(pending_clarification.get("term") or ""),
-                            original_query=str(pending_clarification.get("original_query") or user_input),
-                        ).model_dump()
                     stream_kind = "conversational"
                     plan_for_stream = {
                         "reasoning": "conversational",
@@ -1872,12 +1784,19 @@ def render_chat() -> None:
                 st.markdown(prose.replace("**", "").replace("__", ""))
                 response_text = prose
                 _render_followup_pills_interactive(fus, geo_conv)
-            st.session_state.conversation_state = update_conversation_state(
-                st.session_state.conversation_state,
-                user_input,
-                plan_for_stream,
-                [],
-            )
+            try:
+                mem0 = coalesce_session_memory(st.session_state.session_memory_v2)
+                mem1 = update_session_memory_from_turn(
+                    mem0,
+                    memory_turn_user_message,
+                    response_text or "",
+                    tools_used=[],
+                    timeout_sec=min(float(timeout_sec), 20.0),
+                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
+                )
+                st.session_state.session_memory_v2 = mem1.model_dump()
+            except Exception:
+                pass
             st.session_state.messages.append({
                 "role": "assistant",
                 "intent": "conversational",
@@ -1920,12 +1839,6 @@ def render_chat() -> None:
                     st.caption(
                         "Nota: " + ". ".join(str(x) for x in val_errs_for_stream)
                     )
-            st.session_state.conversation_state = update_conversation_state(
-                st.session_state.conversation_state,
-                user_input,
-                validated_for_stream,
-                execution_for_stream or [],
-            )
             try:
                 mem0 = coalesce_session_memory(st.session_state.session_memory_v2)
                 tools_used = [
@@ -1948,10 +1861,6 @@ def render_chat() -> None:
                     tools_used=tools_used,
                     neighborhoods=mem1.conversation_state.neighborhoods_in_focus,
                     priorities=mem1.user_profile.inferred_priorities,
-                )
-                st.session_state.conversation_state = sync_flat_conversation_state_v1(
-                    st.session_state.conversation_state,
-                    mem1,
                 )
             except Exception:
                 pass

@@ -8,7 +8,7 @@ import json
 import os
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from agent.config import (
     MEMORY_ASSISTANT_SUMMARY_CHARS,
@@ -17,6 +17,7 @@ from agent.config import (
     REASONING_MEMORY,
 )
 from agent.responses_api import (
+    StrictBaseModel,
     get_openai_client,
     parse_strict_response,
     reasoning_param_for_model,
@@ -25,10 +26,6 @@ from agent.responses_api import (
 from agent.stage_logging import log_stage
 
 MEMORY_MODEL = MEMORY_MODEL_DEFAULT
-
-
-class StrictBaseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class UserProfileModel(StrictBaseModel):
@@ -51,17 +48,11 @@ class ShownSoFarModel(StrictBaseModel):
     neighborhoods_shown: list[str] = Field(default_factory=list)
 
 
-class PendingClarificationModel(StrictBaseModel):
-    term: str
-    original_query: str
-
-
 class SessionMemoryV2(StrictBaseModel):
     user_profile: UserProfileModel = Field(default_factory=UserProfileModel)
     conversation_state: ConversationStateModel = Field(default_factory=ConversationStateModel)
     shown_so_far: ShownSoFarModel = Field(default_factory=ShownSoFarModel)
     clarification_resolutions: dict[str, str] = Field(default_factory=dict)
-    pending_clarification: PendingClarificationModel | None = None
 
 
 class MemoryTurnDelta(StrictBaseModel):
@@ -69,7 +60,6 @@ class MemoryTurnDelta(StrictBaseModel):
     conversation_state: ConversationStateModel | None = None
     shown_so_far: ShownSoFarModel | None = None
     clarification_resolutions: dict[str, str] | None = None
-    pending_clarification: PendingClarificationModel | None = None
 
 
 MEMORY_UPDATE_INSTRUCTIONS = """You merge new signals into Rooster session memory. Output JSON matching the schema.
@@ -81,15 +71,6 @@ Turn counter and thread lists: short Spanish phrases for pending threads.
 clarification_resolutions stores user definitions for previously ambiguous terms, e.g. {"cash flow": "diferencia entre renta y coste"}.
 Only add clarification_resolutions when the user is clearly defining a term Rooster asked about.
 """
-
-
-def _empty_profile() -> dict[str, Any]:
-    return {
-        "inferred_operation": None,
-        "inferred_price_band": None,
-        "inferred_priorities": {},
-        "explicit_constraints": [],
-    }
 
 
 def coalesce_session_memory(st: Any) -> SessionMemoryV2:
@@ -131,51 +112,7 @@ def merge_session_memory(
         for k, v in delta.clarification_resolutions.items():
             if k and v:
                 d["clarification_resolutions"][str(k)] = str(v)
-    if delta.pending_clarification is not None:
-        d["pending_clarification"] = delta.pending_clarification.model_dump()
     return SessionMemoryV2.model_validate(d)
-
-
-def set_pending_clarification(
-    current: SessionMemoryV2,
-    *,
-    term: str,
-    original_query: str,
-) -> SessionMemoryV2:
-    """Remember that the next user message should define ``term``."""
-    return current.model_copy(
-        update={
-            "pending_clarification": PendingClarificationModel(
-                term=term,
-                original_query=original_query,
-            )
-        }
-    )
-
-
-def apply_pending_clarification_response(
-    current: SessionMemoryV2,
-    user_message: str,
-) -> tuple[SessionMemoryV2, str | None]:
-    """Store the user's clarification and return the original query to rerun."""
-    pending = current.pending_clarification
-    if pending is None:
-        return current, None
-    resolutions = dict(current.clarification_resolutions or {})
-    resolutions[pending.term] = (user_message or "").strip()
-    updated = current.model_copy(
-        update={
-            "clarification_resolutions": resolutions,
-            "pending_clarification": None,
-        }
-    )
-    log_stage(
-        "memory",
-        "clarification_resolution_stored",
-        term=pending.term,
-        original_query=pending.original_query,
-    )
-    return updated, pending.original_query
 
 
 def update_session_memory_from_turn(
@@ -233,23 +170,3 @@ Tools called this turn (names): {json.dumps(tools_used)}
         return current
 
 
-def sync_flat_conversation_state_v1(
-    flat: dict[str, Any], mem: SessionMemoryV2
-) -> dict[str, Any]:
-    """Dual-write: keep v1 ``conversation_state`` keys updated from v2 for legacy code."""
-    out = dict(flat)
-    cs = mem.conversation_state
-    up = mem.user_profile
-    if cs.neighborhoods_in_focus:
-        for n in cs.neighborhoods_in_focus:
-            if n and n not in (out.get("neighborhoods_discussed") or []):
-                out.setdefault("neighborhoods_discussed", [])
-                if n not in out["neighborhoods_discussed"]:
-                    out["neighborhoods_discussed"].append(n)
-    if up.inferred_operation in ("venta", "alquiler", "either"):
-        out["operation_focus"] = up.inferred_operation
-    if cs.turn:
-        out["turns"] = max(int(out.get("turns") or 0), cs.turn)
-    if cs.stage in ("orienting", "evaluating", "deciding"):
-        out["stage"] = cs.stage
-    return out

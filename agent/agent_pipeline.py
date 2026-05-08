@@ -9,7 +9,6 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import text
 
-from agent.config import SYNTH_RESULT_SAMPLE_ROWS
 from agent.llm_sql import get_pg_engine
 from agent.render_thresholds import add_data_confidence
 from agent.semantic_layer.sql_builder import (
@@ -234,9 +233,8 @@ Rules:
 Generate corrected tool_calls using known tools only. Do not repeat unknown tool names."""
 
 
-def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
+def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
     """Minimal safety validation: only allow known tool names."""
-    del schema_context
     known_tools = {
         "select_metrics",
         "query_listings",
@@ -271,99 +269,39 @@ def validate_plan(plan: dict[str, Any], schema_context: str) -> dict[str, Any]:
     return out
 
 
-def _user_wants_at_least_rooms_not_exact(user_message: str) -> bool:
-    """
-    True when the user text suggests a *floor* on bedrooms, not an exact count.
-    If False and they mention rooms, 'N habitaciones' is treated as exact elsewhere.
-    """
-    t = (user_message or "").lower()
-    if any(
-        p in t
-        for p in (
-            "al menos",
-            "almenos",
-            "mínimo",
-            "minimo",
-            "minimum",
-            "at least",
-            "más de ",
-            "mas de ",
-            "como mínimo",
-            "como minimo",
-            "upwards of",
-        )
-    ):
-        return True
-    if "entre" in t and "habit" in t:
-        return True
-    if re.search(r"\d+\s+o\s+más", t) or re.search(r"\d+\s+o\s+mas", t):
-        return True
-    return False
-
-
-def _user_message_mentions_room_count(user_message: str) -> bool:
-    t = (user_message or "").lower()
-    return bool(
-        re.search(
-            r"\b(?:habitaciones|hab\.|dormitorios|dorm\.?)\b",
-            t,
-            re.IGNORECASE,
-        )
-    )
-
-
-def _normalize_query_listings_room_params(
-    params: dict[str, Any], user_message: str | None
-) -> dict[str, Any]:
-    """
-    If the model only passes min_rooms for an exact-N query, SQL would use >= N and
-    return larger units. When the user message looks like an exact room count (not
-    'at least'), set max_rooms = min_rooms.
-    """
-    mr = params.get("min_rooms")
-    xr = params.get("max_rooms")
-    if mr is None or xr is not None:
-        return params
-    if not user_message or not _user_message_mentions_room_count(user_message):
-        return params
-    if _user_wants_at_least_rooms_not_exact(user_message):
-        return params
-    try:
-        n = int(mr)
-    except (TypeError, ValueError):
-        return params
-    return {**params, "max_rooms": n}
-
-
 def query_listings_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     conditions = ["l.price_int > 0", "l.area_sqm > 0"]
+    bind: dict[str, Any] = {}
     nb = params.get("neighborhood")
     if isinstance(nb, str) and nb.strip():
-        es = _sql_escape(nb.strip())
-        conditions.append(
-            f"similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4"
-        )
+        conditions.append("similarity(unaccent(lower(n.name)), unaccent(lower(:nb))) > 0.4")
+        bind["nb"] = nb.strip()
     op = (params.get("operation") or "venta").strip().lower()
     if op in ("venta", "alquiler"):
-        conditions.append(f"l.operation = '{op}'")
+        conditions.append("l.operation = :op")
+        bind["op"] = op
     if params.get("max_price") is not None:
         try:
-            conditions.append(f"l.price_int <= {int(params['max_price'])}")
+            bind["max_price"] = int(params["max_price"])
+            conditions.append("l.price_int <= :max_price")
         except (TypeError, ValueError):
             pass
     if params.get("min_price") is not None:
         try:
-            conditions.append(f"l.price_int >= {int(params['min_price'])}")
+            bind["min_price"] = int(params["min_price"])
+            conditions.append("l.price_int >= :min_price")
         except (TypeError, ValueError):
             pass
     if params.get("min_rooms") is not None:
         try:
-            conditions.append(f"l.rooms_int >= {int(params['min_rooms'])}")
+            bind["min_rooms"] = int(params["min_rooms"])
+            conditions.append("l.rooms_int >= :min_rooms")
         except (TypeError, ValueError):
             pass
     if params.get("max_rooms") is not None:
         try:
-            conditions.append(f"l.rooms_int <= {int(params['max_rooms'])}")
+            bind["max_rooms"] = int(params["max_rooms"])
+            conditions.append("l.rooms_int <= :max_rooms")
         except (TypeError, ValueError):
             pass
     if params.get("only_below_median"):
@@ -383,7 +321,6 @@ def query_listings_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     for a in params.get("amenities") or []:
         if isinstance(a, str) and a.lower() in amenity_map:
             conditions.append(f"{amenity_map[a.lower()]} = true")
-    lim = 25
     try:
         lim = max(1, min(100, int(params.get("limit", 25))))
     except (TypeError, ValueError):
@@ -414,15 +351,16 @@ def query_listings_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
         ORDER BY l.price_int ASC NULLS LAST
         LIMIT {lim}
     """
-    df = pd.read_sql(text(sql), engine)
+    df = pd.read_sql(text(sql), engine, params=bind)
     return df.to_dict("records")
 
 
 def query_transit_stops_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     nb = params.get("neighborhood")
+    bind: dict[str, Any] = {}
     if isinstance(nb, str) and nb.strip():
-        es = _sql_escape(nb.strip())
-        where = f"WHERE similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4"
+        where = "WHERE similarity(unaccent(lower(n.name)), unaccent(lower(:nb))) > 0.4"
+        bind["nb"] = nb.strip()
     else:
         where = "WHERE TRUE"
     sql = f"""
@@ -433,16 +371,17 @@ def query_transit_stops_fn(params: dict[str, Any], engine) -> list[dict[str, Any
         ORDER BY t.stop_type NULLS LAST
         LIMIT 2000
     """
-    df = pd.read_sql(text(sql), engine)
+    df = pd.read_sql(text(sql), engine, params=bind)
     return df.to_dict("records")
 
 
 def query_tourist_apartments_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     nb = params.get("neighborhood")
+    bind: dict[str, Any] = {}
     if isinstance(nb, str) and nb.strip():
-        es = _sql_escape(nb.strip())
-        where = f"""WHERE similarity(unaccent(lower(n.name)), unaccent(lower('{es}'))) > 0.4
+        where = """WHERE similarity(unaccent(lower(n.name)), unaccent(lower(:nb))) > 0.4
           AND (ta.status IS NULL OR lower(ta.status) = 'active')"""
+        bind["nb"] = nb.strip()
     else:
         where = "WHERE (ta.status IS NULL OR lower(ta.status) = 'active')"
     sql = f"""
@@ -452,7 +391,7 @@ def query_tourist_apartments_fn(params: dict[str, Any], engine) -> list[dict[str
         {where}
         LIMIT 2000
     """
-    df = pd.read_sql(text(sql), engine)
+    df = pd.read_sql(text(sql), engine, params=bind)
     return df.to_dict("records")
 
 
@@ -554,17 +493,11 @@ def select_metrics_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     return add_data_confidence(df.to_dict("records"))
 
 
-_SELECT_METRIC_ALIASES: dict[str, str] = {
-    "median_sale": "median_venta_price",
-    "median_alquiler": "median_alquiler_price",
-    "tourism_pressure": "tourist_density_pct",
-    "eur_per_sqm": "median_venta_eur_per_sqm",
-}
 _VALID_FILTER_OPERATORS = {"gt", "gte", "lt", "lte", "eq", "neq", "not_null", "is_null", "in", "not_in"}
 _SQL_OPERATOR_MAP = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "eq": "=", "neq": "!=", "in": "in", "not_in": "not_in"}
 _SELECT_METRICS_DOC_LIST = (
-    "gross_rental_yield_pct, median_sale, median_alquiler, venta_count, alquiler_count, "
-    "investment_score, transit_stop_count, tourism_pressure, eur_per_sqm, data_confidence"
+    "gross_rental_yield_pct, median_venta_price, median_alquiler_price, venta_count, alquiler_count, "
+    "investment_score, transit_stop_count, tourist_density_pct, median_venta_eur_per_sqm, data_confidence"
 )
 
 
@@ -586,10 +519,9 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
     if metrics:
         out_metrics: list[str] = []
         for metric in metrics:
-            mapped = _SELECT_METRIC_ALIASES.get(metric, metric)
             if metric == "data_confidence":
                 continue
-            if mapped not in set(metric_keys()):
+            if metric not in set(metric_keys()):
                 return None, _select_metrics_error(
                     "select_metrics",
                     params,
@@ -599,7 +531,7 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
                     ),
                     "Replace the unknown metric with one from the available list, or explain data is unavailable.",
                 )
-            out_metrics.append(mapped)
+            out_metrics.append(metric)
         if not out_metrics:
             out_metrics = ["gross_rental_yield_pct"]
         normalized["metrics"] = out_metrics
@@ -615,8 +547,7 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
         first = order_by[0] if isinstance(order_by[0], dict) else {}
         field = str(first.get("field") or "").strip()
         direction = str(first.get("direction") or "desc").strip().lower()
-        mapped_field = _SELECT_METRIC_ALIASES.get(field, field)
-        normalized["order_by"] = {"metric": mapped_field, "direction": ("asc" if direction == "asc" else "desc")}
+        normalized["order_by"] = {"metric": field, "direction": ("asc" if direction == "asc" else "desc")}
 
     raw_filters = normalized.get("filters")
     if isinstance(raw_filters, list):
@@ -649,8 +580,7 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
                     ),
                     "Use a valid operator from the documented list.",
                 )
-            mapped_field = _SELECT_METRIC_ALIASES.get(field, field)
-            if mapped_field not in set(metric_keys()):
+            if field not in set(metric_keys()):
                 return None, _select_metrics_error(
                     "select_metrics",
                     params,
@@ -661,15 +591,15 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
                     "Use a valid metric field in filters, or remove the unsupported condition.",
                 )
             if op == "is_null":
-                converted.append({"field": mapped_field, "op": "eq", "value": None})
+                converted.append({"field": field, "op": "eq", "value": None})
             elif op == "not_null":
-                converted.append({"field": mapped_field, "op": "not_null"})
+                converted.append({"field": field, "op": "not_null"})
             else:
                 val = item.get("value")
                 if val is None:
                     val = item.get("values")
                 converted.append(
-                    {"field": mapped_field, "op": _SQL_OPERATOR_MAP[op], "value": val}
+                    {"field": field, "op": _SQL_OPERATOR_MAP[op], "value": val}
                 )
         normalized["filters"] = converted
     return normalized, None
@@ -701,7 +631,6 @@ TOOL_FUNCTIONS: dict[str, Any] = {
 def execute_plan(
     validated_plan: dict[str, Any],
     engine,
-    user_message: str | None = None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for call in validated_plan.get("tool_calls") or []:
@@ -709,8 +638,6 @@ def execute_plan(
         params = _coerce_tool_params(call.get("params"))
         _sql_meta_keys = frozenset({"chart_style"})
         sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
-        if tool == "query_listings":
-            sql_params = _normalize_query_listings_room_params(sql_params, user_message)
         tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
         if not isinstance(tool, str) or tool not in TOOL_FUNCTIONS:
             results.append(
@@ -761,36 +688,6 @@ def execute_plan(
                 }
             )
     return results
-
-
-def _build_results_summary_for_synth(
-    execution_results: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    results_summary: list[dict[str, Any]] = []
-    for result in execution_results:
-        tool = result.get("tool")
-        if result.get("success") and result.get("row_count", 0) > 0:
-            sample = (result.get("rows") or [])[:SYNTH_RESULT_SAMPLE_ROWS]
-            columns = sorted({k for row in sample if isinstance(row, dict) for k in row})
-            results_summary.append(
-                {
-                    "tool": tool,
-                    "row_count": result.get("row_count"),
-                    "columns": columns,
-                    "sample": sample,
-                }
-            )
-        elif not result.get("success"):
-            results_summary.append({"tool": tool, "error": result.get("error")})
-        else:
-            results_summary.append(
-                {
-                    "tool": tool,
-                    "row_count": 0,
-                    "note": "sin filas",
-                }
-            )
-    return results_summary
 
 
 def format_last_assistant_for_planner(messages: list[dict[str, Any]]) -> str:
@@ -890,48 +787,3 @@ def _infer_combine_maps_from_tools(plan: dict[str, Any]) -> bool:
     return n >= 2
 
 
-def update_conversation_state(
-    state: dict[str, Any],
-    question: str,
-    plan: dict[str, Any],
-    execution_results: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Update mutable conversation state after a turn."""
-    if plan.get("neighborhood_resolved"):
-        nb = str(plan["neighborhood_resolved"]).strip()
-        if nb and nb not in state["neighborhoods_discussed"]:
-            state["neighborhoods_discussed"].append(nb)
-    for call in plan.get("tool_calls") or []:
-        if not isinstance(call, dict):
-            continue
-        p = call.get("params") or {}
-        op = p.get("operation")
-        if op and op != "both":
-            state["operation_focus"] = op
-        mp = p.get("max_price")
-        if mp is not None:
-            try:
-                state["price_ceiling"] = int(mp)
-            except (TypeError, ValueError):
-                pass
-    state["turns"] = int(state.get("turns", 0)) + 1
-    if state["turns"] <= 2:
-        state["stage"] = "orienting"
-    elif len(state.get("neighborhoods_discussed", [])) >= 2:
-        state["stage"] = "evaluating"
-    elif state["turns"] >= 6:
-        state["stage"] = "deciding"
-    if plan.get("tool_calls"):
-        state["last_intent"] = plan["tool_calls"][0].get("tool")
-    priority_keywords = {
-        "yield": ["yield", "rentabilidad", "rendimiento", "retorno"],
-        "transport": ["transport", "metro", "bus", "conectividad"],
-        "price": ["precio", "barato", "económico", "budget", "coste"],
-        "tourism": ["turístico", "airbnb", "vut", "corta estancia"],
-    }
-    q_lower = (question or "").lower()
-    for priority, kws in priority_keywords.items():
-        if any(kw in q_lower for kw in kws):
-            if priority not in state["user_priorities"]:
-                state["user_priorities"].append(priority)
-    return state
