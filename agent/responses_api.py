@@ -67,6 +67,9 @@ def strict_json_schema_for_model(model: type[BaseModel]) -> dict[str, Any]:
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
+            # OpenAI structured outputs requires anyOf, not oneOf
+            if "oneOf" in node:
+                node["anyOf"] = node.pop("oneOf")
             props = node.get("properties")
             if isinstance(props, dict):
                 node["additionalProperties"] = False

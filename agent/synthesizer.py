@@ -115,10 +115,28 @@ class PointMapDescriptor(StrictBaseModel):
     popup_fields: list[TooltipField] = Field(default_factory=list)
 
 
+# Non-recursive union — used inside CompositePrimitive.blocks to avoid circular schema.
+# CompositePrimitive itself is intentionally excluded here.
+InnerPrimitiveBlock = Annotated[
+    Union[
+        TextPrimitive,
+        KpiPrimitive,
+        TablePrimitive,
+        CodePrimitive,
+        ChoroplethDescriptor,
+        BarDescriptor,
+        ScatterDescriptor,
+        LineDescriptor,
+        PointMapDescriptor,
+    ],
+    Field(discriminator="kind"),
+]
+
+
 class CompositePrimitive(StrictBaseModel):
     kind: Literal["composite"] = "composite"
     heading: str | None = None
-    blocks: list["PrimitiveBlock"] = Field(default_factory=list)
+    blocks: list[InnerPrimitiveBlock] = Field(default_factory=list)
 
 
 PrimitiveBlock = Annotated[
@@ -141,9 +159,6 @@ PrimitiveBlock = Annotated[
 class SynthesizedResponse(StrictBaseModel):
     primitives: list[PrimitiveBlock] = Field(default_factory=list)
     follow_ups: list[str] = Field(default_factory=list)
-
-
-CompositePrimitive.model_rebuild()
 
 
 _HARD_CONSTRAINTS = """CORRECTION MODE: If the input contains a "correction_required" key, a previous code
