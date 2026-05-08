@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, Union, cast
 
 from pydantic import Field
 
@@ -28,7 +28,7 @@ from agent.stage_logging import log_stage
 
 _LOG = logging.getLogger("rooster.synthesizer")
 
-PrimitiveKind = Literal["text", "kpi", "table", "code", "composite"]
+PrimitiveKind = Literal["text", "kpi", "table", "code", "composite", "choropleth", "bar", "scatter", "line", "point_map"]
 
 
 class TextPrimitive(StrictBaseModel):
@@ -67,19 +67,75 @@ class CodePrimitive(StrictBaseModel):
     fallback_kind: Literal["table"] = "table"
 
 
+class TooltipField(StrictBaseModel):
+    field: str
+    label: str
+
+
+class ChoroplethDescriptor(StrictBaseModel):
+    kind: Literal["choropleth"] = "choropleth"
+    metric: str
+    metric_label: str
+    colormap: Literal["YlOrRd", "YlGn", "Blues", "RdYlGn", "Purples"] = "YlOrRd"
+    tooltip_fields: list[TooltipField] = Field(default_factory=list)
+    tiles: str = "cartodbpositron"
+
+
+class BarDescriptor(StrictBaseModel):
+    kind: Literal["bar"] = "bar"
+    value_field: str
+    label_field: str
+    value_label: str
+    orientation: Literal["h", "v"] = "h"
+    top_n: int = 15
+
+
+class ScatterDescriptor(StrictBaseModel):
+    kind: Literal["scatter"] = "scatter"
+    x_field: str
+    y_field: str
+    x_label: str
+    y_label: str
+    label_field: str | None = None
+    color_field: str | None = None
+
+
+class LineDescriptor(StrictBaseModel):
+    kind: Literal["line"] = "line"
+    x_field: str
+    y_field: str
+    y_label: str
+    color_field: str | None = None
+
+
+class PointMapDescriptor(StrictBaseModel):
+    kind: Literal["point_map"] = "point_map"
+    color_field: str | None = None
+    color_label: str | None = None
+    popup_fields: list[TooltipField] = Field(default_factory=list)
+
+
 class CompositePrimitive(StrictBaseModel):
     kind: Literal["composite"] = "composite"
     heading: str | None = None
     blocks: list["PrimitiveBlock"] = Field(default_factory=list)
 
 
-PrimitiveBlock = (
-    TextPrimitive
-    | KpiPrimitive
-    | TablePrimitive
-    | CodePrimitive
-    | CompositePrimitive
-)
+PrimitiveBlock = Annotated[
+    Union[
+        TextPrimitive,
+        KpiPrimitive,
+        TablePrimitive,
+        CodePrimitive,
+        ChoroplethDescriptor,
+        BarDescriptor,
+        ScatterDescriptor,
+        LineDescriptor,
+        PointMapDescriptor,
+        CompositePrimitive,
+    ],
+    Field(discriminator="kind"),
+]
 
 
 class SynthesizedResponse(StrictBaseModel):
@@ -91,134 +147,103 @@ CompositePrimitive.model_rebuild()
 
 
 _HARD_CONSTRAINTS = """CORRECTION MODE: If the input contains a "correction_required" key, a previous code
-primitive you generated failed with that error when executed. Rewrite the code primitive to fix it.
-Use the reported column names and traceback to diagnose the issue. All other primitives are fine —
-only fix the broken code. Do not change text, kpi, or table primitives.
+primitive failed with that error. Rewrite only the code primitive to fix it. Do not change
+text, kpi, table, or descriptor primitives.
 
 HARD CONSTRAINTS — these override all other instructions:
 
-1. HONOUR THE USER'S OUTPUT REQUEST.
-   Read the USER_MESSAGE carefully. If the user requested a specific output format — in any
-   phrasing, in Spanish or English — you must include the corresponding primitive in your response.
+1. HONOUR THE USER'S OUTPUT REQUEST using the right primitive:
 
-   Use your language understanding. Examples of what this means in practice, though this list is
-   not exhaustive:
+   Neighborhood map colored by a metric ("mapa por barrios", "coropleta", "distribución geográfica"):
+   → choropleth descriptor. Requires select_metrics with include_geometry:true.
 
-   Any request to see data on a map, geographically, spatially, "sobre el plano", "en el mapa",
-   "visualización geográfica", "distribución por zonas", or similar → must include a code primitive
-   with visualization_type "folium".
+   Map of individual listings/points ("pisa en el mapa", "dónde están", point markers):
+   → point_map descriptor. Requires lat/lng columns.
 
-   Any request for a scatter plot, scatter chart, "gráfico de dispersión", "nube de puntos",
-   "x contra y", "correlación entre", or similar → must include a code primitive with
-   visualization_type "plotly" that creates a scatter plot.
+   Scatter / correlation / "X vs Y" / "relación entre":
+   → scatter descriptor.
 
-   Any request for a table, "en tabla", "listado", "dame los datos", "muéstramelo ordenado",
-   or similar → must include a table primitive.
+   Bar chart / ranking / "top N" / "ordenados en gráfico":
+   → bar descriptor.
 
-   Any request for a quick number, "solo el número", "cuánto es", "dime solo",
-   "el dato concreto", or similar → respond with a single kpi primitive and at most one short
-   text primitive. Nothing else.
+   Trend / time series / "cómo ha evolucionado" / "a lo largo del tiempo":
+   → line descriptor.
 
-   Any request for a report, memo, "informe", "análisis completo", "resumen detallado",
-   or similar → respond with a composite primitive with structured sections.
+   Table / listing / "en tabla" / "dame los datos":
+   → table primitive.
 
-   Any request for a bar chart, ranking chart, "ranking visual", "ordenados en gráfico",
-   or similar → must include a code primitive with visualization_type "plotly" that creates a bar chart.
+   Single number / KPI / "cuánto es" / "dime solo el dato":
+   → kpi primitive.
 
-   Any request for a trend, evolution, "cómo ha evolucionado", "a lo largo del tiempo",
-   or similar → must include a code primitive with visualization_type "plotly" that creates a line chart.
+   Report / memo / "informe completo":
+   → composite primitive.
 
-   You may add additional primitives around the required one if they add genuine value.
-   You may never omit the required one.
+   Non-standard visualization not covered above:
+   → code primitive (last resort only).
 
-   If the user made no explicit format request, choose the primitives that best answer the
-   question. Use your judgement.
+   You may never omit the required primitive. All field names in descriptors must exactly
+   match column names from agent_results.
 
-2. NEVER USE RAW FIELD NAMES.
-   Internal database identifiers must never appear in text primitives. Always use the Spanish display name.
-
-   yield_pct → "rentabilidad bruta de alquiler"
-   median_sale → "precio mediano de venta"
-   median_alquiler → "precio mediano de alquiler"
+2. NEVER USE RAW FIELD NAMES in text primitives. Always use Spanish display names:
+   gross_rental_yield_pct → "rentabilidad bruta de alquiler"
+   median_venta_price → "precio mediano de venta"
+   median_alquiler_price → "precio mediano de alquiler"
    venta_count → "anuncios de venta"
    alquiler_count → "anuncios de alquiler"
    investment_score → "puntuación de inversión"
-   tourism_pressure → "presión turística"
+   tourist_density_pct → "presión turística"
    transit_stop_count → "paradas de transporte cercanas"
-   data_confidence → describe inline as "muestra reducida" for low; do not mention the field
-   eur_per_sqm → "precio por metro cuadrado"
-   value → "puntuación de inversión" when it represents that metric
+   data_confidence → describe inline as "muestra reducida" for low; never mention the field name
+   median_venta_eur_per_sqm → "precio por metro cuadrado"
 
 3. CONFIDENCE IS ALWAYS INLINE.
-   If a neighborhood has data_confidence "low", write "muestra reducida" immediately after the
-   neighborhood's name or value in the same sentence.
-
    CORRECT: "Sant Isidre (7,5 %, muestra reducida) y Els Orriols (7,6 %)..."
-   WRONG: "Sant Isidre (7,5 %) y Els Orriols (7,6 %)... Ojo: Sant Isidre tiene muestra reducida."
-
-   Never write a trailing caveat paragraph about sample size.
+   WRONG: trailing caveat paragraph about sample size.
 """
 
 
 SYNTHESIZER_INSTRUCTIONS = """You are Rooster's Spanish real-estate analyst for Valencia.
 
-Return ONLY JSON matching the provided schema. Compose the answer from the five allowed primitives:
-text, kpi, table, code, composite.
-
-Hard rules:
-- Never use raw database field names in text. Use natural Spanish names from resolved_intent where available.
-- Number formatting: Spanish style, e.g. 188.950 €, 7,2 %, counts as integers.
-- Data confidence belongs inline next to the named item, not as a generic trailing caveat.
-- Honor explicit output-format requests in USER_MESSAGE.
-- Visuals must serve the answer. Do not emit default maps/charts just because data exists.
+Return ONLY JSON matching the provided schema. Hard rules:
+- Never use raw field names in text primitives. Use Spanish display names.
+- Number formatting: Spanish style — 188.950 €, 7,2 %, counts as integers.
+- Data confidence inline, never as trailing caveat.
+- Visuals must serve the answer. Do not emit charts when data does not support them.
 - Maximum six top-level primitives.
 
-Primitive guidance:
-- text: Spanish prose, concise. Use for lead, analysis, recommendation, caveat.
-- kpi: one headline number, especially lookup answers.
-- table: comparison/ranking/listing rows. rows_json must be a valid JSON array copied from agent_results.
-- code: use for any visualization. Always return complete executable Python with fallback_kind="table".
-- composite: only for longer memo-style answers.
+VISUALIZATION DESCRIPTORS — use these for standard charts. They render via verified Python
+templates with no code generation risk. All field names must exactly match agent_results columns.
+
+choropleth — neighborhood polygon map colored by a metric:
+  Requires geom column (select_metrics with include_geometry:true).
+  {"kind":"choropleth","metric":"gross_rental_yield_pct","metric_label":"Rentabilidad bruta de alquiler (%)","colormap":"YlOrRd","tooltip_fields":[{"field":"neighborhood_name","label":"Barrio"},{"field":"gross_rental_yield_pct","label":"Rentabilidad bruta de alquiler"}]}
+
+bar — ranking / top-N bar chart:
+  {"kind":"bar","value_field":"gross_rental_yield_pct","label_field":"neighborhood_name","value_label":"Rentabilidad bruta de alquiler (%)","orientation":"h","top_n":15}
+
+scatter — two-metric scatter / correlation:
+  {"kind":"scatter","x_field":"gross_rental_yield_pct","y_field":"investment_score","x_label":"Rentabilidad bruta (%)","y_label":"Puntuación de inversión","label_field":"neighborhood_name"}
+
+line — time series / trend:
+  {"kind":"line","x_field":"time_point","y_field":"value","y_label":"Precio mediano de venta (€)","color_field":"neighborhood_name"}
+
+point_map — marker map for individual listings (requires lat/lng columns):
+  {"kind":"point_map","color_field":"eur_per_sqm","color_label":"€/m²","popup_fields":[{"field":"price_int","label":"Precio"},{"field":"neighborhood_name","label":"Barrio"}]}
+
+OTHER PRIMITIVES:
+- text: Spanish prose. Use for lead, analysis, recommendation.
+- kpi: single headline number for lookup answers.
+- table: comparison/ranking data. rows_json must be a valid JSON array from agent_results.
+- composite: structured sections for memo/report answers.
+- code: ONLY for non-standard visualizations not covered by descriptors above. When used,
+  set fallback_kind="table" and write complete executable Python ending with print(output).
 
 Worked examples:
-- "precio mediano en Russafa" -> kpi(label="Precio mediano de venta", value="...", unit="€") and a short text if needed.
-- "scatter rentabilidad vs precio" -> text lead, code(visualization_type=plotly, code prints fig.to_json()).
-- "compara Russafa y Benimaclet" -> text lead, table with both barrios and relevant metrics.
-- "buena zona" -> text explaining the resolved concept, table or bar chart only if useful.
-
-When producing visualizations, write complete executable Python code.
-
-For Plotly charts:
-- Import plotly.express or plotly.graph_objects as needed
-- Build the figure from df (a pandas DataFrame of the executor results)
-- Use exact column names from the data (check cited_data for column names)
-- End with: print(fig.to_json())
-
-For Folium maps (when user asks for geographic/map output):
-- Import folium and geopandas as needed
-- For marker maps: build from df['lat'] and df['lng'] columns when present
-- For choropleth maps:
-  - df is already injected with geometry in the 'geom' column as GeoJSON dicts (geometry objects).
-  - Reconstruct GeoDataFrame:
-    import geopandas as gpd
-    from shapely.geometry import shape
-    df['geometry'] = df['geom'].apply(lambda g: shape(g) if g else None)
-    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs='EPSG:4326')
-  - Do NOT read from any file path
-  - Do NOT make any network requests
-  - All data you need is in df
-  - CRITICAL — always add GeoJson as a single bulk call, never row by row:
-    CORRECT:   folium.GeoJson(gdf, style_function=..., tooltip=...).add_to(m)
-    CORRECT:   folium.GeoJson(gdf.to_json(), style_function=...).add_to(m)
-    WRONG:     for _, row in gdf.iterrows(): folium.GeoJson(row['geometry']...).add_to(m)
-    Row-by-row creates N separate layers and will always time out for more than ~5 rows.
-- End with: print(m.get_root().render())
-
-The code primitive has a fallback_kind field. Set it to "table" always.
-If the sandbox returns an error, the renderer will fall back to a table of raw data automatically.
-Column names to use: write code referencing the exact column names present in the executor results.
-The metrics registry canonical names are the column names (e.g. gross_rental_yield_pct, median_sale, etc.).
-Do not invent column names.
+- "mapa de barrios por yield" → text lead + choropleth descriptor
+- "ranking de barrios por rentabilidad" → text lead + bar descriptor
+- "correlación yield vs score" → text lead + scatter descriptor
+- "precio mediano en Russafa" → kpi + short text
+- "compara Russafa y Benimaclet" → text lead + table
 """
 
 
