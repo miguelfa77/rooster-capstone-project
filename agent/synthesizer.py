@@ -207,6 +207,11 @@ For Folium maps (when user asks for geographic/map output):
   - Do NOT read from any file path
   - Do NOT make any network requests
   - All data you need is in df
+  - CRITICAL — always add GeoJson as a single bulk call, never row by row:
+    CORRECT:   folium.GeoJson(gdf, style_function=..., tooltip=...).add_to(m)
+    CORRECT:   folium.GeoJson(gdf.to_json(), style_function=...).add_to(m)
+    WRONG:     for _, row in gdf.iterrows(): folium.GeoJson(row['geometry']...).add_to(m)
+    Row-by-row creates N separate layers and will always time out for more than ~5 rows.
 - End with: print(m.get_root().render())
 
 The code primitive has a fallback_kind field. Set it to "table" always.

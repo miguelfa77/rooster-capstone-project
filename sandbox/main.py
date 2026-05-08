@@ -9,7 +9,7 @@ import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field
 
-EXEC_TIMEOUT_SEC = 15
+EXEC_TIMEOUT_SEC = 30
 
 
 class ExecuteRequest(BaseModel):

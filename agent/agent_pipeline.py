@@ -550,6 +550,14 @@ def _normalize_select_metrics_params(params: dict[str, Any]) -> tuple[dict[str, 
         normalized["order_by"] = {"metric": field, "direction": ("asc" if direction == "asc" else "desc")}
 
     raw_filters = normalized.get("filters")
+    if isinstance(raw_filters, dict) and raw_filters:
+        return None, _select_metrics_error(
+            "select_metrics",
+            params,
+            "filters must be a list of objects, not a dict. "
+            "Example: filters=[{\"field\": \"gross_rental_yield_pct\", \"op\": \"not_null\"}]",
+            "Rewrite filters as a list: [{\"field\": \"<metric>\", \"op\": \"not_null\"}]",
+        )
     if isinstance(raw_filters, list):
         converted: list[dict[str, Any]] = []
         for item in raw_filters:
