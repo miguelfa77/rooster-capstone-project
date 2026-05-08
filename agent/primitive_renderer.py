@@ -100,7 +100,7 @@ def call_sandbox(code: str, data: list[dict[str, Any]]) -> dict[str, Any]:
         response = requests.post(
             f"{SANDBOX_URL}/execute",
             json={"code": code, "data": data},
-            timeout=20,
+            timeout=35,
         )
         response.raise_for_status()
         return response.json()
