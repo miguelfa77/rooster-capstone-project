@@ -85,6 +85,20 @@ def _render_table(primitive: TablePrimitive) -> None:
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def call_sandbox(code: str, data: list[dict[str, Any]]) -> dict[str, Any]:
+    """Execute code in the sandbox service. Pure HTTP — no Streamlit."""
+    try:
+        response = requests.post(
+            f"{SANDBOX_URL}/execute",
+            json={"code": code, "data": data},
+            timeout=20,
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as exc:
+        return {"success": False, "output_type": None, "output": None, "error": str(exc)}
+
+
 def _render_code(primitive: CodePrimitive, geo_key: int) -> None:
     if not st.session_state.get("_rooster_last_execution_results"):
         st.info("No hay datos para ejecutar la visualización.")
@@ -95,18 +109,7 @@ def _render_code(primitive: CodePrimitive, geo_key: int) -> None:
         st.info("No hay datos para ejecutar la visualización.")
         return
 
-    try:
-        response = requests.post(
-            f"{SANDBOX_URL}/execute",
-            json={"code": primitive.code, "data": rows},
-            timeout=20,
-        )
-        response.raise_for_status()
-        result = response.json()
-    except Exception as exc:
-        _LOG.warning("Sandbox request failed: %s", exc)
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        return
+    result = call_sandbox(primitive.code, rows)
 
     if result.get("success"):
         output = result.get("output") or ""

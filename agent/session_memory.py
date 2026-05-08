@@ -161,7 +161,7 @@ Tools called this turn (names): {json.dumps(tools_used)}
             "memory",
             "delta_merged",
             tools_used=tools_used,
-            stage=merged.conversation_state.stage,
+            conversation_stage=merged.conversation_state.stage,
             turn=merged.conversation_state.turn,
         )
         return merged

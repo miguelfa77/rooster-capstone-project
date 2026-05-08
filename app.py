@@ -184,27 +184,16 @@ section[data-testid="stMain"] > div {
 
 /* Live agent-thought panel inside st.status */
 .rooster-thought-box {
-  margin-top: 0.35rem;
-  padding: 0.85rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.035);
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 0.88rem;
-  line-height: 1.45;
-  min-height: 5rem;
-  max-height: 16rem;
+  padding: 0.25rem 0.1rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.84rem;
+  font-style: italic;
+  line-height: 1.65;
+  max-height: 13rem;
   overflow-y: auto;
-  white-space: pre-wrap;
+  word-break: break-word;
 }
-.rooster-thought-label {
-  display: block;
-  margin-bottom: 0.25rem;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
+.rooster-thought-label { display: none; }
 
 /* User messages: avatar on the right (opposite of assistant) — see Streamlit stChatMessage testids */
 .stChatMessage:has([data-testid="stChatMessageAvatarUser"]) {
@@ -1461,10 +1450,10 @@ def _render_followup_pills_replay(pills: list[str]) -> None:
 def _thought_box_html(text: str) -> str:
     safe = html.escape(text.strip())
     return (
-        '<div class="rooster-thought-box">'
-        '<span class="rooster-thought-label">Proceso del agente</span>'
+        '<div class="rooster-thought-box" id="rthought">'
         f"{safe}"
-        "</div>"
+        '</div>'
+        '<script>var e=document.getElementById("rthought");if(e)e.scrollTop=e.scrollHeight;</script>'
     )
 
 
@@ -1477,6 +1466,7 @@ def _synthesize_with_response_review(
     model: str,
     timeout_sec: float,
     prompt_cache_key: str | None,
+    correction_block: str | None = None,
 ) -> tuple[SynthesizedResponse, dict | None]:
     results = agent_results or []
     synthesized = synthesize_response(
@@ -1487,8 +1477,62 @@ def _synthesize_with_response_review(
         model=model,
         timeout_sec=timeout_sec,
         prompt_cache_key=prompt_cache_key,
+        correction_block=correction_block,
     )
     return synthesized, None
+
+
+def _try_correct_code_primitives(
+    synthesized: SynthesizedResponse,
+    *,
+    execution_results: list[dict],
+    user_message: str,
+    resolved_intent: dict | None,
+    session_memory: dict | None,
+    model: str,
+    timeout_sec: float,
+    prompt_cache_key: str | None,
+) -> SynthesizedResponse:
+    """Pre-check code primitives against the sandbox; re-synthesize once if any fail."""
+    from agent.primitive_renderer import call_sandbox
+    from agent.synthesizer import CodePrimitive
+
+    rows: list[dict] = []
+    for r in execution_results or []:
+        if r.get("success") and r.get("rows"):
+            rows = r["rows"]
+            break
+
+    if not rows:
+        return synthesized
+
+    for primitive in synthesized.primitives:
+        if not isinstance(primitive, CodePrimitive):
+            continue
+        result = call_sandbox(primitive.code, rows)
+        if not result.get("success"):
+            error = result.get("error") or "Unknown sandbox error"
+            columns = sorted({k for row in rows[:3] if isinstance(row, dict) for k in row})
+            _LOG.warning("Code primitive failed pre-check, re-synthesizing: %s", error)
+            correction_block = (
+                f"Your generated code failed with this error when executed:\n\n"
+                f"{error}\n\n"
+                f"Available columns in df: {columns}\n\n"
+                f"Rewrite only the code primitive to fix this error."
+            )
+            corrected, _ = _synthesize_with_response_review(
+                user_message,
+                resolved_intent=resolved_intent,
+                agent_results=execution_results,
+                session_memory=session_memory,
+                model=model,
+                timeout_sec=timeout_sec,
+                prompt_cache_key=prompt_cache_key,
+                correction_block=correction_block,
+            )
+            return corrected
+
+    return synthesized
 
 
 def render_chat() -> None:
@@ -1830,6 +1874,16 @@ def render_chat() -> None:
                         timeout_sec=float(timeout_sec),
                         prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     )
+                synthesized_for_stream = _try_correct_code_primitives(
+                    synthesized_for_stream,
+                    execution_results=execution_for_stream or [],
+                    user_message=user_input,
+                    resolved_intent=fc.get("resolved_intent"),
+                    session_memory=memory_context,
+                    model=model_choice,
+                    timeout_sec=float(timeout_sec),
+                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
+                )
                 response_text = synthesized_text(synthesized_for_stream)
                 follow_ups_save = synthesized_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
                 st.session_state["_rooster_last_execution_results"] = execution_for_stream or []

@@ -90,7 +90,12 @@ class SynthesizedResponse(StrictBaseModel):
 CompositePrimitive.model_rebuild()
 
 
-_HARD_CONSTRAINTS = """HARD CONSTRAINTS — these override all other instructions:
+_HARD_CONSTRAINTS = """CORRECTION MODE: If the input contains a "correction_required" key, a previous code
+primitive you generated failed with that error when executed. Rewrite the code primitive to fix it.
+Use the reported column names and traceback to diagnose the issue. All other primitives are fine —
+only fix the broken code. Do not change text, kpi, or table primitives.
+
+HARD CONSTRAINTS — these override all other instructions:
 
 1. HONOUR THE USER'S OUTPUT REQUEST.
    Read the USER_MESSAGE carefully. If the user requested a specific output format — in any
