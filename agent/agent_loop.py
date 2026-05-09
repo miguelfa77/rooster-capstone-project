@@ -67,6 +67,26 @@ def _loop_result(
     }
 
 
+def _build_previous_turn_data(previous_results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Lightweight summary of previous execution results for planner context."""
+    tools: list[str] = []
+    columns: list[str] = []
+    row_count = 0
+    for r in previous_results:
+        if not (r.get("success") and r.get("rows")):
+            continue
+        tools.append(r.get("tool") or "unknown")
+        rows = r["rows"]
+        row_count += len(rows)
+        if rows and isinstance(rows[0], dict):
+            for k in rows[0]:
+                if k not in columns:
+                    columns.append(k)
+    if not tools:
+        return {}
+    return {"tools": tools, "columns": columns, "row_count": row_count}
+
+
 def run_agent_loop_pipeline(
     user_input: str,
     conversation_state: dict[str, Any],
@@ -80,6 +100,7 @@ def run_agent_loop_pipeline(
     prompt_cache_key: str | None = None,
     previous_planner_response_id: str | None = None,
     preamble_callback=None,
+    previous_execution_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Unified planner loop: resolve semantics, route conversational/data, validate,
@@ -97,6 +118,8 @@ def run_agent_loop_pipeline(
     from agent.synthesizer import _build_results_summary_for_synth
 
     model_name = model or SYNTHESIZER_MODEL_DEFAULT
+    prev_results = list(previous_execution_results or [])
+    previous_turn_data = _build_previous_turn_data(prev_results)
     try:
         resolved_query = resolve_query(user_input, session_memory=conversation_state)
         resolved_intent_dict: dict[str, Any] | None = _intent_from_resolved_query(resolved_query)
@@ -136,6 +159,7 @@ def run_agent_loop_pipeline(
             last_assistant_context=last_assistant_context,
             correction_hint=correction_hint,
             previous_results=previous_results,
+            previous_turn_data=previous_turn_data,
             model=model_name,
             prompt_cache_key=prompt_cache_key,
             timeout_sec=timeout_sec,
@@ -208,7 +232,7 @@ def run_agent_loop_pipeline(
             had_validation_replan = True
             continue
 
-        execution_results = execute_plan(validated, engine)
+        execution_results = execute_plan(validated, engine, previous_results=prev_results)
         log_stage(
             "executor",
             "executed",

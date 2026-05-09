@@ -243,6 +243,7 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "resolve_spatial_reference",
         "compute_aggregate",
         "temporal_series",
+        "filter_shown_data",
     }
     errors: list[str] = []
     corrected: list[dict[str, Any]] = []
@@ -625,6 +626,64 @@ def temporal_series_fn(params: dict[str, Any], engine) -> list[dict[str, Any]]:
     return df.to_dict("records")
 
 
+def filter_shown_data_fn(params: dict[str, Any], previous_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Filter rows from a previous execution result in Python — no DB query."""
+    source_tool = params.get("source_tool")
+    field = params.get("field")
+    op = str(params.get("op", "gte")).lower()
+    value = params.get("value")
+    limit = max(1, min(100, int(params.get("limit") or 20)))
+    sort_field = params.get("sort_field")
+    sort_dir = str(params.get("sort_direction", "desc")).lower()
+
+    source_rows: list[dict[str, Any]] = []
+    for r in previous_results:
+        if not (r.get("success") and r.get("rows")):
+            continue
+        if source_tool and r.get("tool") != source_tool:
+            continue
+        source_rows = r["rows"]
+        break
+
+    if not source_rows:
+        return []
+
+    _OPS = {
+        "gt": lambda a, b: float(a) > float(b),
+        "gte": lambda a, b: float(a) >= float(b),
+        "lt": lambda a, b: float(a) < float(b),
+        "lte": lambda a, b: float(a) <= float(b),
+        "eq": lambda a, b: str(a).lower() == str(b).lower(),
+        "neq": lambda a, b: str(a).lower() != str(b).lower(),
+        "not_null": lambda a, b: a is not None,
+        "is_null": lambda a, b: a is None,
+    }
+    op_fn = _OPS.get(op)
+    filtered: list[dict[str, Any]] = []
+    for row in source_rows:
+        if not field or op_fn is None:
+            filtered.append(row)
+            continue
+        v = row.get(field)
+        try:
+            if op_fn(v, value):
+                filtered.append(row)
+        except (TypeError, ValueError):
+            pass
+
+    if sort_field and filtered and sort_field in filtered[0]:
+        try:
+            filtered = sorted(
+                filtered,
+                key=lambda r: (r.get(sort_field) is None, r.get(sort_field)),
+                reverse=(sort_dir == "desc"),
+            )
+        except TypeError:
+            pass
+
+    return filtered[:limit]
+
+
 TOOL_FUNCTIONS: dict[str, Any] = {
     "select_metrics": select_metrics_fn,
     "compute_aggregate": compute_aggregate_fn,
@@ -635,10 +694,13 @@ TOOL_FUNCTIONS: dict[str, Any] = {
     "resolve_spatial_reference": resolve_spatial_reference_fn,
 }
 
+_MEMORY_TOOLS = frozenset({"filter_shown_data"})
+
 
 def execute_plan(
     validated_plan: dict[str, Any],
     engine,
+    previous_results: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for call in validated_plan.get("tool_calls") or []:
@@ -647,6 +709,35 @@ def execute_plan(
         _sql_meta_keys = frozenset({"chart_style"})
         sql_params = {k: v for k, v in params.items() if k not in _sql_meta_keys}
         tool_call_id = call.get("_tool_call_id") or call.get("tool_call_id")
+        if tool in _MEMORY_TOOLS:
+            try:
+                rows = filter_shown_data_fn(sql_params, previous_results or [])
+                results.append(
+                    {
+                        "tool": tool,
+                        "params": params,
+                        "rows": rows,
+                        "row_count": len(rows),
+                        "success": True,
+                        "error": None,
+                        "correction_hint": None,
+                        "tool_call_id": tool_call_id,
+                    }
+                )
+            except Exception as e:
+                results.append(
+                    {
+                        "tool": tool,
+                        "params": params,
+                        "rows": [],
+                        "row_count": 0,
+                        "success": False,
+                        "error": str(e),
+                        "correction_hint": "Check filter params.",
+                        "tool_call_id": tool_call_id,
+                    }
+                )
+            continue
         if not isinstance(tool, str) or tool not in TOOL_FUNCTIONS:
             results.append(
                 {

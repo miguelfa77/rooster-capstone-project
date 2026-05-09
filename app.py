@@ -1671,6 +1671,7 @@ def render_chat() -> None:
                     prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
                     previous_planner_response_id=None,
                     preamble_callback=_update_agent_thought,
+                    previous_execution_results=st.session_state.get("rooster_previous_execution_results"),
                 )
                 if fc.get("error") == "timeout":
                     st.session_state.messages.append({
@@ -1904,6 +1905,8 @@ def render_chat() -> None:
                 response_text = synthesized_text(synthesized_for_stream)
                 follow_ups_save = synthesized_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
                 st.session_state["_rooster_last_execution_results"] = execution_for_stream or []
+                # Store for next turn's filter_shown_data tool
+                st.session_state["rooster_previous_execution_results"] = execution_for_stream or []
                 # skip_text=True: prose already rendered via stream above
                 render_primitive_response(synthesized_for_stream, geo_key, skip_text=True)
                 _render_followup_pills_interactive(follow_ups_save, geo_key)

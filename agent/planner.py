@@ -75,6 +75,12 @@ investment_score, transit_stop_count, tourist_density_pct, median_venta_eur_per_
 
 For query_listings room counts: set both min_rooms AND max_rooms to N for an exact count ("3 habitaciones", "un piso de 2 dormitorios"). Use only min_rooms when the user wants a floor ("al menos 3", "más de 2", "mínimo 3 habitaciones"). Never set only min_rooms for an exact request.
 
+filter_shown_data — filter the previous turn's in-memory data without a DB query:
+  Use ONLY when previous_turn_data is non-empty AND the user wants to filter/refine/sort what was already shown ("de estos", "filtra los que", "muéstrame solo los que", "ordénalos por", "el más barato de estos").
+  params: {source_tool?: "select_metrics"|"query_listings"|..., field: str, op: "gt"|"gte"|"lt"|"lte"|"eq"|"neq"|"not_null"|"is_null", value?: any, limit?: int, sort_field?: str, sort_direction?: "asc"|"desc"}
+  The result has the same columns as the original data — use the same descriptors to render it.
+  Do NOT use this for fresh queries about new data.
+
 Do not emit prose when route=data. Tool params must be concrete and validated-looking.
 For every tool call, put arguments in params_json as a valid JSON object string, not markdown.
 Spanish conversational responses only, max 3 sentences.
@@ -129,6 +135,7 @@ def plan_query(
     last_assistant_context: str = "",
     correction_hint: str | None = None,
     previous_results: list[dict[str, Any]] | None = None,
+    previous_turn_data: dict[str, Any] | None = None,
     model: str | None = None,
     timeout_sec: float = 45.0,
     prompt_cache_key: str | None = None,
@@ -146,6 +153,7 @@ def plan_query(
         "last_assistant_context": last_assistant_context[-PLANNER_LAST_ASSISTANT_CONTEXT_CHARS:],
         "correction_hint": correction_hint or "",
         "previous_results": previous_results or [],
+        "previous_turn_data": previous_turn_data or {},
     }
     model_name = model or PLANNER_MODEL_DEFAULT
     kwargs: dict[str, Any] = {
