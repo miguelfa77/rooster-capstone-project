@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Annotated, Any, Literal, Union, cast
+from typing import Annotated, Any, Generator, Literal, Union, cast
 
 from pydantic import Field
 
@@ -22,6 +22,7 @@ from agent.responses_api import (
     get_openai_client,
     parse_strict_response,
     reasoning_param_for_model,
+    strict_json_schema_for_model,
     supports_temperature,
 )
 from agent.stage_logging import log_stage
@@ -501,6 +502,122 @@ def synthesize_response(
     except Exception as exc:
         _LOG.exception("primitive_synthesis_failed: %s", exc)
     return _sanitize_response(_fallback_response(agent_results))
+
+
+class _ProseStreamer:
+    """Extracts TextPrimitive content fields from a streaming JSON response."""
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._yielding = False
+        self._escape = False
+
+    def feed(self, chunk: str) -> str:
+        out: list[str] = []
+        for ch in chunk:
+            if not self._yielding:
+                self._buf += ch
+                if len(self._buf) > 15:
+                    self._buf = self._buf[-15:]
+                if self._buf.endswith('"content":"'):
+                    self._yielding = True
+                    self._buf = ""
+            else:
+                if self._escape:
+                    self._escape = False
+                    if ch == "n":
+                        out.append("\n")
+                    elif ch == "t":
+                        out.append("\t")
+                    elif ch in ('"', "\\", "/"):
+                        out.append(ch)
+                elif ch == "\\":
+                    self._escape = True
+                elif ch == '"':
+                    self._yielding = False
+                    out.append(" ")
+                else:
+                    out.append(ch)
+        return "".join(out)
+
+
+def stream_synthesize_response(
+    user_message: str,
+    *,
+    resolved_intent: dict[str, Any] | None,
+    agent_results: list[dict[str, Any]],
+    session_memory: dict[str, Any] | None,
+    model: str | None = None,
+    timeout_sec: float = 45.0,
+    prompt_cache_key: str | None = None,
+    correction_block: str | None = None,
+) -> Generator[str | SynthesizedResponse, None, None]:
+    """Yields str prose deltas as the synthesis streams, then a final SynthesizedResponse."""
+    if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY")):
+        yield _sanitize_response(_fallback_response(agent_results))
+        return
+
+    input_payload: dict[str, Any] = {
+        "user_message": user_message,
+        "resolved_intent": resolved_intent or {},
+        "session_memory": session_memory or {},
+        "agent_results": _build_results_summary_for_synth(agent_results),
+    }
+    if correction_block:
+        input_payload = {"correction_required": correction_block, **input_payload}
+
+    instructions = "\n\n".join([_HARD_CONSTRAINTS, SYNTHESIZER_INSTRUCTIONS])
+    model_name = model or SYNTHESIZER_MODEL_DEFAULT
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "instructions": instructions,
+        "input": json.dumps(input_payload, ensure_ascii=False, default=str),
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": SynthesizedResponse.__name__,
+                "schema": strict_json_schema_for_model(SynthesizedResponse),
+                "strict": True,
+            }
+        },
+        "max_output_tokens": SYNTHESIZER_MAX_OUTPUT_TOKENS,
+        "stream": True,
+    }
+    if supports_temperature(model_name):
+        kwargs["temperature"] = 0.2
+    if prompt_cache_key:
+        kwargs["prompt_cache_key"] = prompt_cache_key
+    rpar = reasoning_param_for_model(model_name, REASONING_SYNTHESIZER)
+    if rpar is not None:
+        kwargs["reasoning"] = rpar
+
+    try:
+        client = get_openai_client(timeout_sec)
+        streamer = _ProseStreamer()
+        full_text = ""
+        for event in client.responses.create(**kwargs):
+            if getattr(event, "type", "") == "response.output_text.delta":
+                delta = getattr(event, "delta", "") or ""
+                if delta:
+                    full_text += delta
+                    prose = streamer.feed(delta)
+                    if prose:
+                        yield prose
+        try:
+            result = SynthesizedResponse.model_validate(json.loads(full_text))
+            log_stage(
+                "synthesizer",
+                "primitive_response",
+                primitive_kinds=[p.kind for p in result.primitives],
+                follow_up_count=len(result.follow_ups),
+                correction_retry=bool(correction_block),
+            )
+            yield _sanitize_response(result)
+        except Exception:
+            yield _sanitize_response(_fallback_response(agent_results))
+    except Exception as exc:
+        _LOG.exception("stream_synthesis_failed: %s", exc)
+        yield _sanitize_response(_fallback_response(agent_results))
 
 
 def synthesized_text(synthesized: SynthesizedResponse) -> str:

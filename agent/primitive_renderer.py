@@ -416,8 +416,15 @@ def render_primitive_block(primitive: PrimitiveBlock, geo_key: int) -> None:
             render_primitive_block(child, geo_key)
 
 
-def render_primitive_response(response: SynthesizedResponse | dict, geo_key: int) -> None:
+def render_primitive_response(
+    response: SynthesizedResponse | dict,
+    geo_key: int,
+    *,
+    skip_text: bool = False,
+) -> None:
     if isinstance(response, dict):
         response = SynthesizedResponse.model_validate(response)
     for primitive in response.primitives:
+        if skip_text and isinstance(primitive, TextPrimitive):
+            continue
         render_primitive_block(primitive, geo_key)

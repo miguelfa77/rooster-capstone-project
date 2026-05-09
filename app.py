@@ -74,7 +74,14 @@ from agent.llm_sql import (
 )
 from agent import ui_es as UI
 from agent.primitive_renderer import render_primitive_response
-from agent.synthesizer import SynthesizedResponse, synthesize_response, synthesized_text
+from agent.synthesizer import (
+    SynthesizedResponse,
+    _fallback_response,
+    _sanitize_response,
+    stream_synthesize_response,
+    synthesize_response,
+    synthesized_text,
+)
 
 st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
 
@@ -1757,16 +1764,6 @@ def render_chat() -> None:
                             for r in (execution_for_stream or [])
                         ],
                     )
-                    status.update(label="Redacto la respuesta y selecciono evidencia…")
-                    synthesized_for_stream, _ = _synthesize_with_response_review(
-                        user_input,
-                        resolved_intent=fc.get("resolved_intent"),
-                        agent_results=execution_for_stream or [],
-                        session_memory=memory_context,
-                        model=model_choice,
-                        timeout_sec=float(timeout_sec),
-                        prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                    )
                     stream_kind = "full"
                     status.update(label=UI.STATUS_DONE, state="complete")
                     _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
@@ -1864,16 +1861,36 @@ def render_chat() -> None:
             response_text = ""
             geo_key = len(st.session_state.messages)
             with st.chat_message("assistant", avatar="🐓"):
+                # Stream synthesis — prose appears word-by-word, visuals render after
+                prose_placeholder = st.empty()
+                streamed_prose = ""
+                synthesized_for_stream = None
+
+                for item in stream_synthesize_response(
+                    user_input,
+                    resolved_intent=fc.get("resolved_intent"),
+                    agent_results=execution_for_stream or [],
+                    session_memory=memory_context,
+                    model=model_choice,
+                    timeout_sec=float(timeout_sec),
+                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
+                ):
+                    if isinstance(item, str):
+                        streamed_prose += item
+                        prose_placeholder.markdown(streamed_prose + "▌")
+                    elif isinstance(item, SynthesizedResponse):
+                        synthesized_for_stream = item
+
                 if synthesized_for_stream is None:
-                    synthesized_for_stream, _ = _synthesize_with_response_review(
-                        user_input,
-                        resolved_intent=None,
-                        agent_results=execution_for_stream or [],
-                        session_memory=memory_context,
-                        model=model_choice,
-                        timeout_sec=float(timeout_sec),
-                        prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                    )
+                    synthesized_for_stream = _sanitize_response(_fallback_response(execution_for_stream or []))
+
+                # Finalise streamed text — remove cursor
+                if streamed_prose.strip():
+                    prose_placeholder.markdown(streamed_prose.strip())
+                else:
+                    prose_placeholder.empty()
+
+                # Code pre-check and correction loop
                 synthesized_for_stream = _try_correct_code_primitives(
                     synthesized_for_stream,
                     execution_results=execution_for_stream or [],
@@ -1887,7 +1904,8 @@ def render_chat() -> None:
                 response_text = synthesized_text(synthesized_for_stream)
                 follow_ups_save = synthesized_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
                 st.session_state["_rooster_last_execution_results"] = execution_for_stream or []
-                render_primitive_response(synthesized_for_stream, geo_key)
+                # skip_text=True: prose already rendered via stream above
+                render_primitive_response(synthesized_for_stream, geo_key, skip_text=True)
                 _render_followup_pills_interactive(follow_ups_save, geo_key)
                 if val_errs_for_stream:
                     st.caption(
