@@ -121,12 +121,8 @@ def call_sandbox(code: str, data: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _render_code(primitive: CodePrimitive, geo_key: int) -> None:
-    if not st.session_state.get("_rooster_last_execution_results"):
-        st.info("No hay datos para ejecutar la visualización.")
-        return
-    execution_results = st.session_state.get("_rooster_last_execution_results") or []
-    rows = (execution_results[0] or {}).get("rows") if execution_results else None
-    if not isinstance(rows, list) or not rows:
+    rows = _get_first_rows()
+    if not rows:
         st.info("No hay datos para ejecutar la visualización.")
         return
 
@@ -148,8 +144,19 @@ def _render_code(primitive: CodePrimitive, geo_key: int) -> None:
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _get_execution_rows() -> list[dict[str, Any]]:
-    """Return the first successful result's rows from session state."""
+def _get_rows_for_columns(*required: str) -> list[dict[str, Any]]:
+    """Return rows from the first successful result that contains all required columns."""
+    for r in st.session_state.get("_rooster_last_execution_results") or []:
+        if not (r.get("success") and r.get("rows")):
+            continue
+        rows = r["rows"]
+        if rows and isinstance(rows[0], dict) and all(col in rows[0] for col in required):
+            return rows
+    return []
+
+
+def _get_first_rows() -> list[dict[str, Any]]:
+    """Return rows from the first successful result regardless of columns."""
     for r in st.session_state.get("_rooster_last_execution_results") or []:
         if r.get("success") and r.get("rows"):
             return r["rows"]
@@ -157,7 +164,7 @@ def _get_execution_rows() -> list[dict[str, Any]]:
 
 
 def _render_choropleth(primitive: ChoroplethDescriptor, geo_key: int) -> None:
-    rows = _get_execution_rows()
+    rows = _get_rows_for_columns("geom", primitive.metric)
     if not rows:
         st.info("No hay datos para el mapa.")
         return
@@ -231,7 +238,7 @@ def _render_choropleth(primitive: ChoroplethDescriptor, geo_key: int) -> None:
 
 
 def _render_bar(primitive: BarDescriptor, geo_key: int) -> None:
-    rows = _get_execution_rows()
+    rows = _get_rows_for_columns(primitive.value_field, primitive.label_field)
     if not rows:
         st.info("No hay datos.")
         return
@@ -272,7 +279,7 @@ def _render_bar(primitive: BarDescriptor, geo_key: int) -> None:
 
 
 def _render_scatter(primitive: ScatterDescriptor, geo_key: int) -> None:
-    rows = _get_execution_rows()
+    rows = _get_rows_for_columns(primitive.x_field, primitive.y_field)
     if not rows:
         st.info("No hay datos.")
         return
@@ -305,7 +312,7 @@ def _render_scatter(primitive: ScatterDescriptor, geo_key: int) -> None:
 
 
 def _render_line(primitive: LineDescriptor, geo_key: int) -> None:
-    rows = _get_execution_rows()
+    rows = _get_rows_for_columns(primitive.x_field, primitive.y_field)
     if not rows:
         st.info("No hay datos.")
         return
@@ -333,7 +340,7 @@ def _render_line(primitive: LineDescriptor, geo_key: int) -> None:
 
 
 def _render_point_map(primitive: PointMapDescriptor, geo_key: int) -> None:
-    rows = _get_execution_rows()
+    rows = _get_rows_for_columns("lat", "lng")
     if not rows:
         st.info("No hay datos para el mapa.")
         return

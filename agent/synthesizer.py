@@ -254,12 +254,17 @@ OTHER PRIMITIVES:
 - code: ONLY for non-standard visualizations not covered by descriptors above. When used,
   set fallback_kind="table" and write complete executable Python ending with print(output).
 
+When multiple tools returned data (e.g., select_metrics + query_listings), emit a separate
+descriptor for each dataset. Each descriptor's renderer automatically selects the result
+whose columns match — you do not need to specify which result to use.
+
 Worked examples:
 - "mapa de barrios por yield" → text lead + choropleth descriptor
 - "ranking de barrios por rentabilidad" → text lead + bar descriptor
 - "correlación yield vs score" → text lead + scatter descriptor
 - "precio mediano en Russafa" → kpi + short text
 - "compara Russafa y Benimaclet" → text lead + table
+- "mapa de barrios y listado de pisos baratos" → choropleth (select_metrics data) + point_map (query_listings data)
 """
 
 
