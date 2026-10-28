@@ -3,6 +3,8 @@
 Usage (needs DATABASE_URL and OPENAI_API_KEY):
     python -m tests.eval.run_eval record    # write tests/eval/baseline.json
     python -m tests.eval.run_eval compare   # rerun and diff against the baseline
+    python -m tests.eval.run_eval compare --via-api http://localhost:8000   # same, through the API
+                                            # (needs ROOSTER_API_KEY)
 
 Comparison is on the set of tools called and the primitive kinds returned.
 Answer text is printed for human review, never diffed (the LLM varies).
@@ -87,12 +89,42 @@ def run_all(questions: list[dict]) -> list[dict]:
     return entries
 
 
+def run_all_via_api(questions: list[dict], client, api_key: str) -> list[dict]:
+    """Run questions through the HTTP API. `client` is an httpx.Client (base URL set)."""
+    headers = {"X-Rooster-Key": api_key}
+    conversations: dict[str, str] = {}
+    entries: list[dict] = []
+    for q in questions:
+        cid = conversations.get(q.get("follow_up_of") or "")
+        if cid is None:
+            cid = client.post("/conversations", headers=headers).raise_for_status().json()["id"]
+        client.post(
+            f"/conversations/{cid}/messages", json={"text": q["question"]}, headers=headers
+        ).raise_for_status()
+        messages = client.get(f"/conversations/{cid}", headers=headers).raise_for_status().json()["messages"]
+        conversations[q["id"]] = cid
+        entry = entry_from_message(q["id"], messages[-1])
+        entry["question"] = q["question"]
+        entries.append(entry)
+        print(f"{q['id']}: tools={entry['tools']} kinds={entry['primitive_kinds']}", flush=True)
+    return entries
+
+
 def main(argv: list[str]) -> int:
     mode = argv[1] if len(argv) > 1 else ""
     if mode not in ("record", "compare"):
         print(__doc__)
         return 2
-    entries = run_all(load_questions())
+    if "--via-api" in argv:
+        import os
+
+        import httpx
+
+        base_url = argv[argv.index("--via-api") + 1]
+        with httpx.Client(base_url=base_url, timeout=180) as client:
+            entries = run_all_via_api(load_questions(), client, os.environ["ROOSTER_API_KEY"])
+    else:
+        entries = run_all(load_questions())
     if mode == "record":
         BASELINE_PATH.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"Wrote {len(entries)} entries to {BASELINE_PATH}")

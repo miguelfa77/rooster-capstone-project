@@ -150,3 +150,16 @@ def test_primitive_events_carry_their_data(fake_agent, events, emit):
     run_turn("q", TurnState.new(), _ctx(), emit)
     prim = next(e for e in events if isinstance(e, PrimitiveEvent)).primitive
     assert prim["data"] == RESULTS[0]["rows"]
+
+
+def test_unstreamed_text_is_sent_once_as_text_delta(fake_agent, events, emit):
+    fake_agent.loop_result = {"execution_results": RESULTS, "validated_plan": {}}
+    fake_agent.synth_stream = [SynthesizedResponse(primitives=[TextPrimitive(content="Sin datos"), BAR])]
+    run_turn("q", TurnState.new(), _ctx(), emit)
+    assert [e for e in events if isinstance(e, TextDeltaEvent)] == [TextDeltaEvent(text="Sin datos")]
+
+
+def test_streamed_text_is_not_repeated(fake_agent, events, emit):
+    _full_turn(fake_agent, [TextPrimitive(content="Hola mundo"), BAR])
+    run_turn("q", TurnState.new(), _ctx(), emit)
+    assert "".join(e.text for e in events if isinstance(e, TextDeltaEvent)) == "Hola mundo"

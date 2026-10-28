@@ -1,0 +1,999 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Rooster API",
+    "version": "3.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conversations": {
+      "post": {
+        "summary": "Create Conversation",
+        "operationId": "create_conversation_conversations_post",
+        "parameters": [
+          {
+            "name": "x-rooster-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Rooster-Key"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Conversation Conversations Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conversations/{conversation_id}": {
+      "get": {
+        "summary": "Get Conversation",
+        "operationId": "get_conversation_conversations__conversation_id__get",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "x-rooster-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Rooster-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Conversation Conversations  Conversation Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conversations/{conversation_id}/messages": {
+      "post": {
+        "summary": "Post Message",
+        "operationId": "post_message_conversations__conversation_id__messages_post",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "x-rooster-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Rooster-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "MessageIn": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "MessageIn"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "DoneEvent": {
+        "properties": {
+          "type": {
+            "const": "done",
+            "default": "done",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DoneEvent",
+        "type": "object"
+      },
+      "ErrorEvent": {
+        "properties": {
+          "type": {
+            "const": "error",
+            "default": "error",
+            "title": "Type",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "suggestion": {
+            "title": "Suggestion",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "suggestion"
+        ],
+        "title": "ErrorEvent",
+        "type": "object"
+      },
+      "FollowUpsEvent": {
+        "properties": {
+          "type": {
+            "const": "follow_ups",
+            "default": "follow_ups",
+            "title": "Type",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FollowUpsEvent",
+        "type": "object"
+      },
+      "PrimitiveEvent": {
+        "properties": {
+          "type": {
+            "const": "primitive",
+            "default": "primitive",
+            "title": "Type",
+            "type": "string"
+          },
+          "primitive": {
+            "additionalProperties": true,
+            "title": "Primitive",
+            "type": "object"
+          }
+        },
+        "required": [
+          "primitive"
+        ],
+        "title": "PrimitiveEvent",
+        "type": "object"
+      },
+      "TextDeltaEvent": {
+        "properties": {
+          "type": {
+            "const": "text_delta",
+            "default": "text_delta",
+            "title": "Type",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "TextDeltaEvent",
+        "type": "object"
+      },
+      "ThoughtEvent": {
+        "properties": {
+          "type": {
+            "const": "thought",
+            "default": "thought",
+            "title": "Type",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ThoughtEvent",
+        "type": "object"
+      },
+      "TurnEvent": {
+        "discriminator": {
+          "mapping": {
+            "done": "#/components/schemas/DoneEvent",
+            "error": "#/components/schemas/ErrorEvent",
+            "follow_ups": "#/components/schemas/FollowUpsEvent",
+            "primitive": "#/components/schemas/PrimitiveEvent",
+            "text_delta": "#/components/schemas/TextDeltaEvent",
+            "thought": "#/components/schemas/ThoughtEvent"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ThoughtEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TextDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PrimitiveEvent"
+          },
+          {
+            "$ref": "#/components/schemas/FollowUpsEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ErrorEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DoneEvent"
+          }
+        ]
+      },
+      "BarDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "bar",
+            "default": "bar",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_field": {
+            "title": "Value Field",
+            "type": "string"
+          },
+          "label_field": {
+            "title": "Label Field",
+            "type": "string"
+          },
+          "value_label": {
+            "title": "Value Label",
+            "type": "string"
+          },
+          "orientation": {
+            "default": "h",
+            "enum": [
+              "h",
+              "v"
+            ],
+            "title": "Orientation",
+            "type": "string"
+          },
+          "top_n": {
+            "default": 15,
+            "title": "Top N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value_field",
+          "label_field",
+          "value_label"
+        ],
+        "title": "BarDescriptor",
+        "type": "object"
+      },
+      "ChoroplethDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "choropleth",
+            "default": "choropleth",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "metric_label": {
+            "title": "Metric Label",
+            "type": "string"
+          },
+          "colormap": {
+            "default": "YlOrRd",
+            "enum": [
+              "YlOrRd",
+              "YlGn",
+              "Blues",
+              "RdYlGn",
+              "Purples"
+            ],
+            "title": "Colormap",
+            "type": "string"
+          },
+          "tooltip_fields": {
+            "items": {
+              "$ref": "#/components/schemas/TooltipField"
+            },
+            "title": "Tooltip Fields",
+            "type": "array"
+          },
+          "tiles": {
+            "default": "cartodbpositron",
+            "title": "Tiles",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "metric_label"
+        ],
+        "title": "ChoroplethDescriptor",
+        "type": "object"
+      },
+      "CodePrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "code",
+            "default": "code",
+            "title": "Kind",
+            "type": "string"
+          },
+          "visualization_type": {
+            "enum": [
+              "plotly",
+              "folium"
+            ],
+            "title": "Visualization Type",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "fallback_kind": {
+            "const": "table",
+            "default": "table",
+            "title": "Fallback Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visualization_type",
+          "code"
+        ],
+        "title": "CodePrimitive",
+        "type": "object"
+      },
+      "CompositePrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "composite",
+            "default": "composite",
+            "title": "Kind",
+            "type": "string"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Heading"
+          },
+          "blocks": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar": "#/components/schemas/BarDescriptor",
+                  "choropleth": "#/components/schemas/ChoroplethDescriptor",
+                  "code": "#/components/schemas/CodePrimitive",
+                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "line": "#/components/schemas/LineDescriptor",
+                  "point_map": "#/components/schemas/PointMapDescriptor",
+                  "scatter": "#/components/schemas/ScatterDescriptor",
+                  "table": "#/components/schemas/TablePrimitive",
+                  "text": "#/components/schemas/TextPrimitive"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/KpiPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/TablePrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/CodePrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoroplethDescriptor"
+                },
+                {
+                  "$ref": "#/components/schemas/BarDescriptor"
+                },
+                {
+                  "$ref": "#/components/schemas/ScatterDescriptor"
+                },
+                {
+                  "$ref": "#/components/schemas/LineDescriptor"
+                },
+                {
+                  "$ref": "#/components/schemas/PointMapDescriptor"
+                }
+              ]
+            },
+            "title": "Blocks",
+            "type": "array"
+          }
+        },
+        "title": "CompositePrimitive",
+        "type": "object"
+      },
+      "KpiPrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "kpi",
+            "default": "kpi",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unit"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "KpiPrimitive",
+        "type": "object"
+      },
+      "LineDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "line",
+            "default": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "x_field": {
+            "title": "X Field",
+            "type": "string"
+          },
+          "y_field": {
+            "title": "Y Field",
+            "type": "string"
+          },
+          "y_label": {
+            "title": "Y Label",
+            "type": "string"
+          },
+          "color_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Field"
+          }
+        },
+        "required": [
+          "x_field",
+          "y_field",
+          "y_label"
+        ],
+        "title": "LineDescriptor",
+        "type": "object"
+      },
+      "PointMapDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "point_map",
+            "default": "point_map",
+            "title": "Kind",
+            "type": "string"
+          },
+          "color_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Field"
+          },
+          "color_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Label"
+          },
+          "popup_fields": {
+            "items": {
+              "$ref": "#/components/schemas/TooltipField"
+            },
+            "title": "Popup Fields",
+            "type": "array"
+          }
+        },
+        "title": "PointMapDescriptor",
+        "type": "object"
+      },
+      "ScatterDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "scatter",
+            "default": "scatter",
+            "title": "Kind",
+            "type": "string"
+          },
+          "x_field": {
+            "title": "X Field",
+            "type": "string"
+          },
+          "y_field": {
+            "title": "Y Field",
+            "type": "string"
+          },
+          "x_label": {
+            "title": "X Label",
+            "type": "string"
+          },
+          "y_label": {
+            "title": "Y Label",
+            "type": "string"
+          },
+          "label_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label Field"
+          },
+          "color_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Field"
+          }
+        },
+        "required": [
+          "x_field",
+          "y_field",
+          "x_label",
+          "y_label"
+        ],
+        "title": "ScatterDescriptor",
+        "type": "object"
+      },
+      "TableColumn": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "header": {
+            "title": "Header",
+            "type": "string"
+          },
+          "formatter": {
+            "default": "text",
+            "enum": [
+              "text",
+              "currency",
+              "percentage",
+              "integer",
+              "number",
+              "link",
+              "neighborhood-name"
+            ],
+            "title": "Formatter",
+            "type": "string"
+          },
+          "alignment": {
+            "default": "left",
+            "enum": [
+              "left",
+              "right",
+              "center"
+            ],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "width_hint": {
+            "default": "medium",
+            "enum": [
+              "narrow",
+              "medium",
+              "wide"
+            ],
+            "title": "Width Hint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "header"
+        ],
+        "title": "TableColumn",
+        "type": "object"
+      },
+      "TablePrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "table",
+            "default": "table",
+            "title": "Kind",
+            "type": "string"
+          },
+          "rows_json": {
+            "default": "[]",
+            "description": "JSON array of row objects.",
+            "title": "Rows Json",
+            "type": "string"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/TableColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          }
+        },
+        "title": "TablePrimitive",
+        "type": "object"
+      },
+      "TextPrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "text",
+            "default": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "default": "analysis",
+            "enum": [
+              "lead",
+              "analysis",
+              "recommendation",
+              "caveat",
+              "enumeration_intro"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "cited_data": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cited Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "TextPrimitive",
+        "type": "object"
+      },
+      "TooltipField": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "label"
+        ],
+        "title": "TooltipField",
+        "type": "object"
+      },
+      "PrimitiveBlock": {
+        "discriminator": {
+          "mapping": {
+            "bar": "#/components/schemas/BarDescriptor",
+            "choropleth": "#/components/schemas/ChoroplethDescriptor",
+            "code": "#/components/schemas/CodePrimitive",
+            "composite": "#/components/schemas/CompositePrimitive",
+            "kpi": "#/components/schemas/KpiPrimitive",
+            "line": "#/components/schemas/LineDescriptor",
+            "point_map": "#/components/schemas/PointMapDescriptor",
+            "scatter": "#/components/schemas/ScatterDescriptor",
+            "table": "#/components/schemas/TablePrimitive",
+            "text": "#/components/schemas/TextPrimitive"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TextPrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/KpiPrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/TablePrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/CodePrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/ChoroplethDescriptor"
+          },
+          {
+            "$ref": "#/components/schemas/BarDescriptor"
+          },
+          {
+            "$ref": "#/components/schemas/ScatterDescriptor"
+          },
+          {
+            "$ref": "#/components/schemas/LineDescriptor"
+          },
+          {
+            "$ref": "#/components/schemas/PointMapDescriptor"
+          },
+          {
+            "$ref": "#/components/schemas/CompositePrimitive"
+          }
+        ]
+      }
+    }
+  }
+}

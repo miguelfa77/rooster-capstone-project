@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from contextlib import contextmanager
 from typing import Iterator
@@ -11,10 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from agent.turn import TurnState
-
-
-def _dumps(obj) -> str:
-    return json.dumps(obj, default=str)
+from api.sse import to_json as _dumps
 
 
 class ConversationBusy(Exception):

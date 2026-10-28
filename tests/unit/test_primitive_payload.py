@@ -94,7 +94,6 @@ def test_composite_recurses():
     assert out["blocks"][1]["data"] == POINT_ROWS
 
 
-@pytest.mark.xfail(reason="api.sse.to_json arrives in Task 5", strict=True)
 def test_payload_is_json_serializable():
     from shapely.geometry import Point
 

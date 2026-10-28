@@ -1,0 +1,9 @@
+# Keep secrets and local artifacts out of images built from the repo root (api/Dockerfile).
+**/.env
+**/.env.*
+**/__pycache__
+**/*.pyc
+.git
+.venv
+.superpowers
+**/data/

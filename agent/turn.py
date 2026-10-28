@@ -286,6 +286,7 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
     validation_errors = list(validated.get("validation_errors") or [])
 
     synthesized: SynthesizedResponse | None = None
+    streamed_any = False
     for item in stream_synthesize_response(
         user_input,
         resolved_intent=fc.get("resolved_intent"),
@@ -296,6 +297,7 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
         prompt_cache_key=state.prompt_cache_key,
     ):
         if isinstance(item, str):
+            streamed_any = streamed_any or bool(item)
             emit(TextDeltaEvent(text=item))
         elif isinstance(item, SynthesizedResponse):
             synthesized = item
@@ -311,6 +313,14 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
         ctx=ctx,
         prompt_cache_key=state.prompt_cache_key,
     )
+    if not streamed_any:
+        # The fallback response (and any non-streaming synthesis) carries its prose only
+        # in text primitives, which are not sent as primitive events.
+        prose = "\n\n".join(
+            p.content.strip() for p in synthesized.primitives if isinstance(p, TextPrimitive) and p.content.strip()
+        )
+        if prose:
+            emit(TextDeltaEvent(text=prose))
     for primitive in synthesized.primitives:
         if not isinstance(primitive, TextPrimitive):
             emit(PrimitiveEvent(primitive=build_primitive_payload(primitive.model_dump(), execution_results)))

@@ -87,6 +87,6 @@ def test_non_json_values_are_stored(store):
 
     cid = store.create()
     state = _state(0)
-    state.previous_execution_results = [{"v": Decimal("6.2")}]
+    state.previous_execution_results = [{"v": Decimal("6.2"), "missing": float("nan")}]
     store.save(cid, state)
-    assert store.load(cid).previous_execution_results[0]["v"] in (6.2, "6.2")
+    assert store.load(cid).previous_execution_results[0] == {"v": 6.2, "missing": None}

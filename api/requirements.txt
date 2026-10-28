@@ -1,0 +1,12 @@
+# Rooster API — only what api/ and the agent turn import (no Streamlit, Selenium or dbt).
+# Pins match the root requirements.txt.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.0
+pandas>=2.0.0
+shapely>=2.0.0
+openai>=1.60.0
+pydantic>=2.5.0
+pyyaml>=6.0.1
+requests>=2.28.0
