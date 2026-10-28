@@ -6,6 +6,16 @@
 
 ---
 
+## Working Practices
+
+Skills live in `.claude/skills/`.
+
+- **Karpathy guidelines** (`karpathy-guidelines`) apply to all code changes: state assumptions, keep it simple, make surgical changes, and define verifiable success criteria before implementing.
+- **Superpowers** (`using-superpowers` and the process skills it routes to) sets the workflow: `brainstorming` before building anything new, `writing-plans` → `executing-plans` for multi-step work, `test-driven-development` for features and fixes, `systematic-debugging` for bugs, and `verification-before-completion` before calling anything done. Where a skill says `superpowers:<name>`, use the skill named `<name>` here.
+- **Commits and PRs:** no AI attribution — no `Co-Authored-By`, session links, or "Generated with" footers.
+
+---
+
 ## Architectural Philosophy
 
 Rooster's agent mirrors how a frontier LLM natively operates: a reasoning model with tools, real feedback, and self-correction. No extra validation layers, no synthetic reviewers, no pre-interception of tool calls.
