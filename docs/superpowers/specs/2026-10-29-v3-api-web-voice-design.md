@@ -1,6 +1,6 @@
 # Rooster v3 — API, Web App and Voice
 
-**Status:** Draft for approval · **Branch:** `v3` · **Date:** 2026-10-29
+**Status:** Approved · **Branch:** `v3` · **Date:** 2026-10-29
 
 ## 1. Intent
 
@@ -10,7 +10,7 @@ Rooster v2 is a working Spanish-language real estate analytics agent for Valenci
 2. **Web app** — a Next.js + TypeScript frontend replaces Streamlit.
 3. **Voice** — a phone number you can call in Spanish to ask the same agent questions.
 
-**Why:** v3 is a portfolio project aimed at forward-deployed engineering roles (e.g. HappyRobot). The owner is strong in Python, data and agent work; the gaps are React/TypeScript/Node full-stack work and voice agents. v3 closes both on a product the owner already understands deeply, which makes a stronger interview story than a toy demo.
+**Why:** Streamlit was the right tool for getting the agent working, but it limits the product: layout and interaction are constrained, the UI and the agent are tangled in one process, and the agent can only be reached through that one interface. Separating the agent into an API lets a proper web app and a phone line share the same brain.
 
 The architectural story: **one Python brain, multiple clients.** The agent stays the single source of truth; the web app and the phone line are both thin clients of the same API.
 
@@ -46,11 +46,11 @@ The architectural story: **one Python brain, multiple clients.** The agent stays
 
 | | Approach | Trade-off |
 |---|---|---|
-| **A (chosen)** | Python agent behind FastAPI; Next.js + TS frontend; voice service calls the same API | Two languages and two deploys, but keeps all v2 agent work and focuses new effort on the actual gaps (TS/React, API design, voice). |
-| B | Rewrite everything in TypeScript (Next.js + Node agent) | One language, most Node practice, but throws away a tested agent and roughly doubles the work. |
-| C | Keep Streamlit, add FastAPI + voice only | Fastest voice demo, but skips React/TS entirely — the main gap. |
+| **A (chosen)** | Python agent behind FastAPI; Next.js + TS frontend; voice service calls the same API | Two languages and two deploys, but keeps all v2 agent work and puts new effort into the new clients rather than the agent. |
+| B | Rewrite everything in TypeScript (Next.js + Node agent) | One language end to end, but throws away a tested agent and roughly doubles the work. |
+| C | Keep Streamlit, add FastAPI + voice only | Fastest voice demo, but keeps Streamlit's UI limits and the agent stays tied to it. |
 
-The owner chose **A**: it is the only option that closes both gaps without redoing finished work.
+**A** was chosen: it is the only option that gets a real web app and voice without redoing finished work.
 
 ## 5. Design
 
@@ -70,7 +70,7 @@ Browser ──► Next.js (TypeScript)          Phone ──► Telephony provid
 
 ### 5.1 Phase 1 — API
 
-**Step 0: baseline eval.** The behavioral checklist refers to a 19-query set that is not in the repo. Before any refactor, a fixed set of Spanish test questions (about 20, written from the checklist and the agent's tool catalogue, covering each tool, each primitive type and a multi-turn follow-up) is committed (`tests/eval_questions.yml`) together with a script that runs each one through the agent on v2 behavior and records, per question, the tools called, the primitive types returned and the answer text (`tests/eval_baseline.json`). Every later phase is checked against this baseline. Because the LLM is non-deterministic, comparison is on tools and primitive types, with answer text reviewed by a person, not diffed. *My call:* this turns "no regression" from a judgment into something checkable, and an agent eval harness is itself a strong FDE signal.
+**Step 0: baseline eval.** The behavioral checklist refers to a 19-query set that is not in the repo. Before any refactor, a fixed set of Spanish test questions (about 20, written from the checklist and the agent's tool catalogue, covering each tool, each primitive type and a multi-turn follow-up) is committed (`tests/eval_questions.yml`) together with a script that runs each one through the agent on v2 behavior and records, per question, the tools called, the primitive types returned and the answer text (`tests/eval_baseline.json`). Every later phase is checked against this baseline. Because the LLM is non-deterministic, comparison is on tools and primitive types, with answer text reviewed by a person, not diffed. *My call:* this turns "no regression" from a judgment into something checkable.
 
 **Step 1: extract the turn.** Today `run_agent_loop_pipeline` (`agent/agent_loop.py`) is UI-free, but the rest of a chat turn lives inside `render_chat()` in `app.py`: building conversation context, streaming synthesis (`stream_synthesize_response`), retrying failed code primitives (`_try_correct_code_primitives`, `_synthesize_with_response_review`), and updating session memory (`update_session_memory_from_turn`). This orchestration moves into a new UI-free module (e.g. `agent/turn.py`) that yields a stream of events. Streamlit's `render_chat()` is then rewritten to consume that same module, which proves the extraction preserves behavior before any new client depends on it.
 
@@ -87,7 +87,7 @@ Browser ──► Next.js (TypeScript)          Phone ──► Telephony provid
 - `GET /conversations/{id}` → full message history with primitives, for reloading a page.
 - Read endpoints for the Intel tab, backed by the same queries `app.py` uses today: market framing KPIs, neighborhood GeoJSON with metrics, map overlays (transit, VUT, listings, parcels), the opportunity ranking, and the yield-vs-liquidity data.
 
-**Data the API sends, not pictures.** Primitives are sent as data: descriptors carry the rows they need (the current `_get_rows_for_columns` routing moves server-side, so each `primitive` event is self-contained). `code` primitives are executed in the sandbox by the API, and the event carries the result: Plotly JSON or Folium HTML. If the sandbox fails after the existing one retry, the event falls back to a `table` primitive, as today.
+**Data the API sends, not pictures.** Primitives are sent as data: descriptors carry the rows they need (the current `_get_rows_for_columns` routing moves server-side, so each `primitive` event is self-contained). Descriptors remain the default for all standard charts; the `code` primitive stays a last resort for non-standard visualizations, as in v2. When one occurs it is executed in the sandbox by the API, and the event carries the result: Plotly JSON or Folium HTML. If the sandbox fails after the existing one retry, the event falls back to a `table` primitive, as today.
 
 **Conversation state.** Per-conversation state that Streamlit keeps in `session_state` today (messages, `SessionMemoryV2`, previous execution results, previous planner response id) is stored server-side in Postgres, in a new schema (e.g. `app.conversations`, `app.messages`). *Builder's call:* exact table layout.
 
@@ -130,7 +130,7 @@ caller ⇄ telephony (phone number, audio stream)
 - **Call log.** Each call stores caller number (masked in the UI), start/end time, transcript turns, the agent's answers, and latency per turn (speech end → first audio). The web app's **Calls page** lists calls and shows each transcript with its latency numbers.
 - **Tuning is part of the work, not an afterthought:** choosing the Spanish voice, transcription accuracy on Valencian neighborhood and street names (custom vocabulary from `core.neighborhoods`), and how numbers are read aloud.
 - **Open, decide before Phase 3:** phone number country (a Spanish number usually needs address/ID verification; other countries are instant) and the monthly budget for the number and per-minute speech and LLM costs. Not needed for Phases 1–2.
-- *Builder's call:* telephony provider, STT and TTS providers, and whether to use a voice framework (e.g. Pipecat or LiveKit Agents) or wire the stream directly. Preference: a framework that still exposes the STT → agent → TTS steps, since learning those layers is part of the goal; avoid fully hosted voice-agent platforms that hide them.
+- *Builder's call:* telephony provider, STT and TTS providers, and whether to use a voice framework (e.g. Pipecat or LiveKit Agents) or wire the stream directly. Preference: a framework that still exposes the STT → agent → TTS steps, since the tuning work above needs control over each step; avoid fully hosted voice-agent platforms that hide them.
 
 ## 6. Success Criteria
 
@@ -158,5 +158,5 @@ caller ⇄ telephony (phone number, audio stream)
 - Exact module boundaries for the extracted turn and table layout for conversation storage.
 - Frontend libraries (charts, maps, styling) and component structure.
 - Voice providers and framework, within the constraint in §5.3.
-- Hosting, when the owner decides (§3 keeps both Railway and Vercel possible).
+- Hosting, once decided (§3 keeps both Railway and Vercel possible).
 - Test approach per phase, following the test-driven-development skill.
