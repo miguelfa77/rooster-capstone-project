@@ -40,3 +40,24 @@ def test_missing_entry_reported():
     cur = [_entry("a", ["x"], ["text"])]
     diffs = compare_entries(base, cur)
     assert diffs == [{"id": "b", "fields": ["missing"]}]
+
+
+def test_entry_from_data_message():
+    from tests.eval.run_eval import entry_from_message
+
+    msg = {
+        "summary": "Texto",
+        "primitive_response": {"primitives": [{"kind": "text"}, {"kind": "bar"}]},
+        "execution_results": [{"tool": "select_metrics"}],
+    }
+    assert entry_from_message("q", msg) == {
+        "id": "q", "tools": ["select_metrics"], "primitive_kinds": ["text", "bar"], "text": "Texto"
+    }
+
+
+def test_entry_kinds_for_memo_fallback_and_conversational():
+    from tests.eval.run_eval import entry_from_message
+
+    assert entry_from_message("m", {"is_memo": True})["primitive_kinds"] == ["memo"]
+    assert entry_from_message("e", {"graceful_fallback": {"reason": "x"}})["primitive_kinds"] == ["error"]
+    assert entry_from_message("c", {"summary": "hola"})["primitive_kinds"] == ["text"]

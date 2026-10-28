@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 import json as _json
@@ -15,10 +14,10 @@ import geopandas as gpd
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
-import requests
 import streamlit as st
 from shapely.geometry import shape
 
+from agent.sandbox_client import call_sandbox  # noqa: F401 (re-exported)
 from agent.synthesizer import (
     BarDescriptor,
     ChoroplethDescriptor,
@@ -35,16 +34,6 @@ from agent.synthesizer import (
 )
 
 _LOG = logging.getLogger("rooster.primitive_renderer")
-
-
-def _normalize_sandbox_url(url: str) -> str:
-    url = (url or "").strip()
-    if url and not url.startswith(("http://", "https://")):
-        url = "http://" + url
-    return url or "http://localhost:8001"
-
-
-SANDBOX_URL = _normalize_sandbox_url(os.getenv("ROOSTER_SANDBOX_URL", "http://localhost:8001"))
 
 
 def _rows(raw_json: str) -> list[dict[str, Any]]:
@@ -104,20 +93,6 @@ def _render_table(primitive: TablePrimitive) -> None:
                 df[col.field] = df[col.field].map(lambda v, f=col.formatter: _format_value(v, f))
         df = df.rename(columns=rename)
     st.dataframe(df, use_container_width=True, hide_index=True)
-
-
-def call_sandbox(code: str, data: list[dict[str, Any]]) -> dict[str, Any]:
-    """Execute code in the sandbox service. Pure HTTP — no Streamlit."""
-    try:
-        response = requests.post(
-            f"{SANDBOX_URL}/execute",
-            json={"code": code, "data": data},
-            timeout=35,
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as exc:
-        return {"success": False, "output_type": None, "output": None, "error": str(exc)}
 
 
 def _render_code(primitive: CodePrimitive, geo_key: int) -> None:

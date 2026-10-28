@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -45,78 +44,47 @@ def load_questions() -> list[dict]:
     return yaml.safe_load(QUESTIONS_PATH.read_text(encoding="utf-8"))
 
 
-def run_question(question: dict, prev_results: list[dict], conversation_context: str = "") -> dict:
-    """Run one question through the agent the way app.py does (non-streaming)."""
-    from agent.agent_loop import run_agent_loop_pipeline
+def run_question(question: dict, state=None) -> tuple[dict, object]:
+    """Run one question through agent.turn.run_turn. Returns (entry, new TurnState)."""
     from agent.agent_pipeline import get_live_schema_context
     from agent.config import SYNTHESIZER_MODEL_DEFAULT
-    from agent.llm_sql import get_pg_engine, get_schema_context, summarize_conversation_memo
-    from agent.synthesizer import synthesize_response, synthesized_text
+    from agent.llm_sql import get_pg_engine, get_schema_context
+    from agent.turn import TurnContext, TurnState, run_turn
 
-    text = question["question"]
-    if question.get("memo"):
-        memo = summarize_conversation_memo(
-            conversation_context, SYNTHESIZER_MODEL_DEFAULT, {}, timeout_sec=TIMEOUT_SEC
-        )
-        return _entry(question, [], ["memo"], memo, [])
-
-    fc = run_agent_loop_pipeline(
-        text,
-        {},
-        get_live_schema_context(),
-        get_schema_context(),
-        conversation_context,
-        SYNTHESIZER_MODEL_DEFAULT,
-        TIMEOUT_SEC,
-        get_pg_engine(),
-        previous_execution_results=prev_results,
-    )
-    if fc.get("error") == "timeout" or fc.get("validation_failed"):
-        return _entry(question, [], ["error"], "", [])
-    if fc.get("conversational_text") is not None:
-        return _entry(question, [], ["text"], fc["conversational_text"], [])
-
-    results = fc.get("execution_results") or []
-    synthesized = synthesize_response(
-        text,
-        resolved_intent=fc.get("resolved_intent"),
-        agent_results=results,
-        session_memory={},
+    ctx = TurnContext(
+        engine=get_pg_engine(),
+        live_schema=get_live_schema_context(),
+        static_schema=get_schema_context(),
         model=SYNTHESIZER_MODEL_DEFAULT,
         timeout_sec=TIMEOUT_SEC,
     )
-    tools = [r.get("tool") for r in results if r.get("tool")]
-    kinds = [p.kind for p in synthesized.primitives]
-    return _entry(question, tools, kinds, synthesized_text(synthesized), results)
+    new_state = run_turn(question["question"], state or TurnState.new(), ctx, lambda event: None)
+    return entry_from_message(question["id"], new_state.messages[-1]), new_state
 
 
-def _entry(question: dict, tools: list, kinds: list, text: str, results: list) -> dict:
-    return {
-        "id": question["id"],
-        "tools": tools,
-        "primitive_kinds": kinds,
-        "text": text,
-        "execution_results": results,
-    }
+def entry_from_message(question_id: str, msg: dict) -> dict:
+    """Reduce a stored assistant message to the fields the eval compares."""
+    if msg.get("is_memo"):
+        kinds = ["memo"]
+    elif msg.get("graceful_fallback"):
+        kinds = ["error"]
+    elif "primitive_response" in msg:
+        kinds = [p.get("kind") for p in (msg["primitive_response"] or {}).get("primitives", [])]
+    else:
+        kinds = ["text"]
+    tools = [r.get("tool") for r in msg.get("execution_results") or [] if r.get("tool")]
+    return {"id": question_id, "tools": tools, "primitive_kinds": kinds, "text": msg.get("summary") or ""}
 
 
 def run_all(questions: list[dict]) -> list[dict]:
     entries: list[dict] = []
-    by_id: dict[str, dict] = {}
+    states: dict[str, object] = {}
     for q in questions:
-        parent = by_id.get(q.get("follow_up_of") or "")
-        prev_results = parent["execution_results"] if parent else []
-        context = f"User: {parent['question']}\nRooster: {parent['text']}" if parent else ""
-        entry = run_question(q, prev_results, context)
+        entry, states[q["id"]] = run_question(q, states.get(q.get("follow_up_of") or ""))
         entry["question"] = q["question"]
-        by_id[q["id"]] = entry
         entries.append(entry)
         print(f"{q['id']}: tools={entry['tools']} kinds={entry['primitive_kinds']}", flush=True)
     return entries
-
-
-def _strip(entries: list[dict]) -> list[dict]:
-    return [{k: v for k, v in e.items() if k != "execution_results"} for e in entries]
 
 
 def main(argv: list[str]) -> int:
@@ -124,7 +92,7 @@ def main(argv: list[str]) -> int:
     if mode not in ("record", "compare"):
         print(__doc__)
         return 2
-    entries = _strip(run_all(load_questions()))
+    entries = run_all(load_questions())
     if mode == "record":
         BASELINE_PATH.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"Wrote {len(entries)} entries to {BASELINE_PATH}")

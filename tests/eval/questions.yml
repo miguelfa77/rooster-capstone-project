@@ -1,6 +1,6 @@
 # Rooster agent eval set. One entry per behavior worth protecting.
 # Fields: id, question, follow_up_of (feeds that question's results as previous_execution_results),
-# memo (summary request), voice (answerable in one spoken sentence, used in Phase 3).
+# memo (summary request, informational), voice (answerable in one spoken sentence, used in Phase 3).
 # Flaky ids (LLM variance accepted after the first compare run): none recorded yet.
 
 - id: yield_map

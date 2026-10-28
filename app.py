@@ -5,7 +5,6 @@ import os
 import sys
 import time
 import traceback
-import uuid
 from pathlib import Path
 
 import streamlit as st
@@ -52,36 +51,17 @@ from psycopg2 import errors as pg_errors
 from psycopg2 import sql
 from streamlit_folium import st_folium
 
-from agent.session_memory import (
-    coalesce_session_memory,
-    update_session_memory_from_turn,
-)
-from agent.stage_logging import log_stage
-from agent.agent_loop import run_agent_loop_pipeline
-from agent.agent_pipeline import (
-    extract_neighborhood_names_from_schema,
-    format_last_assistant_for_planner,
-    get_live_schema_context,
-    strip_follow_ups_suffix,
-)
+from agent.agent_pipeline import get_live_schema_context
 from agent.config import SYNTHESIZER_MODEL_DEFAULT as DEFAULT_SYNTHESISER_MODEL_OPENAI
 from agent.llm_sql import (
     SUMMARIZE_TIMEOUT_SEC,
     get_pg_conn,
     get_pg_engine,
     get_schema_context,
-    summarize_conversation_memo,
 )
 from agent import ui_es as UI
 from agent.primitive_renderer import render_primitive_response
-from agent.synthesizer import (
-    SynthesizedResponse,
-    _fallback_response,
-    _sanitize_response,
-    stream_synthesize_response,
-    synthesize_response,
-    synthesized_text,
-)
+from agent.turn import TurnContext, TurnState, run_turn
 
 st.set_page_config(page_title=UI.PAGE_BROWSER_TITLE, page_icon="🏠", layout="wide")
 
@@ -281,99 +261,6 @@ _INTEL_CHART_COLORSCALE = ["#1a1a1a", "#4d4d4d", _INTEL_CHART_ACCENT]
 
 CHOROPLETH_METRICS = UI.CHOROPLETH_METRICS
 CHOROPLETH_METRICS_PROFILE_ONLY_COLUMNS = UI.CHOROPLETH_METRICS_PROFILE_ONLY_COLUMNS
-
-
-def _is_summary_request(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if len(t) > 220:
-        return False
-    triggers = (
-        "summarise",
-        "summarize",
-        "summary",
-        "wrap up",
-        "wrap-up",
-        "what have we found",
-        "what we've found",
-        "recap",
-        "investment memo",
-        "brief memo",
-        "give me a summary",
-        "resumen",
-        "resúmen",
-        "resume",
-        "sintetiza",
-        "sintetizar",
-        "memo de inversión",
-        "memo inversion",
-        "conclusión",
-        "conclusiones",
-        "qué hemos visto",
-        "que hemos visto",
-        "cerrar",
-        "cierra el resumen",
-    )
-    return any(x in t for x in triggers)
-
-
-def _format_conversation_for_memo(messages: list) -> str:
-    lines: list[str] = []
-    for m in messages:
-        if m.get("role") == "user":
-            lines.append(f"User: {m.get('content', '')}")
-        elif m.get("role") == "assistant":
-            parts: list[str] = []
-            if m.get("interpretation"):
-                parts.append(str(m["interpretation"]))
-            if m.get("summary"):
-                parts.append(str(m["summary"]))
-            if m.get("empty_narrative"):
-                parts.append(str(m["empty_narrative"]))
-            if m.get("error"):
-                parts.append(f"(error: {m['error']})")
-            body = " ".join(parts) if parts else "(no text reply)"
-            lines.append(f"Rooster: {body}")
-    return "\n".join(lines)
-
-
-def build_conversation_context(chat_history: list, max_turns: int = 3) -> str:
-    """Last N user/assistant turns as plain text for the combined LLM (no tables)."""
-    recent = chat_history[-(max_turns * 2) :]
-    lines: list[str] = []
-    for msg in recent:
-        if msg.get("role") == "user":
-            c = msg.get("content")
-            if isinstance(c, str) and c.strip():
-                lines.append(f"User: {c.strip()}")
-        else:
-            t = _assistant_context_line(msg)
-            if t:
-                lines.append(f"Rooster: {t}")
-    return "\n".join(lines)
-
-
-def _assistant_context_line(msg: dict) -> str | None:
-    if msg.get("error"):
-        return f"[{UI.ASSISTANT_ERROR_PREFIX.format(err=str(msg['error'])[:200])}]"
-    if msg.get("empty"):
-        return (msg.get("empty_narrative") or UI.ASSISTANT_EMPTY_SEARCH).strip()
-    parts: list[str] = []
-    if msg.get("interpretation"):
-        parts.append(msg["interpretation"])
-    if msg.get("summary"):
-        parts.append(msg["summary"])
-    elif msg.get("rows"):
-        parts.append(UI.ROWS_RETURNED.format(n=len(msg["rows"])))
-    if msg.get("agent_turn") and msg.get("render_stack"):
-        rs = msg["render_stack"]
-        parts.append(
-            "["
-            + ", ".join(str(b.get("intent") or "?") for b in rs)
-            + "]"
-        )
-    if parts:
-        return " ".join(parts)
-    return None
 
 
 _ANALYTICS_SETUP_MD = UI.ANALYTICS_SETUP_MD
@@ -1433,21 +1320,6 @@ def _replay_message(msg: dict, idx: int = 0) -> None:
         _render_followup_pills_replay(msg.get("follow_ups") or [])
 
 
-def _render_followup_pills_interactive(pills: list[str], geo_key: int) -> None:
-    if not pills:
-        return
-    cols = st.columns(len(pills))
-    for i, pill in enumerate(pills):
-        with cols[i]:
-            if st.button(
-                pill,
-                key=f"followup_{geo_key}_{i}",
-                use_container_width=True,
-            ):
-                st.session_state.pending_followup = pill
-                st.rerun()
-
-
 def _render_followup_pills_replay(pills: list[str]) -> None:
     if not pills:
         return
@@ -1464,104 +1336,13 @@ def _thought_box_html(text: str) -> str:
     )
 
 
-def _synthesize_with_response_review(
-    user_message: str,
-    *,
-    resolved_intent: dict | None,
-    agent_results: list[dict] | None,
-    session_memory: dict | None,
-    model: str,
-    timeout_sec: float,
-    prompt_cache_key: str | None,
-    correction_block: str | None = None,
-) -> tuple[SynthesizedResponse, dict | None]:
-    results = agent_results or []
-    synthesized = synthesize_response(
-        user_message,
-        resolved_intent=resolved_intent,
-        agent_results=results,
-        session_memory=session_memory,
-        model=model,
-        timeout_sec=timeout_sec,
-        prompt_cache_key=prompt_cache_key,
-        correction_block=correction_block,
-    )
-    return synthesized, None
-
-
-def _try_correct_code_primitives(
-    synthesized: SynthesizedResponse,
-    *,
-    execution_results: list[dict],
-    user_message: str,
-    resolved_intent: dict | None,
-    session_memory: dict | None,
-    model: str,
-    timeout_sec: float,
-    prompt_cache_key: str | None,
-) -> SynthesizedResponse:
-    """Pre-check code primitives against the sandbox; re-synthesize once if any fail."""
-    from agent.primitive_renderer import call_sandbox
-    from agent.synthesizer import CodePrimitive
-
-    rows: list[dict] = []
-    for r in execution_results or []:
-        if r.get("success") and r.get("rows"):
-            rows = r["rows"]
-            break
-
-    if not rows:
-        return synthesized
-
-    for primitive in synthesized.primitives:
-        if not isinstance(primitive, CodePrimitive):
-            continue
-        result = call_sandbox(primitive.code, rows)
-        if not result.get("success"):
-            error = result.get("error") or "Unknown sandbox error"
-            columns = sorted({k for row in rows[:3] if isinstance(row, dict) for k in row})
-            _LOG.warning("Code primitive failed pre-check, re-synthesizing: %s", error)
-            correction_block = (
-                f"Your generated code failed with this error when executed:\n\n"
-                f"{error}\n\n"
-                f"Available columns in df: {columns}\n\n"
-                f"Rewrite only the code primitive to fix this error."
-            )
-            corrected, _ = _synthesize_with_response_review(
-                user_message,
-                resolved_intent=resolved_intent,
-                agent_results=execution_results,
-                session_memory=session_memory,
-                model=model,
-                timeout_sec=timeout_sec,
-                prompt_cache_key=prompt_cache_key,
-                correction_block=correction_block,
-            )
-            return corrected
-
-    return synthesized
-
-
 def render_chat() -> None:
     _warn_analytics_missing_once()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
-
-    if "conversation_state" not in st.session_state:
-        st.session_state.conversation_state = {
-            "neighborhoods_discussed": [],
-            "user_priorities": [],
-            "operation_focus": "venta",
-            "price_ceiling": None,
-            "stage": "orienting",
-            "last_intent": None,
-            "turns": 0,
-        }
-
     if "rooster_prompt_cache_key" not in st.session_state:
-        st.session_state.rooster_prompt_cache_key = f"rooster_{uuid.uuid4().hex[:16]}"
-
+        st.session_state.rooster_prompt_cache_key = TurnState.new().prompt_cache_key
     if "session_memory_v2" not in st.session_state:
         st.session_state.session_memory_v2 = {}
 
@@ -1583,398 +1364,52 @@ def render_chat() -> None:
         user_input = st.session_state.pop("ask_auto_submit")
     if pending_followup:
         user_input = pending_followup
+    if not user_input:
+        return
 
-    if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        memory_turn_user_message = user_input
+    state = TurnState(
+        messages=list(st.session_state.messages),
+        session_memory=st.session_state.session_memory_v2 or {},
+        previous_execution_results=st.session_state.get("rooster_previous_execution_results") or [],
+        prompt_cache_key=st.session_state.rooster_prompt_cache_key,
+    )
+    ctx = TurnContext(
+        engine=get_pg_engine(),
+        live_schema=_cached_live_schema_context(),
+        static_schema=_cached_schema_context(),
+        model=model_choice,
+        timeout_sec=timeout_sec,
+    )
 
-        if _is_summary_request(user_input):
-            progress_memo: dict = {}
-            memo_text = ""
-            with st.status(UI.STATUS_THINKING, expanded=False) as status:
-                try:
-                    status.update(label=UI.STATUS_MEMO)
-                    memo_text = summarize_conversation_memo(
-                        _format_conversation_for_memo(st.session_state.messages),
-                        model_choice,
-                        progress_memo,
-                        timeout_sec=min(float(timeout_sec), 60.0),
-                    )
-                    status.update(label=UI.STATUS_DONE, state="complete")
-                except Exception as e:
-                    status.update(label=UI.STATUS_ERROR, state="error")
-                    memo_text = UI.MEMO_ERR.format(err=e)
-            st.session_state.messages.append({
-                "role": "assistant",
-                "is_memo": True,
-                "summary": memo_text,
-                "intent": "memo",
-                "rows": None,
-                "sql": None,
-                "error": None,
-                "empty": False,
-                "followups": [],
-                "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
-                "confidence": "high",
-                "interpretation": "",
-                "reasoning_focus": "",
-                "caveat": "",
-            })
-            st.rerun()
+    status = st.status(UI.STATUS_THINKING, expanded=False)
+    thought_placeholder = status.empty()
+    prose_placeholder = st.chat_message("assistant", avatar="🐓").empty()
+    streamed = {"text": ""}
 
-        stream_kind: str | None = None
-        plan_for_stream: dict | None = None
-        validated_for_stream: dict | None = None
-        execution_for_stream: list | None = None
-        synthesized_for_stream: SynthesizedResponse | None = None
-        val_errs_for_stream: list = []
-        openai_precomputed: str | None = None
+    def _emit(event) -> None:
+        if event.type == "thought":
+            _LOG.info("agent_reasoning_stream_ui text=%s", event.text)
+            status.update(label=UI.STATUS_QUERY, expanded=True)
+            thought_placeholder.markdown(_thought_box_html(event.text), unsafe_allow_html=True)
+        elif event.type == "text_delta":
+            if not streamed["text"]:
+                status.update(label=UI.STATUS_DONE, state="complete", expanded=False)
+            streamed["text"] += event.text
+            prose_placeholder.markdown(streamed["text"] + "▌")
+        elif event.type == "error":
+            status.update(label=UI.STATUS_ERROR, state="error")
+        elif event.type == "done" and streamed["text"]:
+            prose_placeholder.markdown(streamed["text"])
 
-        engine = get_pg_engine()
-        conv = build_conversation_context(st.session_state.messages[:-1])
-        last_assistant_for_planner = format_last_assistant_for_planner(
-            st.session_state.messages[:-1]
-        )
-        memory_context = st.session_state.get("session_memory_v2") or {}
+    t0 = time.perf_counter()
+    new_state = run_turn(user_input, state, ctx, _emit)
+    _LOG.info("CHAT total=%.2fs", time.perf_counter() - t0)
 
-        with st.status(UI.STATUS_THINKING, expanded=False) as status:
-            thought_placeholder = st.empty()
-
-            def _update_agent_thought(text: str) -> None:
-                clean = str(text or "").strip()
-                if not clean:
-                    status.update(label=UI.STATUS_QUERY)
-                    thought_placeholder.empty()
-                    return
-                _LOG.info("agent_reasoning_stream_ui text=%s", clean)
-                status.update(label=UI.STATUS_QUERY, expanded=True)
-                thought_placeholder.markdown(
-                    _thought_box_html(clean),
-                    unsafe_allow_html=True,
-                )
-
-            try:
-                t_chat0 = time.perf_counter()
-                status.update(label=UI.STATUS_QUERY)
-                live = _cached_live_schema_context()
-                static = _cached_schema_context()
-                fc = run_agent_loop_pipeline(
-                    user_input,
-                    memory_context,
-                    live,
-                    static,
-                    conv,
-                    model_choice,
-                    float(timeout_sec),
-                    engine,
-                    last_assistant_context=last_assistant_for_planner,
-                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                    previous_planner_response_id=None,
-                    preamble_callback=_update_agent_thought,
-                    previous_execution_results=st.session_state.get("rooster_previous_execution_results"),
-                )
-                if fc.get("error") == "timeout":
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "intent": "conversational",
-                        "summary": "",
-                        "graceful_fallback": {
-                            "reason": UI.CHAT_TIMEOUT_REASON,
-                            "suggestion": UI.CHAT_TIMEOUT_SUGGESTION,
-                        },
-                        "render_stack": [],
-                        "validation_errors": [],
-                        "rows": None,
-                        "sql": None,
-                        "error": None,
-                        "empty": False,
-                        "followups": [],
-                        "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
-                        "confidence": "low",
-                        "interpretation": "",
-                        "reasoning_focus": "",
-                        "caveat": "",
-                    })
-                    status.update(label=UI.STATUS_DONE, state="complete")
-                    st.rerun()
-                if fc.get("validation_failed"):
-                    top = extract_neighborhood_names_from_schema(
-                        _cached_live_schema_context()
-                    )[:5]
-                    names_sample = ", ".join(top) if top else "…"
-                    ve = fc.get("validation_errors") or []
-                    summary_text = (
-                        "No pude encontrar ese barrio en mis datos. "
-                        f"Algunos barrios disponibles incluyen: {names_sample}…"
-                    )
-                    if ve:
-                        summary_text += " " + " ".join(str(x) for x in ve[:3])
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "agent_turn": True,
-                        "summary": "",
-                        "graceful_fallback": {
-                            "reason": summary_text,
-                            "suggestion": UI.CHAT_VALIDATION_FAILED_SUGGESTION,
-                        },
-                        "render_stack": [],
-                        "validation_errors": ve,
-                        "intent": "conversational",
-                        "rows": None,
-                        "sql": None,
-                        "error": None,
-                        "empty": False,
-                        "followups": [],
-                        "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
-                        "confidence": "high",
-                        "interpretation": "",
-                        "reasoning_focus": "",
-                        "caveat": "",
-                    })
-                    status.update(label=UI.STATUS_DONE, state="complete")
-                    _LOG.info("FC validation dropped all tool_calls errors=%s", ve)
-                    _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
-                    st.rerun()
-                if fc.get("conversational_text") is not None:
-                    openai_precomputed = fc["conversational_text"]
-                    stream_kind = "conversational"
-                    plan_for_stream = {
-                        "reasoning": "conversational",
-                        "tool_calls": [],
-                    }
-                    status.update(label=UI.STATUS_DONE, state="complete")
-                    _LOG.info(
-                        "FC conversational text_len=%s",
-                        len(openai_precomputed or ""),
-                    )
-                    _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
-                elif fc.get("execution_results") is not None:
-                    validated_for_stream = fc["validated_plan"]
-                    execution_for_stream = fc["execution_results"]
-                    if fc.get("planner_response_id"):
-                        st.session_state.rooster_openai_planner_response_id = fc[
-                            "planner_response_id"
-                        ]
-                    val_errs_for_stream = list(
-                        (validated_for_stream or {}).get("validation_errors") or []
-                    )
-                    _LOG.info(
-                        "FC tools=%s",
-                        [
-                            (r.get("tool"), r.get("row_count"))
-                            for r in (execution_for_stream or [])
-                        ],
-                    )
-                    stream_kind = "full"
-                    status.update(label=UI.STATUS_DONE, state="complete")
-                    _LOG.info("CHAT total=%.2fs", time.perf_counter() - t_chat0)
-                else:
-                    _LOG.warning("FC unexpected branch: %s", fc)
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "intent": "conversational",
-                        "summary": "",
-                        "graceful_fallback": {
-                            "reason": "Lo siento, no pude procesar tu mensaje.",
-                            "suggestion": UI.CHAT_UNEXPECTED_SUGGESTION,
-                        },
-                        "render_stack": [],
-                        "validation_errors": [],
-                        "rows": None,
-                        "sql": None,
-                        "error": None,
-                        "empty": False,
-                        "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
-                        "confidence": "low",
-                        "interpretation": "",
-                        "reasoning_focus": "",
-                        "caveat": "",
-                    })
-                    status.update(label=UI.STATUS_DONE, state="complete")
-                    st.rerun()
-            except Exception as e:
-                _LOG.exception("Chat pipeline failed: %s", e)
-                status.update(label=UI.STATUS_ERROR, state="error")
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "intent": "search",
-                    "summary": "",
-                    "graceful_fallback": {
-                        "reason": str(e),
-                        "suggestion": UI.CHAT_EXCEPTION_SUGGESTION,
-                    },
-                    "rows": None,
-                    "sql": None,
-                    "error": None,
-                    "empty": False,
-                    "followups": [],
-                    "follow_ups": list(UI.FOLLOW_UP_DEFAULTS),
-                    "confidence": "high",
-                    "interpretation": "",
-                    "caveat": "",
-                })
-
-        if stream_kind == "conversational" and plan_for_stream is not None:
-            response_text = ""
-            follow_ups_save: list[str] = []
-            geo_conv = len(st.session_state.messages)
-            with st.chat_message("assistant", avatar="🐓"):
-                prose, fus = strip_follow_ups_suffix(openai_precomputed or "")
-                if not fus:
-                    fus = list(UI.FOLLOW_UP_DEFAULTS)
-                follow_ups_save = fus
-                st.markdown(prose.replace("**", "").replace("__", ""))
-                response_text = prose
-                _render_followup_pills_interactive(fus, geo_conv)
-            try:
-                mem0 = coalesce_session_memory(st.session_state.session_memory_v2)
-                mem1 = update_session_memory_from_turn(
-                    mem0,
-                    memory_turn_user_message,
-                    response_text or "",
-                    tools_used=[],
-                    timeout_sec=min(float(timeout_sec), 20.0),
-                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                )
-                st.session_state.session_memory_v2 = mem1.model_dump()
-            except Exception:
-                pass
-            st.session_state.messages.append({
-                "role": "assistant",
-                "intent": "conversational",
-                "summary": response_text or "",
-                "render_stack": [],
-                "validation_errors": [],
-                "rows": None,
-                "sql": None,
-                "error": None,
-                "empty": False,
-                "followups": [],
-                "follow_ups": follow_ups_save,
-                "confidence": "high",
-                "interpretation": "",
-                "reasoning_focus": "",
-                "caveat": "",
-            })
-            st.rerun()
-
-        elif stream_kind == "full" and validated_for_stream is not None:
-            response_text = ""
-            geo_key = len(st.session_state.messages)
-            with st.chat_message("assistant", avatar="🐓"):
-                # Stream synthesis — prose appears word-by-word, visuals render after
-                prose_placeholder = st.empty()
-                streamed_prose = ""
-                synthesized_for_stream = None
-
-                for item in stream_synthesize_response(
-                    user_input,
-                    resolved_intent=fc.get("resolved_intent"),
-                    agent_results=execution_for_stream or [],
-                    session_memory=memory_context,
-                    model=model_choice,
-                    timeout_sec=float(timeout_sec),
-                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                ):
-                    if isinstance(item, str):
-                        streamed_prose += item
-                        prose_placeholder.markdown(streamed_prose + "▌")
-                    elif isinstance(item, SynthesizedResponse):
-                        synthesized_for_stream = item
-
-                if synthesized_for_stream is None:
-                    synthesized_for_stream = _sanitize_response(_fallback_response(execution_for_stream or []))
-
-                # Finalise streamed text — remove cursor
-                if streamed_prose.strip():
-                    prose_placeholder.markdown(streamed_prose.strip())
-                else:
-                    prose_placeholder.empty()
-
-                # Code pre-check and correction loop
-                synthesized_for_stream = _try_correct_code_primitives(
-                    synthesized_for_stream,
-                    execution_results=execution_for_stream or [],
-                    user_message=user_input,
-                    resolved_intent=fc.get("resolved_intent"),
-                    session_memory=memory_context,
-                    model=model_choice,
-                    timeout_sec=float(timeout_sec),
-                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                )
-                response_text = synthesized_text(synthesized_for_stream)
-                follow_ups_save = synthesized_for_stream.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
-                st.session_state["_rooster_last_execution_results"] = execution_for_stream or []
-                # Store for next turn's filter_shown_data tool
-                st.session_state["rooster_previous_execution_results"] = execution_for_stream or []
-                # skip_text=True: prose already rendered via stream above
-                render_primitive_response(synthesized_for_stream, geo_key, skip_text=True)
-                _render_followup_pills_interactive(follow_ups_save, geo_key)
-                if val_errs_for_stream:
-                    st.caption(
-                        "Nota: " + ". ".join(str(x) for x in val_errs_for_stream)
-                    )
-            try:
-                mem0 = coalesce_session_memory(st.session_state.session_memory_v2)
-                tools_used = [
-                    c.get("tool")
-                    for c in (validated_for_stream or {}).get("tool_calls") or []
-                    if isinstance(c, dict)
-                ]
-                mem1 = update_session_memory_from_turn(
-                    mem0,
-                    memory_turn_user_message,
-                    response_text or "",
-                    tools_used=[t for t in tools_used if t],
-                    timeout_sec=min(float(timeout_sec), 20.0),
-                    prompt_cache_key=st.session_state.get("rooster_prompt_cache_key"),
-                )
-                st.session_state.session_memory_v2 = mem1.model_dump()
-                log_stage(
-                    "memory",
-                    "session_memory_updated",
-                    tools_used=tools_used,
-                    neighborhoods=mem1.conversation_state.neighborhoods_in_focus,
-                    priorities=mem1.user_profile.inferred_priorities,
-                )
-            except Exception:
-                pass
-            primitive_payload = (
-                synthesized_for_stream.model_dump()
-                if synthesized_for_stream
-                else {"primitives": []}
-            )
-            first_visual = next(
-                (
-                    item
-                    for item in primitive_payload.get("primitives", [])
-                    if isinstance(item, dict) and item.get("kind") in {"code", "table", "kpi"}
-                ),
-                {},
-            )
-            first_intent = first_visual.get("kind") or "conversational"
-            st.session_state.messages.append({
-                "role": "assistant",
-                "agent_turn": True,
-                "summary": response_text or "",
-                "primitive_response": primitive_payload,
-                "execution_results": execution_for_stream or [],
-                "validation_errors": val_errs_for_stream,
-                "intent": first_intent,
-                "rows": None,
-                "sql": None,
-                "error": None,
-                "empty": False,
-                "followups": [],
-                "follow_ups": follow_ups_save,
-                "confidence": "high",
-                "interpretation": "",
-                "reasoning_focus": "",
-                "caveat": "",
-            })
-            st.rerun()
-        else:
-            st.rerun()
+    st.session_state.messages = new_state.messages
+    st.session_state.session_memory_v2 = new_state.session_memory
+    st.session_state.rooster_previous_execution_results = new_state.previous_execution_results
+    st.session_state["_rooster_last_execution_results"] = new_state.previous_execution_results
+    st.rerun()
 
 
 def main():
