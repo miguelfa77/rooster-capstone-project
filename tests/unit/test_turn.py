@@ -143,3 +143,10 @@ def test_turn_module_has_no_streamlit():
     code = "import sys, agent.turn; print('streamlit' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def test_primitive_events_carry_their_data(fake_agent, events, emit):
+    _full_turn(fake_agent, [BAR])
+    run_turn("q", TurnState.new(), _ctx(), emit)
+    prim = next(e for e in events if isinstance(e, PrimitiveEvent)).primitive
+    assert prim["data"] == RESULTS[0]["rows"]

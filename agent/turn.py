@@ -27,6 +27,7 @@ from agent.conversation_context import (
     is_summary_request,
 )
 from agent.llm_sql import summarize_conversation_memo
+from agent.primitive_payload import build_primitive_payload
 from agent.sandbox_client import call_sandbox
 from agent.session_memory import coalesce_session_memory, update_session_memory_from_turn
 from agent.stage_logging import log_stage
@@ -312,7 +313,7 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
     )
     for primitive in synthesized.primitives:
         if not isinstance(primitive, TextPrimitive):
-            emit(PrimitiveEvent(primitive=primitive.model_dump()))
+            emit(PrimitiveEvent(primitive=build_primitive_payload(primitive.model_dump(), execution_results)))
 
     response_text = synthesized_text(synthesized)
     follow_ups = synthesized.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
