@@ -46,7 +46,7 @@ user message
   → [model self-corrects if executor fails — max 3-5 loop steps]
   → synthesiser (GPT-5.5)   # emits primitives: descriptor | text | kpi | table
   → [code primitive pre-check → sandbox → if fails, re-synthesise with error]
-  → renderer                # dispatches primitives to Streamlit
+  → agent/turn.py emits events → Streamlit (renders primitives) / API (streams SSE)
   → memory_updater          # gpt-5-mini, updates structured session memory
 ```
 
@@ -98,4 +98,6 @@ tourist_density_pct  median_venta_eur_per_sqm  data_confidence
 
 Two Railway services: the main Streamlit app and the sandbox FastAPI service (root dir `sandbox/`, separate Dockerfile). One Railway PostGIS 17 database. Communication between app and sandbox via Railway private networking (`ROOSTER_SANDBOX_URL` — must include `http://` scheme).
 
-**Key env vars:** `DATABASE_URL` · `OPENAI_API_KEY` · `ROOSTER_SANDBOX_URL`
+API service (v3): `api/` FastAPI app (`api/Dockerfile`, build from repo root), conversations stored in the `app` schema (`sql/migrate_app_conversations.sql`). Shares `agent/turn.py` and `agent/intel_data.py` with Streamlit.
+
+**Key env vars:** `DATABASE_URL` · `OPENAI_API_KEY` · `ROOSTER_SANDBOX_URL` · `ROOSTER_API_KEY` (API only)
