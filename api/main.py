@@ -13,17 +13,19 @@ import time
 import uuid
 from contextlib import ExitStack
 from functools import lru_cache
+from typing import Any, Callable, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from agent import intel_data
 from agent import ui_es as UI
 from agent.agent_pipeline import get_live_schema_context
 from agent.config import SYNTHESIZER_MODEL_DEFAULT
 from agent.llm_sql import get_pg_engine, get_schema_context
 from agent.turn import DoneEvent, ErrorEvent, TurnContext, run_turn
-from api.sse import stream_turn
+from api.sse import stream_turn, to_json
 from api.store import ConversationBusy, ConversationStore
 
 TURN_TIMEOUT_SEC = 60.0
@@ -151,3 +153,79 @@ def post_message(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Intel (read-only data for the dashboard) ──────────────────────────────
+
+_intel_cache: dict[tuple, tuple[float, str]] = {}
+_intel_cache_lock = threading.Lock()
+
+
+def clear_intel_cache() -> None:
+    with _intel_cache_lock:
+        _intel_cache.clear()
+
+
+def _cached_json(key: tuple, ttl_sec: int, load: Callable[[], Any]) -> Response:
+    """Serve a JSON response, reusing it for ttl_sec (same TTLs as the Streamlit app)."""
+    with _intel_cache_lock:
+        hit = _intel_cache.get(key)
+        if hit and time.monotonic() - hit[0] < ttl_sec:
+            return Response(content=hit[1], media_type="application/json")
+    data = load()
+    if hasattr(data, "to_dict"):  # DataFrame → list of row dicts
+        data = data.to_dict(orient="records")
+    body = to_json(data)
+    with _intel_cache_lock:
+        _intel_cache[key] = (time.monotonic(), body)
+    return Response(content=body, media_type="application/json")
+
+
+_VALID_METRICS = set(UI.CHOROPLETH_METRICS.values())
+
+
+@app.get("/intel/framing", dependencies=[Depends(require_key)])
+def intel_framing() -> Response:
+    return _cached_json(("framing",), 300, lambda: intel_data.market_framing())
+
+
+@app.get("/intel/neighborhoods", dependencies=[Depends(require_key)])
+def intel_neighborhoods(metric: str = Query(...)) -> Response:
+    if metric not in _VALID_METRICS:
+        raise HTTPException(status_code=422, detail=f"metric must be one of {sorted(_VALID_METRICS)}")
+
+    def load() -> dict:
+        geojson, vmin, vmax = intel_data.neighborhood_geojson(metric)
+        return {"geojson": geojson, "vmin": vmin, "vmax": vmax}
+
+    return _cached_json(("neighborhoods", metric), 300, load)
+
+
+@app.get("/intel/overlays/transit", dependencies=[Depends(require_key)])
+def intel_transit() -> Response:
+    return _cached_json(("transit",), 600, lambda: intel_data.transit_overlay())
+
+
+@app.get("/intel/overlays/tourism", dependencies=[Depends(require_key)])
+def intel_tourism() -> Response:
+    return _cached_json(("tourism",), 600, lambda: intel_data.tourism_overlay())
+
+
+@app.get("/intel/listings", dependencies=[Depends(require_key)])
+def intel_listings(operation: Literal["All", "venta", "alquiler"] = "All") -> Response:
+    return _cached_json(("listings", operation), 300, lambda: intel_data.listings(operation))
+
+
+@app.get("/intel/parcels", dependencies=[Depends(require_key)])
+def intel_parcels() -> Response:
+    return _cached_json(("parcels",), 600, lambda: intel_data.parcels_geojson())
+
+
+@app.get("/intel/ranking", dependencies=[Depends(require_key)])
+def intel_ranking() -> Response:
+    return _cached_json(("ranking",), 300, lambda: intel_data.neighborhood_ranking())
+
+
+@app.get("/intel/yield-liquidity", dependencies=[Depends(require_key)])
+def intel_yield_liquidity() -> Response:
+    return _cached_json(("yield_liquidity",), 300, lambda: intel_data.yield_liquidity())
