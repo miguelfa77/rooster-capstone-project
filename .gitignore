@@ -42,3 +42,14 @@ dbt/.env
 __pycache__/
 *.py[cod]
 /share
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+/etc
+
+# Scraper runtime state (recreated on each run)
+pipeline/idealista/scraper_checkpoint.json
