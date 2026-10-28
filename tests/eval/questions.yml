@@ -1,0 +1,87 @@
+# Rooster agent eval set. One entry per behavior worth protecting.
+# Fields: id, question, follow_up_of (feeds that question's results as previous_execution_results),
+# memo (summary request), voice (answerable in one spoken sentence, used in Phase 3).
+# Flaky ids (LLM variance accepted after the first compare run): none recorded yet.
+
+- id: yield_map
+  question: Muéstrame en un mapa la rentabilidad bruta de alquiler por barrio
+  voice: false
+
+- id: yield_ranking
+  question: ¿Cuáles son los 10 barrios con mayor rentabilidad bruta de alquiler?
+  voice: true
+
+- id: yield_ranking_followup
+  question: De estos, muéstrame solo los que tienen rentabilidad mayor del 6%
+  follow_up_of: yield_ranking
+  voice: true
+
+- id: yield_vs_price
+  question: Compara la rentabilidad con el precio mediano de venta en un gráfico de dispersión por barrio
+  voice: false
+
+- id: price_trend
+  question: ¿Cómo ha evolucionado el precio mediano de venta a lo largo del tiempo?
+  voice: false
+
+- id: city_median_yield
+  question: ¿Cuál es la rentabilidad bruta mediana de toda la ciudad?
+  voice: true
+
+- id: russafa_profile
+  question: ¿Qué tal es Russafa para invertir?
+  voice: true
+
+- id: listings_venta
+  question: Busca pisos en venta de 3 habitaciones en Benimaclet por menos de 250.000 euros
+  voice: false
+
+- id: listings_alquiler
+  question: Enséñame pisos en alquiler en El Carme en un mapa
+  voice: false
+
+- id: transit_stops
+  question: ¿Qué paradas de transporte público hay en Ciutat Vella?
+  voice: false
+
+- id: tourist_apartments
+  question: ¿Cuántos pisos turísticos hay en El Mercat?
+  voice: true
+
+- id: tourist_density_ranking
+  question: ¿Qué barrios tienen más presión turística?
+  voice: false
+
+- id: centro_reference
+  question: ¿Cuál es el precio medio por metro cuadrado en el centro?
+  voice: true
+
+- id: buena_zona
+  question: Recomiéndame una buena zona para invertir con buena rentabilidad y buen transporte
+  voice: true
+
+- id: investment_score_table
+  question: Dame en una tabla la puntuación de inversión de todos los barrios
+  voice: false
+
+- id: full_report
+  question: Hazme un informe completo de Benimaclet
+  voice: false
+
+- id: greeting
+  question: Hola, ¿qué puedes hacer?
+  voice: true
+
+- id: unknown_neighborhood
+  question: ¿Qué rentabilidad tiene el barrio de Narnia?
+  voice: false
+
+- id: rent_price_map
+  question: Mapa del precio mediano de alquiler por barrio
+  voice: false
+
+- id: memo
+  question: Hazme un resumen de lo que hemos visto
+  follow_up_of: full_report
+  memo: true
+  voice: false
