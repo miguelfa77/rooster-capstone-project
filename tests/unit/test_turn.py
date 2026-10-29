@@ -163,3 +163,13 @@ def test_streamed_text_is_not_repeated(fake_agent, events, emit):
     _full_turn(fake_agent, [TextPrimitive(content="Hola mundo"), BAR])
     run_turn("q", TurnState.new(), _ctx(), emit)
     assert "".join(e.text for e in events if isinstance(e, TextDeltaEvent)) == "Hola mundo"
+
+
+def test_assistant_message_keeps_enriched_payloads(fake_agent, events, emit):
+    _full_turn(fake_agent, [TextPrimitive(content="Hola"), BAR])
+    new_state = run_turn("q", TurnState.new(), _ctx(), emit)
+    msg = new_state.messages[-1]
+    sent = [e.primitive for e in events if isinstance(e, PrimitiveEvent)]
+    assert msg["primitive_payloads"] == sent
+    assert msg["primitive_payloads"][0]["data"] == RESULTS[0]["rows"]
+    assert "data" not in msg["primitive_response"]["primitives"][1]  # stays valid for Streamlit replay

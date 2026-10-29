@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from agent.config import SYNTH_TABLE_FALLBACK_ROWS
+from agent.jsonable import to_jsonable
 from agent.sandbox_client import call_sandbox
 
 
@@ -44,7 +46,8 @@ def _code_payload(primitive: dict, execution_results: list[dict]) -> dict:
         result = call_sandbox(primitive.get("code", ""), rows)
         if result.get("success"):
             return {**primitive, "output_type": result.get("output_type"), "output": result.get("output") or ""}
-    return {"kind": "table", "rows_json": json.dumps(rows, default=str), "columns": []}
+    rows_json = json.dumps(to_jsonable(rows[:SYNTH_TABLE_FALLBACK_ROWS]), allow_nan=False)
+    return {"kind": "table", "rows_json": rows_json, "columns": []}
 
 
 def build_primitive_payload(primitive: dict[str, Any], execution_results: list[dict]) -> dict[str, Any]:

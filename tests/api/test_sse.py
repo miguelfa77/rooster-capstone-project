@@ -78,3 +78,15 @@ def test_stream_turn_completes_after_disconnect():
     release.set()
     assert frames[0].startswith("event: thought")
     assert finished.wait(2)
+
+
+def test_to_json_maps_pandas_nulls_to_null():
+    import pandas as pd
+
+    rows = pd.DataFrame({"d": pd.to_datetime(["2026-01-01", None])}).to_dict("records")
+    assert json.loads(to_json(rows)) == [{"d": "2026-01-01T00:00:00"}, {"d": None}]
+    assert json.loads(to_json({"na": pd.NA})) == {"na": None}
+
+
+def test_to_json_handles_numpy_arrays():
+    assert json.loads(to_json({"a": np.array([1, 2])})) == {"a": [1, 2]}

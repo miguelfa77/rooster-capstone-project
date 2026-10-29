@@ -5,50 +5,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import threading
-import uuid
-from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, AsyncIterator, Callable
 
 from pydantic import BaseModel
 
 from agent import ui_es as UI
+from agent.jsonable import to_jsonable
 from agent.turn import DoneEvent, ErrorEvent
 
 _LOG = logging.getLogger("rooster.api.sse")
 
 
-def _clean(obj: Any) -> Any:
-    """Convert database, numpy, geometry and pydantic values into plain JSON values."""
-    if isinstance(obj, BaseModel):
-        return _clean(obj.model_dump())
-    if isinstance(obj, dict):
-        return {str(k): _clean(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple, set)):
-        return [_clean(v) for v in obj]
-    if isinstance(obj, float):
-        return None if math.isnan(obj) or math.isinf(obj) else obj
-    if isinstance(obj, (str, int, bool)) or obj is None:
-        return obj
-    if isinstance(obj, Decimal):
-        return _clean(float(obj))
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, uuid.UUID):
-        return str(obj)
-    if hasattr(obj, "__geo_interface__"):
-        return _clean(obj.__geo_interface__)
-    if hasattr(obj, "item"):  # numpy scalars
-        return _clean(obj.item())
-    if hasattr(obj, "tolist"):  # numpy arrays
-        return _clean(obj.tolist())
-    return str(obj)
-
-
 def to_json(obj: Any) -> str:
-    return json.dumps(_clean(obj), separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return json.dumps(to_jsonable(obj), separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 def format_event(event: BaseModel) -> str:

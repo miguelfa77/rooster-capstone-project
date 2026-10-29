@@ -321,9 +321,13 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
         )
         if prose:
             emit(TextDeltaEvent(text=prose))
-    for primitive in synthesized.primitives:
-        if not isinstance(primitive, TextPrimitive):
-            emit(PrimitiveEvent(primitive=build_primitive_payload(primitive.model_dump(), execution_results)))
+    payloads = [
+        build_primitive_payload(p.model_dump(), execution_results)
+        for p in synthesized.primitives
+        if not isinstance(p, TextPrimitive)
+    ]
+    for payload in payloads:
+        emit(PrimitiveEvent(primitive=payload))
 
     response_text = synthesized_text(synthesized)
     follow_ups = synthesized.follow_ups or list(UI.FOLLOW_UP_DEFAULTS)
@@ -343,6 +347,7 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
         agent_turn=True,
         summary=response_text or "",
         primitive_response=payload,
+        primitive_payloads=payloads,  # self-contained copies for API clients (data, code output)
         execution_results=execution_results,
         validation_errors=validation_errors,
         intent=first_visual.get("kind") or "conversational",
