@@ -29,3 +29,10 @@ export function sendMessage(id: string, text: string, signal?: AbortSignal): Pro
     signal,
   });
 }
+
+/** GET an /intel/* resource (path includes any query string); throws on a non-2xx status. */
+export async function getIntel<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${BASE}/intel/${path}`, signal ? { signal } : undefined);
+  if (!res.ok) throw new Error(`intel ${path} failed: HTTP ${res.status}`);
+  return (await res.json()) as T;
+}

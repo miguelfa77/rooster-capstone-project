@@ -1,6 +1,5 @@
-// Placeholder; the Intel view lands in a later task.
-import { COPY } from "@/lib/copy";
+import IntelView from "@/components/intel/IntelView";
 
 export default function IntelPage() {
-  return <h1>{COPY.navIntel}</h1>;
+  return <IntelView />;
 }

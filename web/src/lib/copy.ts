@@ -67,6 +67,10 @@ export const COPY = {
   intelNoFraming: "No hay datos suficientes para enmarcar el mercado (analytics.neighborhood_metrics).",
   intelNoRanking: "Sin datos para el ranking (necesitas analytics.neighborhood_metrics o neighborhood_profile).",
   intelNoScatter: "Sin datos para el gráfico rentabilidad–liquidez.",
+  intelLoading: "Cargando…",
+  intelLoadError: "No se pudieron cargar estos datos.",
+  intelScatterX: "Anuncios totales (liquidez →)",
+  intelScatterY: "Rentabilidad bruta % (rentabilidad ↑)",
   intelRankCaption:
     "Ordenado por puntuación de inversión. Barras = lectura rápida de rentabilidad, turismo y puntuación.",
   intelScatterCaption:
