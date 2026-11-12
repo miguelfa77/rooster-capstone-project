@@ -17,6 +17,8 @@ export type ChatState = {
   messages: Message[];
   live: LiveTurn | null;
   notice: string | null;
+  /** Text of a send the server refused as busy, for the composer to restore (a new object per refusal). */
+  draft: { text: string } | null;
   loading: boolean;
 };
 
@@ -27,7 +29,7 @@ export type ChatAction =
   | { type: "event"; event: TurnEvent }
   | { type: "finished"; messages: Message[] }
   | { type: "failed"; reason: string }
-  | { type: "busy" };
+  | { type: "busy"; text: string };
 
 /** `loading` is true until the stored conversation (if any) has been checked. */
 export const initialChatState: ChatState = {
@@ -35,6 +37,7 @@ export const initialChatState: ChatState = {
   messages: [],
   live: null,
   notice: null,
+  draft: null,
   loading: true,
 };
 
@@ -84,12 +87,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             },
           ]
         : state.messages;
-      return { ...state, messages, live: newLiveTurn(action.text), notice: null };
+      return { ...state, messages, live: newLiveTurn(action.text), notice: null, draft: null };
     }
     case "event":
       return state.live ? { ...state, live: applyEvent(state.live, action.event) } : state;
     case "finished":
-      return { ...state, messages: action.messages, live: null };
+      return { ...state, messages: action.messages, live: null, notice: null, draft: null };
     case "failed": {
       const live = state.live ?? newLiveTurn("");
       return {
@@ -98,6 +101,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
     case "busy":
-      return { ...state, live: null, notice: COPY.busy };
+      return { ...state, live: null, notice: COPY.busy, draft: { text: action.text } };
   }
 }

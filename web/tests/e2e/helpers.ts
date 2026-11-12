@@ -18,8 +18,8 @@ export async function preparePage(page: Page): Promise<string[]> {
 
 export const conversation = (page: Page) => page.getByRole("region", { name: "Conversación" });
 
-/** One wrapper per rendered primitive (the `block` class of AssistantMessage). */
-export const blocks = (page: Page) => conversation(page).locator('[class*="_block"]');
+/** One wrapper per rendered top-level block (AssistantMessage's `message-block`). */
+export const blocks = (page: Page) => conversation(page).getByTestId("message-block");
 
 export async function sendMessage(page: Page, text: string) {
   const input = page.getByRole("textbox", { name: "Pregunta por anuncios, rentabilidades, barrios…" });

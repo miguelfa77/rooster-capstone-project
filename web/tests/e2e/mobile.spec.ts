@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectEveryKind, pageScrollWidth, preparePage, sendMessage, waitForTurnEnd } from "./helpers";
+import { blocks, expectEveryKind, pageScrollWidth, preparePage, sendMessage, waitForTurnEnd } from "./helpers";
 
 const WIDTH = 390;
 
@@ -22,9 +22,13 @@ test("no_horizontal_page_scroll on / after a full turn", async ({ page }) => {
   await waitForTurnEnd(page);
   await expectEveryKind(page);
   expect(await pageScrollWidth(page)).toBeLessThanOrEqual(WIDTH);
-  // The composer stays on screen.
+  // The composer stays on screen, and the reader still follows the bottom once maps and plots have laid out.
   await expect(page.getByRole("textbox")).toBeInViewport();
   await expect(page.getByRole("button", { name: "Enviar" })).toBeInViewport();
+  const lastBlockBottom = () => blocks(page).last().evaluate((el) => el.getBoundingClientRect().bottom);
+  const composerTop = () => page.locator("form").evaluate((el) => el.getBoundingClientRect().top);
+  await expect.poll(async () => (await lastBlockBottom()) <= (await composerTop())).toBe(true);
+  await expect.poll(async () => (await lastBlockBottom()) > 0).toBe(true);
 });
 
 test("no_horizontal_page_scroll on /intel with layers on", async ({ page }) => {

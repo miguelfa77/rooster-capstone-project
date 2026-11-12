@@ -1,7 +1,7 @@
 "use client";
 
 import { COPY } from "@/lib/copy";
-import { useChat } from "@/lib/use-chat";
+import { useChatContext } from "@/lib/chat-context";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
 import pillStyles from "./FollowUps.module.css";
@@ -25,8 +25,8 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
 
 /** The chat page: history, the live turn, and the composer. */
 export default function ChatView() {
-  const { state, send, reset } = useChat();
-  const { messages, live, notice, loading } = state;
+  const { state, send, reset } = useChatContext();
+  const { messages, live, notice, draft, loading } = state;
   const busy = loading || live?.status === "streaming";
   const isEmpty = !loading && messages.length === 0 && !live;
   const onSend = (text: string) => void send(text);
@@ -40,7 +40,7 @@ export default function ChatView() {
             {notice}
           </p>
         ) : null}
-        <Composer disabled={busy} onSend={onSend} onReset={reset} />
+        <Composer disabled={busy} draft={draft} onSend={onSend} onReset={reset} />
       </div>
     </div>
   );

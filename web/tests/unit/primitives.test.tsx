@@ -145,6 +145,18 @@ describe("Primitive", () => {
     expect(a).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  it("table_link_column_renders_non_http_values_as_text", () => {
+    const p = {
+      kind: "table",
+      rows_json: JSON.stringify([{ url: "javascript:alert(1)" }, { url: "no es una url" }]),
+      columns: [{ field: "url", header: "Anuncio", formatter: "link", alignment: "left", width_hint: "medium" }],
+    } as PrimitivePayload;
+    render(<Primitive p={p} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("javascript:alert(1)")).toBeInTheDocument();
+    expect(screen.getByText("no es una url")).toBeInTheDocument();
+  });
+
   it("table_without_rows_shows_message", () => {
     render(<Primitive p={{ kind: "table", rows_json: "[]", columns: [] } as PrimitivePayload} />);
     expect(screen.getByText("No hay filas que mostrar.")).toBeInTheDocument();
@@ -197,6 +209,25 @@ describe("Primitive", () => {
       ...container.querySelectorAll(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value"),
     ].map((t) => t.textContent);
     expect(ticks).toEqual(["2026-07", "2026-08", "2026-09"]);
+  });
+
+  const xTicks = (container: HTMLElement) =>
+    [...container.querySelectorAll(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value")].map(
+      (t) => t.textContent,
+    );
+
+  it.each([
+    ["iso dates", ["2026-08", "2026-09", "2026-07", "2026-08"], ["2026-07", "2026-08", "2026-09"]],
+    ["numbers", [2022, 2023, 2021, 2022], ["2021", "2022", "2023"]],
+    ["other strings keep row order", ["T3", "T4", "T1", "T3"], ["T3", "T4", "T1"]],
+  ] as const)("line_x_axis_sorted_when_rows_grouped_by_series (%s)", (_name, xs, expected) => {
+    const p = {
+      ...payload("line"),
+      color_field: "op",
+      data: xs.map((x, i) => ({ month: x, median_alquiler_price: i + 1, op: i < 2 ? "a" : "b" })),
+    };
+    const { container } = render(<Primitive p={p} />);
+    expect(xTicks(container)).toEqual(expected);
   });
 
   it.each(["bar", "scatter", "line"] as const)("empty_data_shows_empty_state (%s)", (kind) => {

@@ -9,7 +9,7 @@ export function Blocks({ items }: { items: PrimitivePayload[] }) {
   return (
     <>
       {items.map((p, i) => (
-        <div key={i} className={styles.block}>
+        <div key={i} className={styles.block} data-testid="message-block">
           <Primitive p={p} />
         </div>
       ))}
@@ -38,7 +38,7 @@ export default function AssistantMessage({
     body = (
       <>
         {message.summary ? (
-          <div className={styles.block}>
+          <div className={styles.block} data-testid="message-block">
             <TextBlock p={{ kind: "text", content: message.summary, role: "analysis" }} />
           </div>
         ) : null}

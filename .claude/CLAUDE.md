@@ -69,7 +69,7 @@ The `code` primitive (free-form Python via sandbox) is reserved for non-standard
 
 **Multi-turn data coherence** — `filter_shown_data` tool filters the previous turn's in-memory rows in Python with no DB query. Enables follow-up questions like "de estos, muéstrame solo los que tienen yield > 6%" to operate on already-fetched data. Previous execution results are passed to `run_agent_loop_pipeline` each turn.
 
-**Sandbox** — a separate Railway FastAPI service that executes `code` primitives only. Uses a `ProcessPoolExecutor` with pre-warmed workers so package imports (folium, geopandas, shapely, plotly) are paid once at startup, not per request. All data injected via `df`. On failure, the synthesiser is called again with the error as a correction block (one retry), then falls back to a table.
+**Sandbox** — a separate FastAPI service (`sandbox/`) that executes `code` primitives only. Uses a `ProcessPoolExecutor` with pre-warmed workers so the imports `code` primitives rely on (folium for HTML maps, plotly for figures, geopandas, shapely) are paid once at startup, not per request. All data injected via `df`. On failure, the synthesiser is called again with the error as a correction block (one retry), then falls back to a table.
 
 **Session memory** — single structured object (`SessionMemoryV2`) tracking inferred user preferences, neighborhoods in focus, clarification resolutions, and conversation stage. Updated each turn by gpt-5-mini via structured outputs. Feeds into planner and synthesiser context. There is no parallel rule-based memory system.
 
@@ -96,7 +96,7 @@ tourist_density_pct  median_venta_eur_per_sqm  data_confidence
 
 ## Deployment
 
-Three services plus one PostGIS 17 database, each with its own Dockerfile; `docker-compose.yml` runs the whole stack locally. No hosting config is checked in.
+Three services, each with its own Dockerfile, plus one PostGIS 17 database (stock `postgis/postgis` image); `docker-compose.yml` runs the whole stack locally. No hosting config is checked in.
 
 - **api** — `api/` FastAPI app (`api/Dockerfile`, build from repo root), runs `agent/turn.py` and `agent/intel_data.py`; conversations stored in the `app` schema (`sql/migrate_app_conversations.sql`). Publishes `api/openapi.json`; `web/src/lib/api-types.ts` is generated from it.
 - **sandbox** — `sandbox/` FastAPI service (own Dockerfile, port 8080), executes `code` primitives. The API reaches it via `ROOSTER_SANDBOX_URL` (must include `http://` scheme).

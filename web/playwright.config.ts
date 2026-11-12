@@ -15,7 +15,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 },
   use: {
-    baseURL: `http://localhost:${WEB_PORT}`,
+    baseURL: `http://127.0.0.1:${WEB_PORT}`,
     trace: "retain-on-failure",
     launchOptions: {
       executablePath,
@@ -33,9 +33,21 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: `npx next build && npx next start -p ${WEB_PORT}`,
-      url: `http://localhost:${WEB_PORT}`,
-      env: { ROOSTER_API_URL: `http://localhost:${API_PORT}`, ROOSTER_API_KEY: "test" },
+      // The standalone server (as in web/Dockerfile) needs .next/static and public/ copied next to it.
+      command: [
+        "npx next build",
+        "rm -rf .next/standalone/.next/static .next/standalone/public",
+        "cp -r .next/static .next/standalone/.next/static",
+        "if [ -d public ]; then cp -r public .next/standalone/public; fi",
+        "node .next/standalone/server.js",
+      ].join(" && "),
+      url: `http://127.0.0.1:${WEB_PORT}`,
+      env: {
+        PORT: String(WEB_PORT),
+        HOSTNAME: "127.0.0.1",
+        ROOSTER_API_URL: `http://localhost:${API_PORT}`,
+        ROOSTER_API_KEY: "test",
+      },
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
     },

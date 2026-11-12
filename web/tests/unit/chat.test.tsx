@@ -11,7 +11,7 @@ const chat = vi.hoisted(() => ({
   send: vi.fn<(text: string) => Promise<void>>(async () => {}),
   reset: vi.fn(),
 }));
-vi.mock("@/lib/use-chat", () => ({ useChat: () => chat }));
+vi.mock("@/lib/chat-context", () => ({ useChatContext: () => chat }));
 
 import ChatView from "@/components/chat/ChatView";
 
@@ -41,7 +41,13 @@ function live(over: Partial<LiveTurn> = {}): LiveTurn {
 }
 
 function setState(over: Partial<ChatState>) {
-  chat.state = { conversationId: "c1", messages: [], live: null, notice: null, loading: false, ...over };
+  chat.state = { conversationId: "c1", messages: [], live: null, notice: null, draft: null, loading: false, ...over };
+}
+
+/** Simulates the window scrolling to `y`. */
+function scrollWindowTo(y: number) {
+  Object.defineProperty(window, "scrollY", { configurable: true, value: y });
+  fireEvent.scroll(window);
 }
 
 const input = () => screen.getByPlaceholderText("Pregunta por anuncios, rentabilidades, barrios…");
@@ -194,6 +200,17 @@ describe("ChatView", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Rooster sigue respondiendo a tu mensaje anterior.");
   });
 
+  it("refused_send_text_restored_to_composer", () => {
+    const { rerender } = render(<ChatView />);
+    fireEvent.change(input(), { target: { value: "otra pregunta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(input()).toHaveValue("");
+
+    setState({ notice: "Rooster sigue respondiendo a tu mensaje anterior.", draft: { text: "otra pregunta" } });
+    rerender(<ChatView />);
+    expect(input()).toHaveValue("otra pregunta");
+  });
+
   it("thinking_box_collapses_on_text", () => {
     setState({ live: live({ thoughts: ["Buscando barrios", "Calculando rentabilidad"] }) });
     const { rerender } = render(<ChatView />);
@@ -230,14 +247,14 @@ describe("ChatView", () => {
   });
 
   it("auto_scroll_pauses_when_scrolled_up_and_resumes_on_new_turn", () => {
-    const scroll = vi.fn();
-    Element.prototype.scrollIntoView = scroll;
+    const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, value: 5000 });
     try {
       setState({ messages: [{ role: "user", content: "a" }, assistant({ follow_ups: [] })] });
       const { rerender } = render(<ChatView />);
       expect(scroll).toHaveBeenCalled();
-      fireEvent.scroll(window); // innerHeight + scrollY is far from the bottom
+      scrollWindowTo(3000);
+      scrollWindowTo(1000); // scrolled up, far from the bottom
       scroll.mockClear();
       setState({ messages: [{ role: "user", content: "a" }, assistant({ summary: "más" })] });
       rerender(<ChatView />);
@@ -246,8 +263,51 @@ describe("ChatView", () => {
       rerender(<ChatView />);
       expect(scroll).toHaveBeenCalled();
     } finally {
+      delete (window as unknown as Record<string, unknown>).scrollY;
       delete (document.documentElement as unknown as Record<string, unknown>).scrollHeight;
-      delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+      scroll.mockRestore();
+    }
+  });
+
+  it("growing_content_keeps_following_only_while_at_bottom", () => {
+    const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: () => void) {
+          observers.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const grow = () => observers.forEach((cb) => cb());
+    try {
+      setState({ messages: [{ role: "user", content: "a" }, assistant({ follow_ups: [] })] });
+      render(<ChatView />);
+      expect(observers.length).toBeGreaterThan(0);
+      // A map or plot finishing its layout grows the list: the reader at the bottom stays there.
+      scroll.mockClear();
+      grow();
+      expect(scroll).toHaveBeenCalled();
+
+      // Our own scroll can land short of a bottom that grew meanwhile: still following.
+      Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, value: 5000 });
+      scrollWindowTo(3000);
+      scroll.mockClear();
+      grow();
+      expect(scroll).toHaveBeenCalled();
+
+      scrollWindowTo(1000); // the reader scrolled up
+      scroll.mockClear();
+      grow();
+      expect(scroll).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      delete (window as unknown as Record<string, unknown>).scrollY;
+      delete (document.documentElement as unknown as Record<string, unknown>).scrollHeight;
+      scroll.mockRestore();
     }
   });
 

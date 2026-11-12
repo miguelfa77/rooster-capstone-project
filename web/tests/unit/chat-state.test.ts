@@ -115,9 +115,17 @@ describe("chatReducer", () => {
   });
 
   it("busy_sets_notice_without_message", () => {
-    const s = chatReducer(streaming, { type: "busy" });
+    const s = chatReducer(streaming, { type: "busy", text: "hola" });
     expect(s.notice).toBe(COPY.busy);
+    expect(s.draft).toEqual({ text: "hola" });
     expect(s.live).toBeNull();
     expect(s.messages).toEqual(streaming.messages);
+  });
+
+  it("finished_clears_busy_notice_and_draft", () => {
+    const busy = chatReducer(streaming, { type: "busy", text: "hola" });
+    const s = chatReducer(busy, { type: "finished", messages: [] });
+    expect(s.notice).toBeNull();
+    expect(s.draft).toBeNull();
   });
 });

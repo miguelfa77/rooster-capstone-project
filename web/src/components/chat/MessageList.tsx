@@ -15,6 +15,11 @@ import listStyles from "./MessageList.module.css";
 /** Within this many px of the bottom counts as "following" the conversation. */
 const STICK_PX = 80;
 
+/** The page bottom, so the sticky composer sits below the last message instead of covering it. */
+function scrollToBottom() {
+  window.scrollTo({ top: document.documentElement.scrollHeight });
+}
+
 function UserBubble({ text }: { text: string }) {
   return <div className={listStyles.user}>{text}</div>;
 }
@@ -25,7 +30,7 @@ function LiveTurnView({ live, onFollowUp }: { live: LiveTurn; onFollowUp: (text:
     <div className={styles.assistant}>
       {streaming || live.thoughts.length > 0 ? <ThinkingBox thoughts={live.thoughts} hasText={live.text !== ""} /> : null}
       {live.text ? (
-        <div className={styles.block}>
+        <div className={styles.block} data-testid="message-block">
           <TextBlock p={{ kind: "text", content: live.text, role: "analysis" }} />
         </div>
       ) : null}
@@ -45,17 +50,32 @@ export default function MessageList({
   live: LiveTurn | null;
   onFollowUp: (text: string) => void;
 }) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLElement>(null);
   const followRef = useRef(true);
 
-  // Track whether the reader is at the bottom of the page; scrolling up stops auto-scroll.
+  // Reaching the bottom resumes auto-scroll; only scrolling up stops it. Our own scroll can land
+  // short of a bottom that grew meanwhile (maps, plots), which must not count as leaving it.
   useEffect(() => {
+    let lastY = window.scrollY;
     const onScroll = () => {
-      const doc = document.documentElement;
-      followRef.current = window.innerHeight + window.scrollY >= doc.scrollHeight - STICK_PX;
+      const y = window.scrollY;
+      if (window.innerHeight + y >= document.documentElement.scrollHeight - STICK_PX) followRef.current = true;
+      else if (y < lastY) followRef.current = false;
+      lastY = y;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Maps, plots and the stored turn lay out after render; keep a reader at the bottom there as the list grows.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (followRef.current) scrollToBottom();
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
   }, []);
 
   const prevLiveRef = useRef<LiveTurn | null>(null);
@@ -64,7 +84,7 @@ export default function MessageList({
     prevLiveRef.current = live;
     // A newly started turn always brings the reader back to the bottom.
     if (live?.status === "streaming" && prev?.status !== "streaming") followRef.current = true;
-    if (followRef.current) endRef.current?.scrollIntoView?.({ block: "end" });
+    if (followRef.current) scrollToBottom();
   }, [messages, live]);
 
   // Only the latest assistant message gets clickable pills; a live turn is always the latest.
@@ -79,7 +99,7 @@ export default function MessageList({
   }
 
   return (
-    <section className={listStyles.list} aria-label={COPY.chatMessagesLabel}>
+    <section ref={listRef} className={listStyles.list} aria-label={COPY.chatMessagesLabel}>
       {messages.map((m, i) =>
         m.role === "user" ? (
           <UserBubble key={i} text={m.content} />
@@ -93,7 +113,6 @@ export default function MessageList({
           <LiveTurnView live={live} onFollowUp={onFollowUp} />
         </>
       ) : null}
-      <div ref={endRef} />
     </section>
   );
 }

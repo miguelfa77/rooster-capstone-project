@@ -7,17 +7,24 @@ import styles from "./Composer.module.css";
 const MAX_CHARS = 2000;
 const COUNTER_FROM = 1800;
 
-/** Message input: Enter sends, Shift+Enter inserts a newline. */
+/** Message input: Enter sends, Shift+Enter inserts a newline. A new `draft` (a refused send) refills it. */
 export default function Composer({
   disabled,
+  draft = null,
   onSend,
   onReset,
 }: {
   disabled: boolean;
+  draft?: { text: string } | null;
   onSend: (text: string) => void;
   onReset: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(draft?.text ?? "");
+  const [seenDraft, setSeenDraft] = useState(draft);
+  if (draft !== seenDraft) {
+    setSeenDraft(draft);
+    if (draft) setText(draft.text);
+  }
   const canSend = !disabled && text.trim() !== "";
 
   function submit() {

@@ -77,3 +77,33 @@ test("new_conversation_clears", async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId("chat-empty")).toBeVisible();
 });
+
+test("leaving_mid_turn_keeps_the_answer", async ({ page }) => {
+  // Hold the turn's response until the reader has left the chat, so it finishes while ChatView is unmounted.
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  await page.route(/\/api\/rooster\/conversations\/[^/]+\/messages$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    await released;
+    await route.fulfill({ response, body });
+  });
+  // Marks this document; a full reload would drop it.
+  await page.evaluate(() => ((window as unknown as { __sameDoc: boolean }).__sameDoc = true));
+
+  await sendMessage(page, "todo");
+  await expect(page.getByRole("button", { name: /Pensando…/ })).toBeVisible();
+  await page.getByRole("link", { name: "Inteligencia" }).click();
+  await expect(page).toHaveURL(/\/intel$/);
+  await expect(conversation(page)).toHaveCount(0);
+  release();
+  await expect(page.getByRole("region", { name: /Ranking de oportunidades/ }).locator("tbody tr")).toHaveCount(3);
+
+  await page.getByRole("link", { name: "Pregunta a Rooster" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await waitForTurnEnd(page);
+  await expectEveryKind(page);
+  await expect(blocks(page)).toHaveCount(11);
+  await expect(page.getByRole("status")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __sameDoc?: boolean }).__sameDoc)).toBe(true);
+});

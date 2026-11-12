@@ -2,7 +2,7 @@
 
 # —— Página y pestañas ——
 PAGE_TITLE = "Rooster – Inmobiliario Valencia"
-# Pestaña del navegador (cabecera principal usa CHAT_WORDMARK + CHAT_TAGLINE en app.py)
+# Browser tab title (the page header shows CHAT_WORDMARK + CHAT_TAGLINE)
 PAGE_BROWSER_TITLE = "Rooster · Valencia"
 PAGE_SUBTITLE_INTEL = "Inteligencia"
 PAGE_SUBTITLE_CHAT = "Pregunta a Rooster"
@@ -13,7 +13,7 @@ TAB_CHAT = "Pregunta a Rooster"
 CHAT_WORDMARK = "Rooster"
 CHAT_TAGLINE = "Tu copiloto inmobiliario para Valencia"
 
-# —— Inteligencia · KPI cards (HTML styling en app.py) ——
+# —— Inteligencia · KPI cards ——
 SECTION_LABEL_MERCADO = "Mercado · Valencia"
 SECTION_LABEL_MAPA = "Mapa de Valencia"
 KPI_CARD_LABEL_MEDIAN = "Rentabilidad bruta mediana"
@@ -271,17 +271,6 @@ TIMEOUT_PHASE_HINTS = {
     "done": "Trabajo terminado en el servidor; sube el tiempo máximo si lo ves a menudo.",
     "unknown": "No se pudo identificar el paso en ejecución.",
 }
-
-# —— Analytics aviso ——
-ANALYTICS_SETUP_MD = (
-    "Faltan las vistas **analytics** (`listing_summary`, `neighborhood_metrics`, etc.). "
-    "Hay que ejecutar **dbt** contra la **misma base** a la que apunta el Streamlit (local o Railway).\n\n"
-    "**1.** En `dbt/`, pon en `.env` el mismo `DATABASE_URL` (o `PG*`) que usa la app.\n\n"
-    "**2.** `cd dbt && set -a && source .env && set +a && dbt run`\n\n"
-    "Si compila y falla por columnas antiguas en `core.listings` (enriquecimiento, "
-    "`first_seen_at`/`last_seen_at`), aplica primero la migración SQL desde la raíz del repo:\n\n"
-    "`psql \"$DATABASE_URL\" -f sql/migrate_listing_enrichment.sql`  (o `psql -d rooster -f ...` en local con DB `rooster`)."
-)
 
 # —— Contexto asistente (LLM) ——
 ASSISTANT_EMPTY_SEARCH = "Ninguna fila coincidió con esa búsqueda."

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { COPY } from "@/lib/copy";
 import { formatCell, toNumber } from "@/lib/format";
 import type { TableColumn, TablePayload } from "@/lib/types";
+import { safeHttpUrl } from "@/lib/url";
 import EmptyState from "./EmptyState";
 import styles from "./DataTable.module.css";
 
@@ -95,11 +96,11 @@ export default function DataTable({ p }: { p: TablePayload }) {
               {columns.map((c) => {
                 const value = row[c.field];
                 const text = formatCell(value, c.formatter);
-                const isLink = c.formatter === "link" && value !== null && value !== undefined;
+                const href = c.formatter === "link" ? safeHttpUrl(value) : null;
                 return (
                   <td key={c.field} className={styles[c.alignment]}>
-                    {isLink ? (
-                      <a href={text} target="_blank" rel="noopener noreferrer">
+                    {href ? (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
                         {COPY.popupIdealista}
                       </a>
                     ) : (

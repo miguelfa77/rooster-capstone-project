@@ -2,21 +2,12 @@
 import { formatCell, toNumber } from "@/lib/format";
 import { COPY } from "@/lib/copy";
 import type { TooltipField } from "@/lib/types";
+import { safeHttpUrl } from "@/lib/url";
 
 function formatValue(value: unknown): string {
   const n = typeof value === "number" ? toNumber(value) : null;
   if (n === null) return formatCell(value, "text");
   return formatCell(n, Number.isInteger(n) ? "integer" : "number");
-}
-
-function safeHttpUrl(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch {
-    return null;
-  }
 }
 
 /** One "label: value" line per field; with `linkField`, a safe external link instead of that field's raw text. */

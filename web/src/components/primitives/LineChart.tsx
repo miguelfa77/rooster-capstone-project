@@ -18,6 +18,18 @@ import styles from "./Chart.module.css";
 
 const X = "__x";
 
+/** ISO 8601 date or date-time (YYYY, YYYY-MM, YYYY-MM-DD, optional time); these sort as strings. */
+const ISO_DATE = /^\d{4}(-\d{2}(-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?)?)?$/;
+
+/** Sorts x values that are all numbers or all ISO dates; anything else keeps row order (null). */
+function xOrder(xs: unknown[]): ((a: unknown, b: unknown) => number) | null {
+  if (xs.every((x) => typeof x === "number" && Number.isFinite(x))) return (a, b) => (a as number) - (b as number);
+  if (xs.every((x) => typeof x === "string" && ISO_DATE.test(x))) {
+    return (a, b) => ((a as string) < (b as string) ? -1 : (a as string) > (b as string) ? 1 : 0);
+  }
+  return null;
+}
+
 export default function LineChart({ p }: { p: LinePayload }) {
   const rows = p.data.filter(
     (r) => r[p.x_field] !== null && r[p.x_field] !== undefined && toNumber(r[p.y_field]) !== null,
@@ -25,7 +37,9 @@ export default function LineChart({ p }: { p: LinePayload }) {
   if (rows.length === 0) return <EmptyState />;
 
   // Pivot to one record per x with one key per series, which is what Recharts expects.
-  // Walk rows in their original order so the x axis keeps it even when a series has gaps.
+  // Numeric and ISO-date x values are sorted; other x values keep the order of the rows.
+  const order = xOrder(rows.map((r) => r[p.x_field]));
+  if (order) rows.sort((a, b) => order(a[p.x_field], b[p.x_field]));
   const colorField = p.color_field;
   const seriesOf = (r: (typeof rows)[number]) => (colorField ? String(r[colorField] ?? "—") : p.y_label);
   const series: string[] = [];

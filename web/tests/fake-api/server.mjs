@@ -2,7 +2,8 @@
 // Plain Node `http`, no dependencies. Scripted turns are chosen by the message text:
 //   "todo"  -> one primitive of every kind (repo-root tests/fixtures/primitive_payloads.json,
 //              its `payloads` plus `folium_code`)
-//   "error" -> an error event, then done (nothing stored, as in the real API)
+//   "error" -> an error event, then done, nothing stored: the real API's behavior when a turn
+//              throws (a turn that ends in a graceful fallback is stored like any other)
 //   other   -> a short text turn
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";

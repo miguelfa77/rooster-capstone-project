@@ -121,20 +121,68 @@ describe("useChat", () => {
     expect(result.current.state.live).toBeNull();
   });
 
-  it("409_sets_busy", async () => {
+  it("409_sets_busy_keeps_text_and_polls_until_stored", async () => {
     localStorage.setItem(STORAGE_KEY, "c1");
+    const grown: Message[] = [...storedMessages, { role: "user", content: "x" }, storedMessages[1]];
+    let gets = 0;
     routes({
-      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
+      "GET /api/rooster/conversations/c1": () =>
+        Response.json({ id: "c1", messages: gets++ < 3 ? storedMessages : grown }),
       "POST /api/rooster/conversations/c1/messages": () => Response.json({ detail: "busy" }, { status: 409 }),
     });
 
     const { result } = renderHook(() => useChat());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    await act(() => result.current.send("otra"));
+    vi.useFakeTimers();
+    try {
+      await act(() => result.current.send("otra"));
 
-    expect(result.current.state.notice).toBe(COPY.busy);
-    expect(result.current.state.live).toBeNull();
-    expect(result.current.state.messages).toEqual(storedMessages);
+      expect(result.current.state.notice).toBe(COPY.busy);
+      expect(result.current.state.draft).toEqual({ text: "otra" });
+      expect(result.current.state.live).toBeNull();
+      expect(result.current.state.messages).toEqual(storedMessages);
+      expect(gets).toBe(1);
+
+      // Polls every 3 s; the first two polls see no new turn.
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(gets).toBe(2);
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(gets).toBe(3);
+      expect(result.current.state.notice).toBe(COPY.busy);
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(gets).toBe(4);
+      expect(result.current.state.messages).toEqual(grown);
+      expect(result.current.state.notice).toBeNull();
+
+      // Polling stopped once the turn was stored.
+      await act(() => vi.advanceTimersByTimeAsync(30_000));
+      expect(gets).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("409_poll_gives_up_after_two_minutes", async () => {
+    localStorage.setItem(STORAGE_KEY, "c1");
+    let gets = 0;
+    routes({
+      "GET /api/rooster/conversations/c1": () => {
+        gets++;
+        return Response.json({ id: "c1", messages: storedMessages });
+      },
+      "POST /api/rooster/conversations/c1/messages": () => Response.json({ detail: "busy" }, { status: 409 }),
+    });
+
+    const { result } = renderHook(() => useChat());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    vi.useFakeTimers();
+    try {
+      await act(() => result.current.send("otra"));
+      await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+      expect(gets).toBe(1 + 40);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("error_event_skips_refetch_and_keeps_turn", async () => {

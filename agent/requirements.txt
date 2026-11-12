@@ -1,2 +1,2 @@
-# Single source of truth: repo root requirements.txt (Railway installs that file).
+# Single source of truth: the repo root requirements.txt.
 -r ../requirements.txt

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import TopBar from "@/components/TopBar";
+import { ChatProvider } from "@/lib/chat-context";
 import { COPY } from "@/lib/copy";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
@@ -13,8 +14,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="es">
       <body>
-        <TopBar />
-        <main>{children}</main>
+        <ChatProvider>
+          <TopBar />
+          <main>{children}</main>
+        </ChatProvider>
       </body>
     </html>
   );
