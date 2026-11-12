@@ -41,7 +41,7 @@ afterEach(() => {
 describe("useChat", () => {
   it("restores_history_from_storage", async () => {
     localStorage.setItem(STORAGE_KEY, "c1");
-    const conv: ConversationOut = { id: "c1", messages: storedMessages };
+    const conv: ConversationOut = { id: "c1", title: null, messages: storedMessages };
     routes({ "GET /api/rooster/conversations/c1": () => Response.json(conv) });
 
     const { result } = renderHook(() => useChat());

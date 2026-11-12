@@ -18,7 +18,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/conversations": {
+    "/users": {
         parameters: {
             query?: never;
             header?: never;
@@ -26,6 +26,58 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        /** Put User */
+        put: operations["put_user_users_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["get_me_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Preferences */
+        patch: operations["patch_preferences_me_preferences_patch"];
+        trace?: never;
+    };
+    "/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversations */
+        get: operations["list_conversations_conversations_get"];
         put?: never;
         /** Create Conversation */
         post: operations["create_conversation_conversations_post"];
@@ -46,10 +98,12 @@ export interface paths {
         get: operations["get_conversation_conversations__conversation_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Conversation */
+        delete: operations["delete_conversation_conversations__conversation_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename Conversation */
+        patch: operations["rename_conversation_conversations__conversation_id__patch"];
         trace?: never;
     };
     "/conversations/{conversation_id}/messages": {
@@ -352,8 +406,30 @@ export interface components {
         ConversationOut: {
             /** Id */
             id: string;
+            /** Title */
+            title: string | null;
             /** Messages */
             messages: (components["schemas"]["UserMessage"] | components["schemas"]["AssistantMessage"])[];
+        };
+        /** ConversationRename */
+        ConversationRename: {
+            /** Title */
+            title: string;
+        };
+        /** ConversationSummary */
+        ConversationSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** Fallback */
         Fallback: {
@@ -520,6 +596,18 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /**
+         * Preferences
+         * @description Per-user UI preferences. Unknown keys are rejected; null or missing keys are left unchanged.
+         */
+        Preferences: {
+            /** Theme */
+            theme?: ("light" | "dark" | "system") | null;
+            /** Chat Open */
+            chat_open?: boolean | null;
+            /** Ticker Visible */
+            ticker_visible?: boolean | null;
+        };
         /** RankingRow */
         RankingRow: {
             /** Neighborhood Name */
@@ -662,6 +750,15 @@ export interface components {
             /** Stop Type */
             stop_type?: string | null;
         };
+        /** UserIn */
+        UserIn: {
+            /** Email */
+            email: string;
+            /** Name */
+            name?: string | null;
+            /** Image */
+            image?: string | null;
+        };
         /** UserMessage */
         UserMessage: {
             /**
@@ -671,6 +768,21 @@ export interface components {
             role: "user";
             /** Content */
             content: string;
+        };
+        /** UserOut */
+        UserOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string;
+            /** Name */
+            name: string | null;
+            /** Image */
+            image: string | null;
+            preferences: components["schemas"]["Preferences"];
         };
         /** ValidationError */
         ValidationError: {
@@ -1002,10 +1114,146 @@ export interface operations {
             };
         };
     };
+    put_user_users_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-rooster-key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_me_me_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-rooster-user"?: string | null;
+                "x-rooster-key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_preferences_me_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-rooster-user"?: string | null;
+                "x-rooster-key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_conversations_conversations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-rooster-user"?: string | null;
+                "x-rooster-key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_conversation_conversations_post: {
         parameters: {
             query?: never;
             header?: {
+                "x-rooster-user"?: string | null;
                 "x-rooster-key"?: string | null;
             };
             path?: never;
@@ -1039,6 +1287,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-rooster-user"?: string | null;
                 "x-rooster-key"?: string | null;
             };
             path: {
@@ -1068,10 +1317,81 @@ export interface operations {
             };
         };
     };
+    delete_conversation_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-rooster-user"?: string | null;
+                "x-rooster-key"?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_conversation_conversations__conversation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-rooster-user"?: string | null;
+                "x-rooster-key"?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     post_message_conversations__conversation_id__messages_post: {
         parameters: {
             query?: never;
             header?: {
+                "x-rooster-user"?: string | null;
                 "x-rooster-key"?: string | null;
             };
             path: {

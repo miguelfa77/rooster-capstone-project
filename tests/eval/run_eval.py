@@ -89,9 +89,14 @@ def run_all(questions: list[dict]) -> list[dict]:
     return entries
 
 
+EVAL_USER_EMAIL = "eval@rooster.local"
+
+
 def run_all_via_api(questions: list[dict], client, api_key: str) -> list[dict]:
-    """Run questions through the HTTP API. `client` is an httpx.Client (base URL set)."""
+    """Run questions through the HTTP API as the eval user. `client` is an httpx.Client (base URL set)."""
     headers = {"X-Rooster-Key": api_key}
+    user = client.put("/users", json={"email": EVAL_USER_EMAIL, "name": "Eval"}, headers=headers)
+    headers["X-Rooster-User"] = user.raise_for_status().json()["id"]
     conversations: dict[str, str] = {}
     entries: list[dict] = []
     for q in questions:

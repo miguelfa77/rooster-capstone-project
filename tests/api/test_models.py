@@ -1,5 +1,4 @@
 import json
-import uuid
 from dataclasses import replace
 from pathlib import Path
 
@@ -7,7 +6,7 @@ from pydantic import TypeAdapter
 
 from agent.turn import TurnState
 from api.models import PrimitivePayload
-from tests.api.test_main import AUTH, client, store  # noqa: F401  (fixtures)
+from tests.api.test_main import AUTH, USER_ID, client, store  # noqa: F401  (fixtures)
 
 FIXTURE = json.loads((Path(__file__).parents[1] / "fixtures" / "primitive_payloads.json").read_text(encoding="utf-8"))
 PAYLOAD = TypeAdapter(PrimitivePayload)
@@ -27,7 +26,7 @@ def test_payload_ignores_extra_keys():
 
 
 def test_get_conversation_filters_internal_fields(client, store):  # noqa: F811
-    cid = uuid.uuid4()
+    cid = store.create(USER_ID)
     bar = next(p for p in FIXTURE["payloads"] if p["kind"] == "bar")
     assistant = {
         "role": "assistant",
@@ -70,7 +69,7 @@ def test_text_kpi_table_payloads_ignore_extra_keys():
 
 
 def test_get_conversation_tolerates_extra_key_on_text_block(client, store):  # noqa: F811
-    cid = uuid.uuid4()
+    cid = store.create(USER_ID)
     assistant = {"role": "assistant", "blocks": [{"kind": "text", "content": "Hola", "extra": 1}]}
     store.states[cid] = replace(TurnState.new(), messages=[{"role": "user", "content": "hola"}, assistant])
     r = client.get(f"/conversations/{cid}", headers=AUTH)

@@ -80,7 +80,7 @@ Run each long-running command in its own terminal.
 
 The app reads `analytics.*` views and the API stores conversations in the `app` schema. On a fresh database:
 
-1. Apply the SQL in **SQL apply order** below (includes `sql/migrate_app_conversations.sql` for the API).
+1. Apply the SQL in **SQL apply order** below (includes `sql/migrate_app_conversations.sql` then `sql/migrate_app_users.sql` for the API).
 2. Load data: `python -m pipeline.raw.load_barrios_raw`, `python -m pipeline.core.run_all`, then the open-data loaders in `pipeline/open_data/` (transit, tourist apartments) — or restore an existing dump.
 3. Build the analytics views: `cd dbt && dbt run` (see **dbt** below).
 
@@ -96,7 +96,7 @@ Run scripts against your `rooster` (or equivalent) database in dependency order,
 
 1. `sql/bootstrap_rooster.sql`
 2. `sql/core_tables.sql`
-3. Migrations as needed (`sql/migrate_*.sql`; the API needs `sql/migrate_app_conversations.sql`, which creates the `app` schema)
+3. Migrations as needed (`sql/migrate_*.sql`; the API needs `sql/migrate_app_conversations.sql`, which creates the `app` schema, then `sql/migrate_app_users.sql`, which adds users and makes conversations user-owned — it deletes existing conversations that have no owner)
 4. Spatial / enrichment SQL as needed (e.g. `sql/match_listings_neighborhood_spatial.sql`, `sql/enrich_listings_refresh.sql`)
 5. `sql/open_data_tables.sql` (transit + tourist apartments DDL and `nearest_stop_m` refresh)
 6. **`dbt run`** from `dbt/` — builds all **`analytics.*`** views (see the **dbt** section below). Run `dbt test` optionally.
