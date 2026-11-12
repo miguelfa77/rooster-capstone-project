@@ -198,6 +198,20 @@ def test_turn_limit_zero_disables(client, monkeypatch):
     assert all(_post(client, cid).status_code == 200 for _ in range(40))
 
 
+@pytest.mark.parametrize("raw", ["abc", "30.5", " "])
+def test_invalid_turn_limit_falls_back_to_30(client, monkeypatch, raw):
+    monkeypatch.setenv("ROOSTER_MAX_TURNS_PER_MINUTE", raw)
+    cid = _create(client)
+    assert all(_post(client, cid).status_code == 200 for _ in range(30))
+    assert _post(client, cid).status_code == 429
+
+
+def test_negative_turn_limit_disables(client, monkeypatch):
+    monkeypatch.setenv("ROOSTER_MAX_TURNS_PER_MINUTE", "-1")
+    cid = _create(client)
+    assert all(_post(client, cid).status_code == 200 for _ in range(40))
+
+
 def test_lock_released_after_turn(client, store):
     cid = _create(client)
     client.post(f"/conversations/{cid}/messages", json={"text": "uno"}, headers=AUTH)

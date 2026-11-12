@@ -7,6 +7,7 @@ never directly by a browser, so every route except /health requires X-Rooster-Ke
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 import threading
 import time
@@ -39,7 +40,10 @@ from api.models import (
 from api.sse import stream_turn, to_json
 from api.store import ConversationBusy, ConversationStore
 
+log = logging.getLogger(__name__)
+
 TURN_TIMEOUT_SEC = 60.0
+DEFAULT_MAX_TURNS_PER_MINUTE = 30
 LIVE_SCHEMA_TTL_SEC = 300
 
 app = FastAPI(title="Rooster API", version="3.0.0")
@@ -88,12 +92,28 @@ def get_turn_context() -> TurnContext:
 
 _turn_starts: deque[float] = deque()
 _turn_starts_lock = threading.Lock()
+_warned_bad_turn_limit = False
+
+
+def _max_turns_per_minute() -> int:
+    """ROOSTER_MAX_TURNS_PER_MINUTE as an int; unset or invalid → 30 (invalid warns once), negative → 0 (off)."""
+    global _warned_bad_turn_limit
+    raw = os.getenv("ROOSTER_MAX_TURNS_PER_MINUTE")
+    if not raw:
+        return DEFAULT_MAX_TURNS_PER_MINUTE
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        if not _warned_bad_turn_limit:
+            _warned_bad_turn_limit = True
+            log.warning("Invalid ROOSTER_MAX_TURNS_PER_MINUTE=%r; using %d", raw, DEFAULT_MAX_TURNS_PER_MINUTE)
+        return DEFAULT_MAX_TURNS_PER_MINUTE
 
 
 def _turn_allowed() -> bool:
-    """Record a turn start unless ROOSTER_MAX_TURNS_PER_MINUTE (default 30, 0 = off) already started in 60 s."""
-    cap = int(os.getenv("ROOSTER_MAX_TURNS_PER_MINUTE") or 30)
-    if cap <= 0:
+    """Record a turn start unless the per-minute cap (0 = off) is already reached in the last 60 s."""
+    cap = _max_turns_per_minute()
+    if cap == 0:
         return True
     now = time.monotonic()
     with _turn_starts_lock:
