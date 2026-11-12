@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { formatCell, toNumber } from "@/lib/format";
 
-const es = (opts: Intl.NumberFormatOptions, v: number) => new Intl.NumberFormat("es-ES", opts).format(v);
+// Same configuration as format.ts: es-ES with grouping forced on (v2 parity, "1.235 €").
+const es = (opts: Intl.NumberFormatOptions, v: number) =>
+  new Intl.NumberFormat("es-ES", { useGrouping: "always", ...opts }).format(v);
 
 describe("formatCell", () => {
   it("currency_rounds_to_whole_euros", () => {
@@ -10,7 +12,8 @@ describe("formatCell", () => {
       1235,
     );
     expect(formatCell(1234.5, "currency")).toBe(expected);
-    expect(expected.replace(/\s/g, " ")).toBe("1235 €");
+    expect(expected).toContain("1.235");
+    expect(expected.replace(/\s/g, " ")).toBe("1.235 €");
   });
 
   it("currency_groups_five_digit_numbers", () => {
@@ -25,6 +28,8 @@ describe("formatCell", () => {
 
   it("integer_and_number", () => {
     expect(formatCell(12345.6, "integer")).toBe(es({ maximumFractionDigits: 0 }, 12345.6));
+    expect(formatCell(1234, "integer")).toBe("1.234");
+    expect(formatCell(1234.5, "number")).toBe("1.234,50");
     expect(formatCell(3.14159, "number")).toBe("3,14");
     expect(formatCell("2.5", "number")).toBe("2,50");
   });

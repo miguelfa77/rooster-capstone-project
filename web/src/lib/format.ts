@@ -1,18 +1,21 @@
 import type { TableColumn } from "./types";
 
 const LOCALE = "es-ES";
+// es-ES leaves 4-digit numbers ungrouped by default; force grouping for parity with v2 ("1.235 €").
+const GROUPING = { useGrouping: "always" } as const;
 const DASH = "—";
 
 const CURRENCY = new Intl.NumberFormat(LOCALE, {
+  ...GROUPING,
   style: "currency",
   currency: "EUR",
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
 });
 const PERCENT = new Intl.NumberFormat(LOCALE, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const INTEGER = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
-const NUMBER = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const COMPACT = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 });
+const INTEGER = new Intl.NumberFormat(LOCALE, { ...GROUPING, maximumFractionDigits: 0 });
+const NUMBER = new Intl.NumberFormat(LOCALE, { ...GROUPING, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const COMPACT = new Intl.NumberFormat(LOCALE, { ...GROUPING, maximumFractionDigits: 2 });
 
 /** Finite number, or numeric string coerced to one; anything else is null. */
 export function toNumber(value: unknown): number | null {

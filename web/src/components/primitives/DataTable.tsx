@@ -19,10 +19,13 @@ function parseRows(json: string): Row[] {
   }
 }
 
+/** Numbers (numerically) before strings (Spanish collation); a total order for mixed columns. */
 function compare(a: unknown, b: unknown): number {
   const na = toNumber(a);
   const nb = toNumber(b);
   if (na !== null && nb !== null) return na - nb;
+  if (na !== null) return -1;
+  if (nb !== null) return 1;
   return String(a).localeCompare(String(b), "es");
 }
 

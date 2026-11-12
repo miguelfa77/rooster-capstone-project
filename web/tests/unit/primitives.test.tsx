@@ -114,6 +114,24 @@ describe("Primitive", () => {
     expect(names()).toEqual(["B", "C", "A"]);
   });
 
+  it("table_sorts_numbers_before_strings_in_mixed_columns", () => {
+    const p = {
+      kind: "table",
+      rows_json: JSON.stringify([{ v: "abc" }, { v: 10 }, { v: "(n/d)" }, { v: "9" }, { v: "Ábaco" }]),
+      columns: [{ field: "v", header: "Valor", formatter: "text", alignment: "left", width_hint: "medium" }],
+    } as PrimitivePayload;
+    render(<Primitive p={p} />);
+    const cells = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((r) => within(r).getAllByRole("cell")[0].textContent);
+    fireEvent.click(screen.getByRole("button", { name: /Valor/ }));
+    expect(cells()).toEqual(["9", "10", "(n/d)", "Ábaco", "abc"]);
+    fireEvent.click(screen.getByRole("button", { name: /Valor/ }));
+    expect(cells()).toEqual(["abc", "Ábaco", "(n/d)", "10", "9"]);
+  });
+
   it("table_link_column_opens_in_new_tab", () => {
     const p = {
       kind: "table",
@@ -164,6 +182,23 @@ describe("Primitive", () => {
     expect(container.querySelectorAll(".recharts-line")).toHaveLength(2);
   });
 
+  it("line_x_axis_keeps_chronological_order_across_series_with_gaps", () => {
+    const p = {
+      ...payload("line"),
+      color_field: "op",
+      data: [
+        { month: "2026-07", median_alquiler_price: 1, op: "a" },
+        { month: "2026-08", median_alquiler_price: 2, op: "b" },
+        { month: "2026-09", median_alquiler_price: 3, op: "a" },
+      ],
+    };
+    const { container } = render(<Primitive p={p} />);
+    const ticks = [
+      ...container.querySelectorAll(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value"),
+    ].map((t) => t.textContent);
+    expect(ticks).toEqual(["2026-07", "2026-08", "2026-09"]);
+  });
+
   it.each(["bar", "scatter", "line"] as const)("empty_data_shows_empty_state (%s)", (kind) => {
     const { unmount } = render(<Primitive p={{ ...payload(kind), data: [] }} />);
     expect(screen.getByText("Sin datos para este gráfico.")).toBeInTheDocument();
@@ -209,6 +244,15 @@ describe("Primitive", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { container } = render(<Primitive p={{ kind: "hologram" } as unknown as PrimitivePayload} />);
     expect(container).toBeEmptyDOMElement();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("unknown_kind_warns_once_per_mount_across_rerenders", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const p = { kind: "hologram" } as unknown as PrimitivePayload;
+    const { rerender } = render(<Primitive p={p} />);
+    rerender(<Primitive p={{ ...p }} />);
+    rerender(<Primitive p={{ ...p }} />);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });

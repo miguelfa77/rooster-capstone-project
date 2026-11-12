@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { formatNumber, toNumber } from "@/lib/format";
 import type { LinePayload } from "@/lib/types";
-import { AXIS, GRID, LEGEND, TOOLTIP, groupBy, seriesColor } from "./chartTheme";
+import { AXIS, GRID, LEGEND, TOOLTIP, seriesColor } from "./chartTheme";
 import EmptyState from "./EmptyState";
 import styles from "./Chart.module.css";
 
@@ -25,16 +25,18 @@ export default function LineChart({ p }: { p: LinePayload }) {
   if (rows.length === 0) return <EmptyState />;
 
   // Pivot to one record per x with one key per series, which is what Recharts expects.
+  // Walk rows in their original order so the x axis keeps it even when a series has gaps.
   const colorField = p.color_field;
-  const groups: [string, typeof rows][] = colorField ? groupBy(rows, (r) => r[colorField]) : [[p.y_label, rows]];
+  const seriesOf = (r: (typeof rows)[number]) => (colorField ? String(r[colorField] ?? "—") : p.y_label);
+  const series: string[] = [];
   const byX = new Map<string, Record<string, unknown>>();
-  for (const [name, list] of groups) {
-    for (const r of list) {
-      const x = String(r[p.x_field]);
-      const rec = byX.get(x) ?? { [X]: x };
-      rec[name] = toNumber(r[p.y_field]);
-      byX.set(x, rec);
-    }
+  for (const r of rows) {
+    const name = seriesOf(r);
+    if (!series.includes(name)) series.push(name);
+    const x = String(r[p.x_field]);
+    const rec = byX.get(x) ?? { [X]: x };
+    rec[name] = toNumber(r[p.y_field]);
+    byX.set(x, rec);
   }
   const data = [...byX.values()];
 
@@ -46,8 +48,8 @@ export default function LineChart({ p }: { p: LinePayload }) {
           <XAxis dataKey={X} {...AXIS} />
           <YAxis {...AXIS} tickFormatter={formatNumber} domain={["auto", "auto"]} />
           <Tooltip {...TOOLTIP} cursor={{ stroke: AXIS.stroke }} formatter={(v) => formatNumber(v)} />
-          {groups.length > 1 ? <Legend {...LEGEND} verticalAlign="top" /> : null}
-          {groups.map(([name], i) => (
+          {series.length > 1 ? <Legend {...LEGEND} verticalAlign="top" /> : null}
+          {series.map((name, i) => (
             <Line
               key={name}
               type="monotone"
