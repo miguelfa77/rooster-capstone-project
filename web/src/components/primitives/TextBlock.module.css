@@ -1,0 +1,43 @@
+.text {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.text > :first-child {
+  margin-top: 0;
+}
+
+.text > :last-child {
+  margin-bottom: 0;
+}
+
+.text a {
+  color: var(--accent);
+}
+
+.text table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.text th,
+.text td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+}
+
+.lead {
+  font-size: 1.05rem;
+}
+
+.caveat {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.recommendation {
+  padding-left: 12px;
+  border-left: 3px solid var(--accent);
+}

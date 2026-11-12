@@ -1,0 +1,35 @@
+.card {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  max-width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.unit {
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.delta {
+  color: var(--accent);
+  font-size: 0.85rem;
+}

@@ -22,6 +22,8 @@ export const COPY = {
   noRowsTable: "No hay filas que mostrar.",
   mapLoadError: "No se pudo cargar el mapa.",
   popupIdealista: "Ver en Idealista →",
+  codeMapTitle: "Mapa generado por Rooster",
+  codeChartError: "No se pudo mostrar este gráfico.",
   popupVenta: "Venta",
   popupAlquiler: "Alquiler",
   tooltipNeighborhood: "Barrio",

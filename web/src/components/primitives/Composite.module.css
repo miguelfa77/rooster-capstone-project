@@ -1,0 +1,11 @@
+.composite {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.1rem;
+}
