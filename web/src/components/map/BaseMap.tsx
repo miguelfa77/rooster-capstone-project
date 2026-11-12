@@ -1,6 +1,7 @@
 "use client";
 
 import { Map as MapLibreMap, NavigationControl, type StyleSpecification } from "maplibre-gl";
+import { useTheme } from "next-themes";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import EmptyState from "@/components/primitives/EmptyState";
 import { COPY } from "@/lib/copy";
@@ -9,18 +10,27 @@ import styles from "./Map.module.css";
 export const VALENCIA_CENTER: [number, number] = [-0.3763, 39.4699];
 export const VALENCIA_ZOOM = 12;
 
-const BASEMAP: StyleSpecification = {
-  version: 8,
-  sources: {
-    carto: {
-      type: "raster",
-      tiles: ["a", "b", "c", "d"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png`),
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors © CARTO",
+type Mode = "light" | "dark";
+
+function basemap(mode: Mode): StyleSpecification {
+  return {
+    version: 8,
+    sources: {
+      carto: {
+        type: "raster",
+        tiles: ["a", "b", "c", "d"].map((s) => `https://${s}.basemaps.cartocdn.com/${mode}_all/{z}/{x}/{y}.png`),
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors © CARTO",
+      },
     },
-  },
-  layers: [{ id: "carto", type: "raster", source: "carto" }],
-};
+    layers: [{ id: "carto", type: "raster", source: "carto" }],
+  };
+}
+
+/** A theme token's current value; MapLibre paint properties cannot use CSS variables. */
+export function tokenColor(name: string, fallback = "gray"): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
 
 type Props = {
   /** Called once the basemap style has loaded; add sources, layers and handlers here. */
@@ -30,8 +40,12 @@ type Props = {
   children?: ReactNode;
 };
 
-/** A MapLibre map on the CARTO dark basemap, centered on Valencia. */
+/**
+ * A MapLibre map on the CARTO basemap matching the theme, centered on Valencia. Switching
+ * theme recreates the map, so onLoad re-adds overlays with the new theme's token colors.
+ */
 export default function BaseMap({ onLoad, height = 420, children }: Props) {
+  const mode: Mode = useTheme().resolvedTheme === "dark" ? "dark" : "light";
   const container = useRef<HTMLDivElement>(null);
   const onLoadRef = useRef(onLoad);
   const [failed, setFailed] = useState(false);
@@ -46,7 +60,7 @@ export default function BaseMap({ onLoad, height = 420, children }: Props) {
     try {
       map = new MapLibreMap({
         container: container.current,
-        style: BASEMAP,
+        style: basemap(mode),
         center: VALENCIA_CENTER,
         zoom: VALENCIA_ZOOM,
         attributionControl: { compact: true },
@@ -61,7 +75,7 @@ export default function BaseMap({ onLoad, height = 420, children }: Props) {
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     map.on("load", () => onLoadRef.current?.(map));
     return () => map.remove();
-  }, []);
+  }, [mode]);
 
   if (failed) return <EmptyState message={COPY.mapLoadError} />;
   return (

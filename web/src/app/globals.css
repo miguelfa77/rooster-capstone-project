@@ -7,6 +7,9 @@
  * Theme tokens. Light (default) from the `.L` palette and dark from the `.B`
  * palette of docs/design/v4-mockups/ticker.html.
  *
+ * Categorical colors (transit/listing/VUT) are tuned per mode to stay >= 3:1 on --card
+ * as chart series; text-like tokens are >= 4.5:1 on their surfaces (theme.test.tsx).
+ *
  * Name collisions with the legacy variables read by components/{primitives,map,intel}:
  * `--muted` and `--accent` keep their legacy meaning (muted text, Rooster red), so
  * shadcn's muted/accent *surfaces* live in `--muted-surface` / `--accent-surface`
@@ -23,6 +26,8 @@
   --popover-foreground: #16181d;
   --primary: #e5484d;
   --primary-foreground: #ffffff;
+  /* Filled buttons/badges with white text (#e5484d is under 4.5:1 with white). */
+  --primary-solid: #cd2b31;
   --secondary: #f1f2f4;
   --secondary-foreground: #16181d;
   --muted-surface: #f1f2f4;
@@ -33,7 +38,7 @@
   --border: #e6e7ea;
   --input: #dfe1e5;
   --ring: #e5484d;
-  --placeholder: #8a919c;
+  --placeholder: #6b727e;
 
   --up: #18794e;
   --down: #cd2b31;
@@ -43,13 +48,14 @@
   --bg: var(--background);
   --text: var(--foreground);
   --muted: var(--muted-foreground);
-  --accent: var(--primary);
+  /* Legacy accent is used as text: the darker red keeps it >= 4.5:1 on light surfaces. */
+  --accent: #cd2b31;
   --transit-metro: #534ab7;
   --transit-bus: #1d9e75;
   --transit-other: #888780;
   --listing-venta: #e95d4f;
-  --listing-alquiler: #48a9da;
-  --vut: #ef9f27;
+  --listing-alquiler: #2b9bd4;
+  --vut: #cc810f;
 
   color-scheme: light;
 }
@@ -63,6 +69,7 @@
   --popover-foreground: #e6e8eb;
   --primary: #e5484d;
   --primary-foreground: #ffffff;
+  --primary-solid: #cd2b31;
   --secondary: #1a1f26;
   --secondary-foreground: #e6e8eb;
   --muted-surface: #1a1f26;
@@ -73,7 +80,7 @@
   --border: #1d2229;
   --input: #2a313b;
   --ring: #e5484d;
-  --placeholder: #6b7480;
+  --placeholder: #7d8692;
 
   --up: #3dd68c;
   --down: #ff6369;
@@ -83,7 +90,7 @@
   --text: var(--foreground);
   --muted: var(--muted-foreground);
   --accent: var(--primary);
-  --transit-metro: #534ab7;
+  --transit-metro: #6159bd;
   --transit-bus: #1d9e75;
   --transit-other: #888780;
   --listing-venta: #e95d4f;
@@ -110,6 +117,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-solid: var(--primary-solid);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted-surface);

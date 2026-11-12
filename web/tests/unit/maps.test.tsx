@@ -80,6 +80,15 @@ const fake = vi.hoisted(() => {
   return { state, FakeMap, FakePopup, FakeControl };
 });
 
+// The resolved theme next-themes reports to the maps.
+const theme = vi.hoisted(() => ({ resolved: "light" as string | undefined }));
+vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: theme.resolved }) }));
+
+/** Stand-in for the token values globals.css would provide. */
+function setTokens(tokens: Record<string, string>) {
+  for (const [name, value] of Object.entries(tokens)) document.documentElement.style.setProperty(name, value);
+}
+
 vi.mock("maplibre-gl", () => ({
   Map: fake.FakeMap,
   Popup: fake.FakePopup,
@@ -107,6 +116,8 @@ function lastMap() {
 }
 
 afterEach(() => {
+  theme.resolved = "light";
+  document.documentElement.removeAttribute("style");
   fake.state.instances.length = 0;
   fake.state.popups.length = 0;
   fake.state.throwOnCreate = false;
@@ -114,18 +125,49 @@ afterEach(() => {
 });
 
 describe("maps", () => {
-  it("base_map_uses_carto_dark_basemap_centered_on_valencia", () => {
+  it("base_map_uses_carto_light_basemap_centered_on_valencia", () => {
     const onLoad = vi.fn();
     render(<BaseMap onLoad={onLoad} height={300} />);
     const m = lastMap();
     expect(m.options.center).toEqual([-0.3763, 39.4699]);
     expect(m.options.zoom).toBe(12);
     const style = JSON.stringify(m.options.style);
-    expect(style).toContain("https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png");
-    expect(style).toContain("https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png");
+    expect(style).toContain("https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png");
+    expect(style).toContain("https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png");
+    expect(style).not.toContain("dark_all");
     expect(style).toContain("© OpenStreetMap contributors © CARTO");
     expect(m.controls).toHaveLength(1);
     expect(onLoad).toHaveBeenCalledWith(m);
+  });
+
+  it("base_map_uses_carto_dark_basemap_in_dark_mode", () => {
+    theme.resolved = "dark";
+    render(<BaseMap />);
+    const style = JSON.stringify(lastMap().options.style);
+    expect(style).toContain("https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png");
+    expect(style).not.toContain("light_all");
+  });
+
+  it("base_map_follows_theme_switch", () => {
+    const onLoad = vi.fn();
+    const { rerender } = render(<BaseMap onLoad={onLoad} />);
+    const light = lastMap();
+    theme.resolved = "dark";
+    rerender(<BaseMap onLoad={onLoad} />);
+    const dark = lastMap();
+    expect(dark).not.toBe(light);
+    expect(light.remove).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(dark.options.style)).toContain("dark_all");
+    // Overlays are re-added on the new map, so they pick up the new theme's tokens.
+    expect(onLoad).toHaveBeenLastCalledWith(dark);
+  });
+
+  it("choropleth_outline_and_no_data_colors_come_from_tokens", () => {
+    setTokens({ "--muted-foreground": "#123456", "--muted-surface": "#abcdef" });
+    render(<ChoroplethMap p={payload("choropleth")} />);
+    const m = lastMap();
+    expect(m.layers.find((l) => l.type === "line")?.paint?.["line-color"]).toBe("#123456");
+    expect(JSON.stringify(m.layers.find((l) => l.type === "fill")?.paint?.["fill-color"])).toContain("#abcdef");
   });
 
   it("choropleth_adds_fill_layer_with_metric", () => {
@@ -135,8 +177,7 @@ describe("maps", () => {
     const fill = m.layers.find((l) => l.type === "fill");
     expect(fill).toBeDefined();
     expect(JSON.stringify(fill?.paint?.["fill-color"])).toContain(p.metric);
-    const line = m.layers.find((l) => l.type === "line");
-    expect(line?.paint?.["line-color"]).toBe("#333");
+    expect(m.layers.find((l) => l.type === "line")).toBeDefined();
     expect(m.fitBounds).toHaveBeenCalledTimes(1);
     expect(screen.getByText(p.metric_label)).toBeInTheDocument();
   });
@@ -188,11 +229,13 @@ describe("maps", () => {
     expect(m.fitBounds).toHaveBeenCalledTimes(1);
   });
 
-  it("point_map_without_color_field_uses_accent", () => {
+  it("point_map_without_color_field_uses_primary_token", () => {
+    setTokens({ "--primary": "#e5484d", "--card": "#fafafa" });
     const p: PointMapPayload = { ...payload("point_map"), color_field: null };
     render(<PointMap p={p} />);
     const circle = lastMap().layers.find((l) => l.type === "circle");
-    expect(circle?.paint?.["circle-color"]).toBe("#e03030");
+    expect(circle?.paint?.["circle-color"]).toBe("#e5484d");
+    expect(circle?.paint?.["circle-stroke-color"]).toBe("#fafafa");
   });
 
   it("point_popup_escapes_values_and_links_safely", () => {
