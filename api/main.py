@@ -37,6 +37,7 @@ from api.models import (
     NeighborhoodsOut,
     Preferences,
     RankingRow,
+    StoredPreferences,
     TourismRow,
     TransitRow,
     UserIn,
@@ -165,7 +166,7 @@ def get_me(user_id: uuid.UUID = Depends(require_user), store: ConversationStore 
     return store.get_user(user_id)
 
 
-@app.patch("/me/preferences", response_model=Preferences, response_model_exclude_unset=True)
+@app.patch("/me/preferences", response_model=StoredPreferences, response_model_exclude_unset=True)
 def patch_preferences(
     body: Preferences, user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)
 ) -> dict:
@@ -204,10 +205,10 @@ def rename_conversation(
     user_id: uuid.UUID = Depends(require_user),
     store: ConversationStore = Depends(get_store),
 ) -> dict:
-    cid = _parse_id(conversation_id)
-    if not store.rename(cid, user_id, body.title):
+    renamed = store.rename(_parse_id(conversation_id), user_id, body.title)
+    if renamed is None:
         raise HTTPException(status_code=404, detail="not found")
-    return store.summary(cid, user_id)
+    return renamed
 
 
 @app.delete("/conversations/{conversation_id}", status_code=204)

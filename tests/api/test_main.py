@@ -33,6 +33,7 @@ class FakeStore:
         self.states: dict[uuid.UUID, TurnState] = {}
         self.meta: dict[uuid.UUID, dict] = {}  # cid -> {user_id, title, updated_at}
         self.busy: set[uuid.UUID] = set()
+        self.locks_taken: list[uuid.UUID] = []
         self.turn_starts = 0  # one fixed window; minute rollover is covered in test_store.py
         self._clock = itertools.count(1)
 
@@ -91,9 +92,9 @@ class FakeStore:
 
     def rename(self, cid, user_id, title):
         if not self._owned(cid, user_id):
-            return False
+            return None
         self.meta[cid].update(title=title, updated_at=self._now())
-        return True
+        return self.summary(cid, user_id)
 
     def delete(self, cid, user_id):
         if not self._owned(cid, user_id):
@@ -107,6 +108,7 @@ class FakeStore:
 
         if cid in self.busy:
             raise ConversationBusy(str(cid))
+        self.locks_taken.append(cid)
         self.busy.add(cid)
         try:
             yield

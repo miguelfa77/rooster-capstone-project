@@ -100,13 +100,14 @@ def test_conversations_listed_newest_first_only_mine(client):
     assert {"id", "title", "updated_at"} == set(listed[0])
 
 
-def test_other_users_conversation_is_404(client):
+def test_other_users_conversation_is_404(client, store):
     cid = _create(client)
     other = _other_user(client)
     assert client.get(f"/conversations/{cid}", headers=other).status_code == 404
     assert client.patch(f"/conversations/{cid}", json={"title": "mío"}, headers=other).status_code == 404
     assert client.delete(f"/conversations/{cid}", headers=other).status_code == 404
     assert _say(client, cid, "hola", other).status_code == 404
+    assert store.turn_starts == 0 and store.locks_taken == []
     assert client.get(f"/conversations/{cid}", headers=AUTH).status_code == 200
 
 
@@ -136,7 +137,23 @@ def test_title_set_from_first_message_60_chars(client):
     _say(client, cid, long)
     _say(client, cid, "otra pregunta")
     title = client.get(f"/conversations/{cid}", headers=AUTH).json()["title"]
-    assert title == " ".join(long.split())[:60] and len(title) == 60
+    assert title == "¿Cuál es el barrio con mejor rentabilidad bruta de Valencia"  # 60-char cut, right-trimmed
+
+
+def test_stored_unknown_preference_key_is_ignored_on_output(client, store):
+    store.users[USER_ID]["preferences"] = {"theme": "dark", "legacy_flag": 1}
+    assert client.get("/me", headers=AUTH).json()["preferences"] == {"theme": "dark"}
+    r = client.put("/users", json={"email": "ana@example.com", "name": "Ana"}, headers=KEY_ONLY)
+    assert r.status_code == 200 and r.json()["preferences"] == {"theme": "dark"}
+    r = client.patch("/me/preferences", json={"chat_open": True}, headers=AUTH)
+    assert r.status_code == 200 and r.json() == {"theme": "dark", "chat_open": True}
+
+
+def test_conversation_title_has_no_trailing_space():
+    from api.store import conversation_title
+
+    text = "a" * 59 + " bcd"  # the 60-char cut ends on the space
+    assert conversation_title([{"role": "user", "content": text}]) == "a" * 59
 
 
 def test_conversation_title(client):

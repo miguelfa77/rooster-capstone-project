@@ -598,7 +598,7 @@ export interface components {
         };
         /**
          * Preferences
-         * @description Per-user UI preferences. Unknown keys are rejected; null or missing keys are left unchanged.
+         * @description PATCH /me/preferences body. Unknown keys are rejected; null or missing keys are left unchanged.
          */
         Preferences: {
             /** Theme */
@@ -663,6 +663,18 @@ export interface components {
             data: {
                 [key: string]: unknown;
             }[];
+        };
+        /**
+         * StoredPreferences
+         * @description Preferences as returned: stray stored keys are dropped instead of failing the response.
+         */
+        StoredPreferences: {
+            /** Theme */
+            theme?: ("light" | "dark" | "system") | null;
+            /** Chat Open */
+            chat_open?: boolean | null;
+            /** Ticker Visible */
+            ticker_visible?: boolean | null;
         };
         /** TableColumn */
         TableColumn: {
@@ -782,7 +794,7 @@ export interface components {
             name: string | null;
             /** Image */
             image: string | null;
-            preferences: components["schemas"]["Preferences"];
+            preferences: components["schemas"]["StoredPreferences"];
         };
         /** ValidationError */
         ValidationError: {
@@ -1203,7 +1215,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Preferences"];
+                    "application/json": components["schemas"]["StoredPreferences"];
                 };
             };
             /** @description Validation Error */

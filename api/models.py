@@ -173,12 +173,18 @@ class ConversationRename(BaseModel):
 
 
 class Preferences(BaseModel):
-    """Per-user UI preferences. Unknown keys are rejected; null or missing keys are left unchanged."""
+    """PATCH /me/preferences body. Unknown keys are rejected; null or missing keys are left unchanged."""
 
     model_config = ConfigDict(extra="forbid")
     theme: Literal["light", "dark", "system"] | None = None
     chat_open: bool | None = None
     ticker_visible: bool | None = None
+
+
+class StoredPreferences(Preferences):
+    """Preferences as returned: stray stored keys are dropped instead of failing the response."""
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class UserIn(BaseModel):
@@ -200,7 +206,7 @@ class UserOut(BaseModel):
     email: str
     name: str | None
     image: str | None
-    preferences: Preferences
+    preferences: StoredPreferences
 
 
 # ── Intel ─────────────────────────────────────────────────────────────────

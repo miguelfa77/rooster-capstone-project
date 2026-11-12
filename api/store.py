@@ -24,10 +24,10 @@ class ConversationBusy(Exception):
 
 
 def conversation_title(messages: list[dict]) -> str | None:
-    """The first user message's text, whitespace collapsed and cut to 60 characters."""
+    """The first user message's text, whitespace collapsed, cut to 60 characters, right-trimmed."""
     for m in messages:
         if m.get("role") == "user":
-            return " ".join(str(m.get("content", "")).split())[:TITLE_MAX_CHARS] or None
+            return " ".join(str(m.get("content", "")).split())[:TITLE_MAX_CHARS].rstrip() or None
     return None
 
 
@@ -132,16 +132,17 @@ class ConversationStore:
             ).all()
         return [dict(r._mapping) for r in rows]
 
-    def rename(self, conversation_id: uuid.UUID, user_id: uuid.UUID, title: str) -> bool:
+    def rename(self, conversation_id: uuid.UUID, user_id: uuid.UUID, title: str) -> dict | None:
+        """Set the title; returns {id, title, updated_at}, or None when not found or not owned."""
         with self.engine.begin() as conn:
-            result = conn.execute(
+            row = conn.execute(
                 text(
                     "UPDATE app.conversations SET title = :title, updated_at = now() "
-                    "WHERE id = :id AND user_id = :uid"
+                    "WHERE id = :id AND user_id = :uid RETURNING id, title, updated_at"
                 ),
                 {"id": conversation_id, "uid": user_id, "title": title},
-            )
-        return result.rowcount > 0
+            ).first()
+        return dict(row._mapping) if row else None
 
     def delete(self, conversation_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         with self.engine.begin() as conn:

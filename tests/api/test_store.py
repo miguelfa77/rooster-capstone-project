@@ -259,11 +259,11 @@ def test_rename_sets_title_bumps_updated_at_and_checks_owner(store, uid):
     other = store.upsert_user("luis@example.com", None, None)["id"]
     cid = store.create(uid)
     before = store.summary(cid, uid)["updated_at"]
-    assert store.rename(cid, other, "no") is False
-    assert store.rename(cid, uid, "Ruzafa") is True
-    after = store.summary(cid, uid)
-    assert after["title"] == "Ruzafa" and after["updated_at"] > before
-    assert store.rename(uuid.uuid4(), uid, "x") is False
+    assert store.rename(cid, other, "no") is None
+    row = store.rename(cid, uid, "Ruzafa")
+    assert row == store.summary(cid, uid)
+    assert row["id"] == cid and row["title"] == "Ruzafa" and row["updated_at"] > before
+    assert store.rename(uuid.uuid4(), uid, "x") is None
 
 
 def test_delete_checks_owner_and_removes_messages(store, uid, engine):

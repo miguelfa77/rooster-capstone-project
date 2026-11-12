@@ -197,7 +197,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Preferences"
+                  "$ref": "#/components/schemas/StoredPreferences"
                 }
               }
             }
@@ -2124,7 +2124,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Preferences",
-        "description": "Per-user UI preferences. Unknown keys are rejected; null or missing keys are left unchanged."
+        "description": "PATCH /me/preferences body. Unknown keys are rejected; null or missing keys are left unchanged."
       },
       "RankingRow": {
         "properties": {
@@ -2308,6 +2308,51 @@
         ],
         "title": "ScatterPayload",
         "type": "object"
+      },
+      "StoredPreferences": {
+        "properties": {
+          "theme": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "light",
+                  "dark",
+                  "system"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme"
+          },
+          "chat_open": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Open"
+          },
+          "ticker_visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker Visible"
+          }
+        },
+        "type": "object",
+        "title": "StoredPreferences",
+        "description": "Preferences as returned: stray stored keys are dropped instead of failing the response."
       },
       "TableColumn": {
         "additionalProperties": false,
@@ -2621,7 +2666,7 @@
             "title": "Image"
           },
           "preferences": {
-            "$ref": "#/components/schemas/Preferences"
+            "$ref": "#/components/schemas/StoredPreferences"
           }
         },
         "type": "object",
