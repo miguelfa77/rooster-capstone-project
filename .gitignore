@@ -53,3 +53,4 @@ __pycache__/
 
 # Scraper runtime state (recreated on each run)
 pipeline/idealista/scraper_checkpoint.json
+.superpowers/
