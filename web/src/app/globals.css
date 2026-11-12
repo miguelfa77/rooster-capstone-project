@@ -1,11 +1,88 @@
-:root {
-  --bg: #0e0e0e;
-  --card: #161616;
-  --border: #2a2a2a;
-  --text: #f0f0f0;
-  --muted: #a8a8a8;
-  --accent: #e03030;
+@import "tailwindcss";
+@import "tw-animate-css";
 
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Theme tokens. Light (default) from the `.L` palette and dark from the `.B`
+ * palette of docs/design/v4-mockups/ticker.html.
+ *
+ * Name collisions with the legacy variables read by components/{primitives,map,intel}:
+ * `--muted` and `--accent` keep their legacy meaning (muted text, Rooster red), so
+ * shadcn's muted/accent *surfaces* live in `--muted-surface` / `--accent-surface`
+ * and are exposed to Tailwind as `bg-muted` / `bg-accent` below.
+ */
+:root {
+  --radius: 0.5rem;
+
+  --background: #f7f7f8;
+  --foreground: #16181d;
+  --card: #ffffff;
+  --card-foreground: #16181d;
+  --popover: #ffffff;
+  --popover-foreground: #16181d;
+  --primary: #e5484d;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f2f4;
+  --secondary-foreground: #16181d;
+  --muted-surface: #f1f2f4;
+  --muted-foreground: #5c6370;
+  --accent-surface: #f1f2f4;
+  --accent-foreground: #16181d;
+  --destructive: #cd2b31;
+  --border: #e6e7ea;
+  --input: #dfe1e5;
+  --ring: #e5484d;
+  --placeholder: #8a919c;
+
+  --up: #18794e;
+  --down: #cd2b31;
+  --warn: #ad5700;
+
+  /* Legacy variables, derived from the tokens above. */
+  --bg: var(--background);
+  --text: var(--foreground);
+  --muted: var(--muted-foreground);
+  --accent: var(--primary);
+  --transit-metro: #534ab7;
+  --transit-bus: #1d9e75;
+  --transit-other: #888780;
+  --listing-venta: #e95d4f;
+  --listing-alquiler: #48a9da;
+  --vut: #ef9f27;
+
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0b0d10;
+  --foreground: #e6e8eb;
+  --card: #12161b;
+  --card-foreground: #e6e8eb;
+  --popover: #12161b;
+  --popover-foreground: #e6e8eb;
+  --primary: #e5484d;
+  --primary-foreground: #ffffff;
+  --secondary: #1a1f26;
+  --secondary-foreground: #e6e8eb;
+  --muted-surface: #1a1f26;
+  --muted-foreground: #9aa3ad;
+  --accent-surface: #1a1f26;
+  --accent-foreground: #e6e8eb;
+  --destructive: #ff6369;
+  --border: #1d2229;
+  --input: #2a313b;
+  --ring: #e5484d;
+  --placeholder: #6b7480;
+
+  --up: #3dd68c;
+  --down: #ff6369;
+  --warn: #ffb224;
+
+  --bg: var(--background);
+  --text: var(--foreground);
+  --muted: var(--muted-foreground);
+  --accent: var(--primary);
   --transit-metro: #534ab7;
   --transit-bus: #1d9e75;
   --transit-other: #888780;
@@ -16,32 +93,56 @@
   color-scheme: dark;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted-surface);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent-surface);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-placeholder: var(--placeholder);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-warn: var(--warn);
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
+/* Numbers: JetBrains Mono with tabular figures. */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
 
-a {
-  color: inherit;
-}
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    line-height: 1.5;
+  }
 
-main {
-  padding: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+  ::placeholder {
+    color: var(--placeholder);
+  }
 }

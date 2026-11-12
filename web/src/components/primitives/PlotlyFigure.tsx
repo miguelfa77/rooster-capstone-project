@@ -4,13 +4,18 @@ import type { Data, Layout } from "plotly.js-dist-min";
 import { useEffect, useRef } from "react";
 import styles from "./CodeOutput.module.css";
 
-const DARK_LAYOUT: Partial<Layout> = {
+const BASE_LAYOUT: Partial<Layout> = {
   paper_bgcolor: "rgba(0,0,0,0)",
   plot_bgcolor: "rgba(0,0,0,0)",
-  font: { color: "#f0f0f0" },
   margin: { t: 48, r: 16, b: 48, l: 56 },
   autosize: true,
 };
+
+/** Plotly cannot read CSS variables, so the theme's text color is resolved when plotting. */
+function themeFont(el: HTMLElement): Partial<Layout> {
+  const color = getComputedStyle(el).getPropertyValue("--foreground").trim();
+  return color ? { font: { color } } : {};
+}
 
 export type PlotlyFigureProps = { data: Data[]; layout?: Partial<Layout> };
 
@@ -26,7 +31,7 @@ export default function PlotlyFigure({ data, layout }: PlotlyFigureProps) {
     void import("plotly.js-dist-min").then(({ default: Plotly }) => {
       if (cancelled) return;
       purge = Plotly.purge;
-      void Plotly.newPlot(el, data, { ...DARK_LAYOUT, ...layout }, { responsive: true, displaylogo: false });
+      void Plotly.newPlot(el, data, { ...BASE_LAYOUT, ...themeFont(el), ...layout }, { responsive: true, displaylogo: false });
     });
     return () => {
       cancelled = true;

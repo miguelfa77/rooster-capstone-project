@@ -7,6 +7,7 @@ export const COPY = {
   tagline: "Tu copiloto inmobiliario para Valencia",
   navChat: "Pregunta a Rooster",
   navIntel: "Inteligencia",
+  close: "Cerrar",
 
   // Chat
   chatInputPlaceholder: "Pregunta por anuncios, rentabilidades, barrios…",
