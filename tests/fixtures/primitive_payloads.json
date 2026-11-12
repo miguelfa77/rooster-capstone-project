@@ -1,0 +1,310 @@
+{
+  "payloads": [
+    {
+      "kind": "text",
+      "content": "Benimaclet lidera la rentabilidad bruta de la ciudad.",
+      "role": "lead",
+      "cited_data": [
+        "gross_rental_yield_pct"
+      ]
+    },
+    {
+      "kind": "kpi",
+      "label": "Rentabilidad media en Valencia",
+      "value": "5,9",
+      "unit": "%",
+      "delta": "+0,3 pp"
+    },
+    {
+      "kind": "table",
+      "rows_json": "[{\"neighborhood_name\": \"Russafa\", \"median_venta_price\": 285000}, {\"neighborhood_name\": \"Benimaclet\", \"median_venta_price\": 198000}]",
+      "columns": [
+        {
+          "field": "neighborhood_name",
+          "header": "Barrio",
+          "formatter": "neighborhood-name",
+          "alignment": "left",
+          "width_hint": "wide"
+        },
+        {
+          "field": "median_venta_price",
+          "header": "Precio mediano de venta",
+          "formatter": "currency",
+          "alignment": "right",
+          "width_hint": "medium"
+        }
+      ]
+    },
+    {
+      "kind": "code",
+      "visualization_type": "plotly",
+      "code": "import plotly.express as px\nprint(px.bar(df, x='neighborhood_name', y='gross_rental_yield_pct').to_json())",
+      "fallback_kind": "table",
+      "output_type": "plotly_json",
+      "output": "{\"data\": [{\"type\": \"bar\", \"x\": [\"Russafa\", \"Benimaclet\", \"El Carme\"], \"y\": [6.4, 5.9, 4.8]}], \"layout\": {\"title\": {\"text\": \"Rentabilidad bruta por barrio (%)\"}}}"
+    },
+    {
+      "kind": "choropleth",
+      "metric": "gross_rental_yield_pct",
+      "metric_label": "Rentabilidad bruta (%)",
+      "colormap": "YlOrRd",
+      "tooltip_fields": [
+        {
+          "field": "neighborhood_name",
+          "label": "Barrio"
+        }
+      ],
+      "tiles": "cartodbpositron",
+      "data": [
+        {
+          "neighborhood_name": "Russafa",
+          "gross_rental_yield_pct": 6.1,
+          "geom": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  -0.376,
+                  39.459
+                ],
+                [
+                  -0.366,
+                  39.459
+                ],
+                [
+                  -0.366,
+                  39.469
+                ],
+                [
+                  -0.376,
+                  39.469
+                ],
+                [
+                  -0.376,
+                  39.459
+                ]
+              ]
+            ]
+          }
+        },
+        {
+          "neighborhood_name": "Benimaclet",
+          "gross_rental_yield_pct": 6.8,
+          "geom": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  -0.36,
+                  39.485
+                ],
+                [
+                  -0.35,
+                  39.485
+                ],
+                [
+                  -0.35,
+                  39.495
+                ],
+                [
+                  -0.36,
+                  39.495
+                ],
+                [
+                  -0.36,
+                  39.485
+                ]
+              ]
+            ]
+          }
+        },
+        {
+          "neighborhood_name": "Arrancapins",
+          "gross_rental_yield_pct": 5.2,
+          "geom": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  -0.385,
+                  39.465
+                ],
+                [
+                  -0.375,
+                  39.465
+                ],
+                [
+                  -0.375,
+                  39.475
+                ],
+                [
+                  -0.385,
+                  39.475
+                ],
+                [
+                  -0.385,
+                  39.465
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "bar",
+      "value_field": "gross_rental_yield_pct",
+      "label_field": "neighborhood_name",
+      "value_label": "Rentabilidad bruta (%)",
+      "orientation": "h",
+      "top_n": 15,
+      "data": [
+        {
+          "neighborhood_name": "Benimaclet",
+          "gross_rental_yield_pct": 6.8
+        },
+        {
+          "neighborhood_name": "Russafa",
+          "gross_rental_yield_pct": 6.1
+        },
+        {
+          "neighborhood_name": "El Cabanyal-El Canyamelar",
+          "gross_rental_yield_pct": 5.7
+        },
+        {
+          "neighborhood_name": "El Carme",
+          "gross_rental_yield_pct": null
+        }
+      ]
+    },
+    {
+      "kind": "scatter",
+      "x_field": "median_venta_eur_per_sqm",
+      "y_field": "gross_rental_yield_pct",
+      "x_label": "Precio de venta (€/m²)",
+      "y_label": "Rentabilidad bruta (%)",
+      "label_field": "neighborhood_name",
+      "color_field": null,
+      "data": [
+        {
+          "neighborhood_name": "Russafa",
+          "median_venta_eur_per_sqm": 3450,
+          "gross_rental_yield_pct": 6.1
+        },
+        {
+          "neighborhood_name": "Benimaclet",
+          "median_venta_eur_per_sqm": 2380,
+          "gross_rental_yield_pct": 6.8
+        },
+        {
+          "neighborhood_name": "Ciutat Jardí",
+          "median_venta_eur_per_sqm": 3120,
+          "gross_rental_yield_pct": 5.0
+        }
+      ]
+    },
+    {
+      "kind": "line",
+      "x_field": "month",
+      "y_field": "median_alquiler_price",
+      "y_label": "Alquiler mediano (€/mes)",
+      "color_field": null,
+      "data": [
+        {
+          "month": "2026-07",
+          "median_alquiler_price": 1150
+        },
+        {
+          "month": "2026-08",
+          "median_alquiler_price": 1180
+        },
+        {
+          "month": "2026-09",
+          "median_alquiler_price": 1210
+        }
+      ]
+    },
+    {
+      "kind": "point_map",
+      "color_field": "price",
+      "color_label": "Precio (€)",
+      "popup_fields": [
+        {
+          "field": "price",
+          "label": "Precio"
+        },
+        {
+          "field": "url",
+          "label": "Anuncio"
+        }
+      ],
+      "data": [
+        {
+          "lat": 39.4602,
+          "lng": -0.3741,
+          "price": 245000,
+          "url": "https://www.idealista.com/inmueble/100000001/"
+        },
+        {
+          "lat": 39.4871,
+          "lng": -0.3598,
+          "price": 189000,
+          "url": "https://www.idealista.com/inmueble/100000002/"
+        },
+        {
+          "lat": 39.4699,
+          "lng": -0.3305,
+          "price": 312000,
+          "url": "https://www.idealista.com/inmueble/100000003/"
+        }
+      ]
+    },
+    {
+      "kind": "composite",
+      "heading": "Informe: Benimaclet",
+      "blocks": [
+        {
+          "kind": "kpi",
+          "label": "Rentabilidad media en Valencia",
+          "value": "5,9",
+          "unit": "%",
+          "delta": "+0,3 pp"
+        },
+        {
+          "kind": "bar",
+          "value_field": "gross_rental_yield_pct",
+          "label_field": "neighborhood_name",
+          "value_label": "Rentabilidad bruta (%)",
+          "orientation": "h",
+          "top_n": 15,
+          "data": [
+            {
+              "neighborhood_name": "Benimaclet",
+              "gross_rental_yield_pct": 6.8
+            },
+            {
+              "neighborhood_name": "Russafa",
+              "gross_rental_yield_pct": 6.1
+            },
+            {
+              "neighborhood_name": "El Cabanyal-El Canyamelar",
+              "gross_rental_yield_pct": 5.7
+            },
+            {
+              "neighborhood_name": "El Carme",
+              "gross_rental_yield_pct": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "folium_code": {
+    "kind": "code",
+    "visualization_type": "folium",
+    "code": "import folium\nm = folium.Map(location=[39.47, -0.376], zoom_start=13)\nprint(m.get_root().render())",
+    "fallback_kind": "table",
+    "output_type": "folium_html",
+    "output": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>folium</title></head><body><div id=\"map\"></div></body></html>"
+  }
+}

@@ -2,6 +2,7 @@
 
 SSE payloads are not request/response bodies, so FastAPI does not list them;
 they are added under components.schemas for frontend type generation.
+PrimitiveEvent.primitive is declared as PrimitivePayload (a dict at runtime).
 
     python -m api.export_openapi
 """
@@ -16,6 +17,7 @@ from pydantic import TypeAdapter
 from agent.synthesizer import PrimitiveBlock
 from agent.turn import TurnEvent
 from api.main import app
+from api.models import PrimitivePayload
 
 OUT_PATH = Path(__file__).parent / "openapi.json"
 REF = "#/components/schemas/{model}"
@@ -32,6 +34,8 @@ def build_openapi() -> dict:
     schemas = spec.setdefault("components", {}).setdefault("schemas", {})
     _add(schemas, "TurnEvent", TypeAdapter(TurnEvent))
     _add(schemas, "PrimitiveBlock", TypeAdapter(PrimitiveBlock))
+    _add(schemas, "PrimitivePayload", TypeAdapter(PrimitivePayload))
+    schemas["PrimitiveEvent"]["properties"]["primitive"] = {"$ref": REF.format(model="PrimitivePayload")}
     return spec
 
 

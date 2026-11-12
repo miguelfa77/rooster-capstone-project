@@ -118,6 +118,7 @@ def _base_message(**fields: Any) -> dict:
         "role": "assistant",
         "intent": "conversational",
         "summary": "",
+        "blocks": [],  # ordered primitive payloads, text included: what the message displays
         "render_stack": [],
         "validation_errors": [],
         "rows": None,
@@ -133,6 +134,10 @@ def _base_message(**fields: Any) -> dict:
     }
     msg.update(fields)
     return msg
+
+
+def _text_block(content: str) -> dict:
+    return TextPrimitive(content=content).model_dump()
 
 
 def _fallback_message(reason: str, suggestion: str, emit: Emit, **fields: Any) -> dict:
@@ -223,7 +228,7 @@ def _memo_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit) 
     except Exception as e:
         memo_text = UI.MEMO_ERR.format(err=e)
     emit(TextDeltaEvent(text=memo_text))
-    return _base_message(is_memo=True, summary=memo_text, intent="memo")
+    return _base_message(is_memo=True, summary=memo_text, intent="memo", blocks=[_text_block(memo_text)])
 
 
 def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit) -> tuple[dict, TurnState]:
@@ -272,7 +277,8 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
         emit(TextDeltaEvent(text=prose))
         emit(FollowUpsEvent(items=follow_ups))
         memory = _update_memory(state, user_input, prose, [])
-        return _base_message(summary=prose, follow_ups=follow_ups), replace(state, session_memory=memory)
+        msg = _base_message(summary=prose, follow_ups=follow_ups, blocks=[_text_block(prose)])
+        return msg, replace(state, session_memory=memory)
 
     if fc.get("execution_results") is None:
         _LOG.warning("Agent loop returned an unexpected result: %s", fc)
@@ -339,6 +345,8 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
     memory = _update_memory(state, user_input, response_text, tools_used)
 
     payload = synthesized.model_dump()
+    built = iter(payloads)  # same order as the non-text primitives
+    blocks = [p if p.get("kind") == "text" else next(built) for p in payload.get("primitives", [])]
     first_visual = next(
         (p for p in payload.get("primitives", []) if p.get("kind") in {"code", "table", "kpi"}),
         {},
@@ -348,6 +356,7 @@ def _agent_turn(user_input: str, state: TurnState, ctx: TurnContext, emit: Emit)
         summary=response_text or "",
         primitive_response=payload,
         primitive_payloads=payloads,  # self-contained copies for API clients (data, code output)
+        blocks=blocks,
         execution_results=execution_results,
         validation_errors=validation_errors,
         intent=first_visual.get("kind") or "conversational",

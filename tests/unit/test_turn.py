@@ -2,7 +2,7 @@ import subprocess
 import sys
 
 from agent import ui_es as UI
-from agent.synthesizer import BarDescriptor, CodePrimitive, SynthesizedResponse, TextPrimitive
+from agent.synthesizer import BarDescriptor, CodePrimitive, KpiPrimitive, SynthesizedResponse, TextPrimitive
 from agent.turn import (
     DoneEvent,
     ErrorEvent,
@@ -173,3 +173,43 @@ def test_assistant_message_keeps_enriched_payloads(fake_agent, events, emit):
     assert msg["primitive_payloads"] == sent
     assert msg["primitive_payloads"][0]["data"] == RESULTS[0]["rows"]
     assert "data" not in msg["primitive_response"]["primitives"][1]  # stays valid for Streamlit replay
+
+
+def test_agent_turn_stores_ordered_blocks(fake_agent, events, emit, monkeypatch):
+    import agent.primitive_payload as pp
+
+    monkeypatch.setattr(pp, "call_sandbox", fake_agent.sandbox)
+    kpi = KpiPrimitive(label="Rentabilidad media", value="5,9", unit="%")
+    _full_turn(fake_agent, [TextPrimitive(content="Uno"), BAR, TextPrimitive(content="Dos"), kpi])
+    msg = run_turn("q", TurnState.new(), _ctx(), emit).messages[-1]
+    assert [b["kind"] for b in msg["blocks"]] == ["text", "bar", "text", "kpi"]
+    assert msg["blocks"][0]["content"] == "Uno" and msg["blocks"][2]["content"] == "Dos"
+    assert msg["blocks"][1]["data"] == RESULTS[0]["rows"]
+    assert fake_agent.calls["sandbox"] == []  # no code primitives, no sandbox calls
+
+
+def test_code_block_reuses_built_payload(fake_agent, events, emit, monkeypatch):
+    import agent.primitive_payload as pp
+
+    built = []
+    monkeypatch.setattr(
+        pp, "call_sandbox", lambda code, rows: built.append(code) or {"success": True, "output_type": "plotly_json", "output": "{}"}
+    )
+    _full_turn(fake_agent, [TextPrimitive(content="Uno"), CodePrimitive(visualization_type="plotly", code="ok()")])
+    msg = run_turn("q", TurnState.new(), _ctx(), emit).messages[-1]
+    assert [b["kind"] for b in msg["blocks"]] == ["text", "code"]
+    assert msg["blocks"][1]["output_type"] == "plotly_json"
+    assert built == ["ok()"]  # payload built once, shared by the event, primitive_payloads and blocks
+
+
+def test_fallback_message_has_empty_blocks(fake_agent, events, emit):
+    fake_agent.loop_result = {"error": "timeout"}
+    assert run_turn("q", TurnState.new(), _ctx(), emit).messages[-1]["blocks"] == []
+
+
+def test_conversational_and_memo_messages_have_one_text_block(fake_agent, events, emit):
+    fake_agent.loop_result = {"conversational_text": "Hola, soy Rooster."}
+    msg = run_turn("hola", TurnState.new(), _ctx(), emit).messages[-1]
+    assert [(b["kind"], b["content"]) for b in msg["blocks"]] == [("text", "Hola, soy Rooster.")]
+    memo = run_turn("hazme un resumen", TurnState.new(), _ctx(), emit).messages[-1]
+    assert [(b["kind"], b["content"]) for b in memo["blocks"]] == [("text", fake_agent.memo_text)]

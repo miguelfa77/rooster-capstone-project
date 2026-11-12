@@ -25,6 +25,16 @@ from agent.agent_pipeline import get_live_schema_context
 from agent.config import SYNTHESIZER_MODEL_DEFAULT
 from agent.llm_sql import get_pg_engine, get_schema_context
 from agent.turn import DoneEvent, ErrorEvent, TurnContext, run_turn
+from api.models import (
+    ConversationOut,
+    ListingRow,
+    MarketFraming,
+    NeighborhoodsOut,
+    RankingRow,
+    TourismRow,
+    TransitRow,
+    YieldLiquidityRow,
+)
 from api.sse import stream_turn, to_json
 from api.store import ConversationBusy, ConversationStore
 
@@ -106,7 +116,7 @@ def create_conversation(store: ConversationStore = Depends(get_store)) -> dict:
     return {"id": str(store.create())}
 
 
-@app.get("/conversations/{conversation_id}", dependencies=[Depends(require_key)])
+@app.get("/conversations/{conversation_id}", response_model=ConversationOut, dependencies=[Depends(require_key)])
 def get_conversation(conversation_id: str, store: ConversationStore = Depends(get_store)) -> dict:
     cid = _parse_id(conversation_id)
     state = store.load(cid)
@@ -184,12 +194,17 @@ def _cached_json(key: tuple, ttl_sec: int, load: Callable[[], Any]) -> Response:
 _VALID_METRICS = set(UI.CHOROPLETH_METRICS.values())
 
 
-@app.get("/intel/framing", dependencies=[Depends(require_key)])
+def _doc(model: Any) -> dict:
+    """Document a 200 body; intel routes still return the cached Response unchanged."""
+    return {200: {"model": model}}
+
+
+@app.get("/intel/framing", responses=_doc(MarketFraming | None), dependencies=[Depends(require_key)])
 def intel_framing() -> Response:
     return _cached_json(("framing",), 300, lambda: intel_data.market_framing())
 
 
-@app.get("/intel/neighborhoods", dependencies=[Depends(require_key)])
+@app.get("/intel/neighborhoods", responses=_doc(NeighborhoodsOut), dependencies=[Depends(require_key)])
 def intel_neighborhoods(metric: str = Query(...)) -> Response:
     if metric not in _VALID_METRICS:
         raise HTTPException(status_code=422, detail=f"metric must be one of {sorted(_VALID_METRICS)}")
@@ -201,31 +216,31 @@ def intel_neighborhoods(metric: str = Query(...)) -> Response:
     return _cached_json(("neighborhoods", metric), 300, load)
 
 
-@app.get("/intel/overlays/transit", dependencies=[Depends(require_key)])
+@app.get("/intel/overlays/transit", responses=_doc(list[TransitRow]), dependencies=[Depends(require_key)])
 def intel_transit() -> Response:
     return _cached_json(("transit",), 600, lambda: intel_data.transit_overlay())
 
 
-@app.get("/intel/overlays/tourism", dependencies=[Depends(require_key)])
+@app.get("/intel/overlays/tourism", responses=_doc(list[TourismRow]), dependencies=[Depends(require_key)])
 def intel_tourism() -> Response:
     return _cached_json(("tourism",), 600, lambda: intel_data.tourism_overlay())
 
 
-@app.get("/intel/listings", dependencies=[Depends(require_key)])
+@app.get("/intel/listings", responses=_doc(list[ListingRow]), dependencies=[Depends(require_key)])
 def intel_listings(operation: Literal["All", "venta", "alquiler"] = "All") -> Response:
     return _cached_json(("listings", operation), 300, lambda: intel_data.listings(operation))
 
 
-@app.get("/intel/parcels", dependencies=[Depends(require_key)])
+@app.get("/intel/parcels", responses=_doc(dict[str, Any]), dependencies=[Depends(require_key)])
 def intel_parcels() -> Response:
     return _cached_json(("parcels",), 600, lambda: intel_data.parcels_geojson())
 
 
-@app.get("/intel/ranking", dependencies=[Depends(require_key)])
+@app.get("/intel/ranking", responses=_doc(list[RankingRow]), dependencies=[Depends(require_key)])
 def intel_ranking() -> Response:
     return _cached_json(("ranking",), 300, lambda: intel_data.neighborhood_ranking())
 
 
-@app.get("/intel/yield-liquidity", dependencies=[Depends(require_key)])
+@app.get("/intel/yield-liquidity", responses=_doc(list[YieldLiquidityRow]), dependencies=[Depends(require_key)])
 def intel_yield_liquidity() -> Response:
     return _cached_json(("yield_liquidity",), 300, lambda: intel_data.yield_liquidity())

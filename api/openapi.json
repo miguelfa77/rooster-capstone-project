@@ -110,9 +110,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Conversation Conversations  Conversation Id  Get"
+                  "$ref": "#/components/schemas/ConversationOut"
                 }
               }
             }
@@ -220,7 +218,17 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MarketFraming"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response 200 Intel Framing Intel Framing Get"
+                }
               }
             }
           },
@@ -273,7 +281,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/NeighborhoodsOut"
+                }
               }
             }
           },
@@ -317,7 +327,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransitRow"
+                  },
+                  "title": "Response 200 Intel Transit Intel Overlays Transit Get"
+                }
               }
             }
           },
@@ -361,7 +377,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TourismRow"
+                  },
+                  "title": "Response 200 Intel Tourism Intel Overlays Tourism Get"
+                }
               }
             }
           },
@@ -420,7 +442,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListingRow"
+                  },
+                  "title": "Response 200 Intel Listings Intel Listings Get"
+                }
               }
             }
           },
@@ -464,7 +492,11 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response 200 Intel Parcels Intel Parcels Get"
+                }
               }
             }
           },
@@ -508,7 +540,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RankingRow"
+                  },
+                  "title": "Response 200 Intel Ranking Intel Ranking Get"
+                }
               }
             }
           },
@@ -552,7 +590,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/YieldLiquidityRow"
+                  },
+                  "title": "Response 200 Intel Yield Liquidity Intel Yield Liquidity Get"
+                }
               }
             }
           },
@@ -572,6 +616,435 @@
   },
   "components": {
     "schemas": {
+      "AssistantMessage": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "const": "assistant",
+            "title": "Role"
+          },
+          "blocks": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/KpiPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/TablePrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/CodePayload"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoroplethPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/BarPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/ScatterPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/LinePayload"
+                },
+                {
+                  "$ref": "#/components/schemas/PointMapPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/CompositePayload"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "bar": "#/components/schemas/BarPayload",
+                  "choropleth": "#/components/schemas/ChoroplethPayload",
+                  "code": "#/components/schemas/CodePayload",
+                  "composite": "#/components/schemas/CompositePayload",
+                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "line": "#/components/schemas/LinePayload",
+                  "point_map": "#/components/schemas/PointMapPayload",
+                  "scatter": "#/components/schemas/ScatterPayload",
+                  "table": "#/components/schemas/TablePrimitive",
+                  "text": "#/components/schemas/TextPrimitive"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Blocks",
+            "default": []
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "primitive_payloads": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/KpiPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/TablePrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/CodePayload"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoroplethPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/BarPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/ScatterPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/LinePayload"
+                },
+                {
+                  "$ref": "#/components/schemas/PointMapPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/CompositePayload"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "bar": "#/components/schemas/BarPayload",
+                  "choropleth": "#/components/schemas/ChoroplethPayload",
+                  "code": "#/components/schemas/CodePayload",
+                  "composite": "#/components/schemas/CompositePayload",
+                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "line": "#/components/schemas/LinePayload",
+                  "point_map": "#/components/schemas/PointMapPayload",
+                  "scatter": "#/components/schemas/ScatterPayload",
+                  "table": "#/components/schemas/TablePrimitive",
+                  "text": "#/components/schemas/TextPrimitive"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Primitive Payloads",
+            "default": []
+          },
+          "follow_ups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Follow Ups",
+            "default": []
+          },
+          "graceful_fallback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Fallback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "AssistantMessage"
+      },
+      "BarPayload": {
+        "properties": {
+          "kind": {
+            "const": "bar",
+            "default": "bar",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_field": {
+            "title": "Value Field",
+            "type": "string"
+          },
+          "label_field": {
+            "title": "Label Field",
+            "type": "string"
+          },
+          "value_label": {
+            "title": "Value Label",
+            "type": "string"
+          },
+          "orientation": {
+            "default": "h",
+            "enum": [
+              "h",
+              "v"
+            ],
+            "title": "Orientation",
+            "type": "string"
+          },
+          "top_n": {
+            "default": 15,
+            "title": "Top N",
+            "type": "integer"
+          },
+          "data": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "value_field",
+          "label_field",
+          "value_label"
+        ],
+        "title": "BarPayload",
+        "type": "object"
+      },
+      "ChoroplethPayload": {
+        "properties": {
+          "kind": {
+            "const": "choropleth",
+            "default": "choropleth",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "metric_label": {
+            "title": "Metric Label",
+            "type": "string"
+          },
+          "colormap": {
+            "default": "YlOrRd",
+            "enum": [
+              "YlOrRd",
+              "YlGn",
+              "Blues",
+              "RdYlGn",
+              "Purples"
+            ],
+            "title": "Colormap",
+            "type": "string"
+          },
+          "tooltip_fields": {
+            "items": {
+              "$ref": "#/components/schemas/TooltipField"
+            },
+            "title": "Tooltip Fields",
+            "type": "array"
+          },
+          "tiles": {
+            "default": "cartodbpositron",
+            "title": "Tiles",
+            "type": "string"
+          },
+          "data": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "metric",
+          "metric_label"
+        ],
+        "title": "ChoroplethPayload",
+        "type": "object"
+      },
+      "CodePayload": {
+        "properties": {
+          "kind": {
+            "const": "code",
+            "default": "code",
+            "title": "Kind",
+            "type": "string"
+          },
+          "visualization_type": {
+            "enum": [
+              "plotly",
+              "folium"
+            ],
+            "title": "Visualization Type",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "fallback_kind": {
+            "const": "table",
+            "default": "table",
+            "title": "Fallback Kind",
+            "type": "string"
+          },
+          "output_type": {
+            "enum": [
+              "plotly_json",
+              "folium_html"
+            ],
+            "title": "Output Type",
+            "type": "string"
+          },
+          "output": {
+            "title": "Output",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visualization_type",
+          "code",
+          "output_type",
+          "output"
+        ],
+        "title": "CodePayload",
+        "type": "object"
+      },
+      "CompositePayload": {
+        "properties": {
+          "kind": {
+            "const": "composite",
+            "default": "composite",
+            "title": "Kind",
+            "type": "string"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Heading"
+          },
+          "blocks": {
+            "default": [],
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar": "#/components/schemas/BarPayload",
+                  "choropleth": "#/components/schemas/ChoroplethPayload",
+                  "code": "#/components/schemas/CodePayload",
+                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "line": "#/components/schemas/LinePayload",
+                  "point_map": "#/components/schemas/PointMapPayload",
+                  "scatter": "#/components/schemas/ScatterPayload",
+                  "table": "#/components/schemas/TablePrimitive",
+                  "text": "#/components/schemas/TextPrimitive"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/KpiPrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/TablePrimitive"
+                },
+                {
+                  "$ref": "#/components/schemas/CodePayload"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoroplethPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/BarPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/ScatterPayload"
+                },
+                {
+                  "$ref": "#/components/schemas/LinePayload"
+                },
+                {
+                  "$ref": "#/components/schemas/PointMapPayload"
+                }
+              ]
+            },
+            "title": "Blocks",
+            "type": "array"
+          }
+        },
+        "title": "CompositePayload",
+        "type": "object"
+      },
+      "ConversationOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "messages": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/UserMessage"
+                },
+                {
+                  "$ref": "#/components/schemas/AssistantMessage"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "role",
+                "mapping": {
+                  "assistant": "#/components/schemas/AssistantMessage",
+                  "user": "#/components/schemas/UserMessage"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Messages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "messages"
+        ],
+        "title": "ConversationOut"
+      },
+      "Fallback": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "suggestion": {
+            "type": "string",
+            "title": "Suggestion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "suggestion"
+        ],
+        "title": "Fallback"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -584,6 +1057,425 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "KpiPrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "kpi",
+            "default": "kpi",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unit"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "KpiPrimitive",
+        "type": "object"
+      },
+      "LinePayload": {
+        "properties": {
+          "kind": {
+            "const": "line",
+            "default": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "x_field": {
+            "title": "X Field",
+            "type": "string"
+          },
+          "y_field": {
+            "title": "Y Field",
+            "type": "string"
+          },
+          "y_label": {
+            "title": "Y Label",
+            "type": "string"
+          },
+          "color_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Field"
+          },
+          "data": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "x_field",
+          "y_field",
+          "y_label"
+        ],
+        "title": "LinePayload",
+        "type": "object"
+      },
+      "ListingRow": {
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation"
+          },
+          "price_int": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Int"
+          },
+          "area_sqm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Sqm"
+          },
+          "rooms_int": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rooms Int"
+          },
+          "floor_int": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Int"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lng": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lng"
+          },
+          "geocode_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geocode Quality"
+          },
+          "neighborhood_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Id"
+          },
+          "neighborhood_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Name"
+          },
+          "has_parking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Parking"
+          },
+          "has_terrace": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Terrace"
+          },
+          "has_elevator": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Elevator"
+          },
+          "is_exterior": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Exterior"
+          },
+          "is_renovated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Renovated"
+          },
+          "has_ac": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Ac"
+          },
+          "nearest_stop_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nearest Stop M"
+          },
+          "eur_per_sqm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eur Per Sqm"
+          },
+          "neighborhood_median_sqm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Median Sqm"
+          },
+          "neighborhood_median_sale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Median Sale"
+          },
+          "neighborhood_median_rent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Median Rent"
+          },
+          "yield_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yield Pct"
+          },
+          "below_median": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Below Median"
+          }
+        },
+        "type": "object",
+        "title": "ListingRow"
+      },
+      "MarketFraming": {
+        "properties": {
+          "city_median_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City Median Yield"
+          },
+          "spread_pp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spread Pp"
+          },
+          "n_strong": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Strong"
+          },
+          "n_with_yield": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N With Yield"
+          }
+        },
+        "type": "object",
+        "title": "MarketFraming"
       },
       "MessageIn": {
         "properties": {
@@ -598,6 +1490,524 @@
           "text"
         ],
         "title": "MessageIn"
+      },
+      "NeighborhoodsOut": {
+        "properties": {
+          "geojson": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geojson"
+          },
+          "vmin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vmin"
+          },
+          "vmax": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vmax"
+          }
+        },
+        "type": "object",
+        "required": [
+          "geojson",
+          "vmin",
+          "vmax"
+        ],
+        "title": "NeighborhoodsOut"
+      },
+      "PointMapPayload": {
+        "properties": {
+          "kind": {
+            "const": "point_map",
+            "default": "point_map",
+            "title": "Kind",
+            "type": "string"
+          },
+          "color_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Field"
+          },
+          "color_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Label"
+          },
+          "popup_fields": {
+            "items": {
+              "$ref": "#/components/schemas/TooltipField"
+            },
+            "title": "Popup Fields",
+            "type": "array"
+          },
+          "data": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "title": "PointMapPayload",
+        "type": "object"
+      },
+      "RankingRow": {
+        "properties": {
+          "neighborhood_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Name"
+          },
+          "yield_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yield Pct"
+          },
+          "eur_per_sqm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eur Per Sqm"
+          },
+          "transit_stop_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transit Stop Count"
+          },
+          "transport_rating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Rating"
+          },
+          "tourist_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tourist Pct"
+          },
+          "tourism_pressure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tourism Pressure"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "venta_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Venta Count"
+          },
+          "alquiler_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alquiler Count"
+          }
+        },
+        "type": "object",
+        "title": "RankingRow"
+      },
+      "ScatterPayload": {
+        "properties": {
+          "kind": {
+            "const": "scatter",
+            "default": "scatter",
+            "title": "Kind",
+            "type": "string"
+          },
+          "x_field": {
+            "title": "X Field",
+            "type": "string"
+          },
+          "y_field": {
+            "title": "Y Field",
+            "type": "string"
+          },
+          "x_label": {
+            "title": "X Label",
+            "type": "string"
+          },
+          "y_label": {
+            "title": "Y Label",
+            "type": "string"
+          },
+          "label_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label Field"
+          },
+          "color_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color Field"
+          },
+          "data": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "x_field",
+          "y_field",
+          "x_label",
+          "y_label"
+        ],
+        "title": "ScatterPayload",
+        "type": "object"
+      },
+      "TableColumn": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "header": {
+            "title": "Header",
+            "type": "string"
+          },
+          "formatter": {
+            "default": "text",
+            "enum": [
+              "text",
+              "currency",
+              "percentage",
+              "integer",
+              "number",
+              "link",
+              "neighborhood-name"
+            ],
+            "title": "Formatter",
+            "type": "string"
+          },
+          "alignment": {
+            "default": "left",
+            "enum": [
+              "left",
+              "right",
+              "center"
+            ],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "width_hint": {
+            "default": "medium",
+            "enum": [
+              "narrow",
+              "medium",
+              "wide"
+            ],
+            "title": "Width Hint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "header"
+        ],
+        "title": "TableColumn",
+        "type": "object"
+      },
+      "TablePrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "table",
+            "default": "table",
+            "title": "Kind",
+            "type": "string"
+          },
+          "rows_json": {
+            "default": "[]",
+            "description": "JSON array of row objects.",
+            "title": "Rows Json",
+            "type": "string"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/TableColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          }
+        },
+        "title": "TablePrimitive",
+        "type": "object"
+      },
+      "TextPrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "text",
+            "default": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "default": "analysis",
+            "enum": [
+              "lead",
+              "analysis",
+              "recommendation",
+              "caveat",
+              "enumeration_intro"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "cited_data": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cited Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "TextPrimitive",
+        "type": "object"
+      },
+      "TooltipField": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "label"
+        ],
+        "title": "TooltipField",
+        "type": "object"
+      },
+      "TourismRow": {
+        "properties": {
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lng": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lng"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          }
+        },
+        "type": "object",
+        "title": "TourismRow"
+      },
+      "TransitRow": {
+        "properties": {
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lng": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lng"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "stop_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Type"
+          }
+        },
+        "type": "object",
+        "title": "TransitRow"
+      },
+      "UserMessage": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "const": "user",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "UserMessage"
       },
       "ValidationError": {
         "properties": {
@@ -638,6 +2048,89 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "YieldLiquidityRow": {
+        "properties": {
+          "neighborhood_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood Name"
+          },
+          "yield_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yield Pct"
+          },
+          "listing_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Count"
+          },
+          "investment_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Score"
+          },
+          "transport_rating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Rating"
+          },
+          "tourism_pressure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tourism Pressure"
+          },
+          "eur_per_sqm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eur Per Sqm"
+          }
+        },
+        "type": "object",
+        "title": "YieldLiquidityRow"
       },
       "DoneEvent": {
         "properties": {
@@ -706,9 +2199,7 @@
             "type": "string"
           },
           "primitive": {
-            "additionalProperties": true,
-            "title": "Primitive",
-            "type": "object"
+            "$ref": "#/components/schemas/PrimitivePayload"
           }
         },
         "required": [
@@ -990,55 +2481,6 @@
         "title": "CompositePrimitive",
         "type": "object"
       },
-      "KpiPrimitive": {
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "const": "kpi",
-            "default": "kpi",
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "value": {
-            "title": "Value",
-            "type": "string"
-          },
-          "unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Unit"
-          },
-          "delta": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Delta"
-          }
-        },
-        "required": [
-          "label",
-          "value"
-        ],
-        "title": "KpiPrimitive",
-        "type": "object"
-      },
       "LineDescriptor": {
         "additionalProperties": false,
         "properties": {
@@ -1184,143 +2626,6 @@
         "title": "ScatterDescriptor",
         "type": "object"
       },
-      "TableColumn": {
-        "additionalProperties": false,
-        "properties": {
-          "field": {
-            "title": "Field",
-            "type": "string"
-          },
-          "header": {
-            "title": "Header",
-            "type": "string"
-          },
-          "formatter": {
-            "default": "text",
-            "enum": [
-              "text",
-              "currency",
-              "percentage",
-              "integer",
-              "number",
-              "link",
-              "neighborhood-name"
-            ],
-            "title": "Formatter",
-            "type": "string"
-          },
-          "alignment": {
-            "default": "left",
-            "enum": [
-              "left",
-              "right",
-              "center"
-            ],
-            "title": "Alignment",
-            "type": "string"
-          },
-          "width_hint": {
-            "default": "medium",
-            "enum": [
-              "narrow",
-              "medium",
-              "wide"
-            ],
-            "title": "Width Hint",
-            "type": "string"
-          }
-        },
-        "required": [
-          "field",
-          "header"
-        ],
-        "title": "TableColumn",
-        "type": "object"
-      },
-      "TablePrimitive": {
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "const": "table",
-            "default": "table",
-            "title": "Kind",
-            "type": "string"
-          },
-          "rows_json": {
-            "default": "[]",
-            "description": "JSON array of row objects.",
-            "title": "Rows Json",
-            "type": "string"
-          },
-          "columns": {
-            "items": {
-              "$ref": "#/components/schemas/TableColumn"
-            },
-            "title": "Columns",
-            "type": "array"
-          }
-        },
-        "title": "TablePrimitive",
-        "type": "object"
-      },
-      "TextPrimitive": {
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "const": "text",
-            "default": "text",
-            "title": "Kind",
-            "type": "string"
-          },
-          "content": {
-            "title": "Content",
-            "type": "string"
-          },
-          "role": {
-            "default": "analysis",
-            "enum": [
-              "lead",
-              "analysis",
-              "recommendation",
-              "caveat",
-              "enumeration_intro"
-            ],
-            "title": "Role",
-            "type": "string"
-          },
-          "cited_data": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Cited Data",
-            "type": "array"
-          }
-        },
-        "required": [
-          "content"
-        ],
-        "title": "TextPrimitive",
-        "type": "object"
-      },
-      "TooltipField": {
-        "additionalProperties": false,
-        "properties": {
-          "field": {
-            "title": "Field",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          }
-        },
-        "required": [
-          "field",
-          "label"
-        ],
-        "title": "TooltipField",
-        "type": "object"
-      },
       "PrimitiveBlock": {
         "discriminator": {
           "mapping": {
@@ -1367,6 +2672,55 @@
           },
           {
             "$ref": "#/components/schemas/CompositePrimitive"
+          }
+        ]
+      },
+      "PrimitivePayload": {
+        "discriminator": {
+          "mapping": {
+            "bar": "#/components/schemas/BarPayload",
+            "choropleth": "#/components/schemas/ChoroplethPayload",
+            "code": "#/components/schemas/CodePayload",
+            "composite": "#/components/schemas/CompositePayload",
+            "kpi": "#/components/schemas/KpiPrimitive",
+            "line": "#/components/schemas/LinePayload",
+            "point_map": "#/components/schemas/PointMapPayload",
+            "scatter": "#/components/schemas/ScatterPayload",
+            "table": "#/components/schemas/TablePrimitive",
+            "text": "#/components/schemas/TextPrimitive"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TextPrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/KpiPrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/TablePrimitive"
+          },
+          {
+            "$ref": "#/components/schemas/CodePayload"
+          },
+          {
+            "$ref": "#/components/schemas/ChoroplethPayload"
+          },
+          {
+            "$ref": "#/components/schemas/BarPayload"
+          },
+          {
+            "$ref": "#/components/schemas/ScatterPayload"
+          },
+          {
+            "$ref": "#/components/schemas/LinePayload"
+          },
+          {
+            "$ref": "#/components/schemas/PointMapPayload"
+          },
+          {
+            "$ref": "#/components/schemas/CompositePayload"
           }
         ]
       }
