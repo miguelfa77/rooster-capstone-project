@@ -213,7 +213,7 @@ function lines(...texts: string[]): HTMLElement {
   return root;
 }
 
-function popupFor(key: LayerKey, props: Record<string, unknown>, metric: string): HTMLElement {
+function popupFor(key: Exclude<LayerKey, "parcels">, props: Record<string, unknown>, metric: string): HTMLElement {
   const text = (v: unknown) => (v === null || v === undefined ? "" : String(v));
   switch (key) {
     case "barrios":
@@ -239,8 +239,6 @@ function popupFor(key: LayerKey, props: Record<string, unknown>, metric: string)
       );
       return root;
     }
-    case "parcels":
-      return lines();
   }
 }
 
@@ -277,6 +275,8 @@ export default function IntelMap() {
   const [failed, setFailed] = useState(OFF);
   const [data, setData] = useState<Partial<Record<LayerKey, LayerData>>>({});
   const pending = useRef<Partial<Record<LayerKey, string>>>({});
+  // Latest toggle state, read when a request settles (state in the closure may be stale).
+  const onNow = useRef(OFF);
   // Datasets already pushed to the current map instance (reset if BaseMap ever hands us a new one).
   const applied = useRef<{ map: MapLibreMap | null; data: Partial<Record<LayerKey, LayerData>> }>({ map: null, data: {} });
   const popup = useRef<Popup | null>(null);
@@ -303,6 +303,8 @@ export default function IntelMap() {
           if (pending.current[key] !== path) return;
           pending.current[key] = undefined;
           console.warn(`intel layer ${key} failed`, err);
+          if (!onNow.current[key]) return; // the user already turned it off: nothing to report
+          onNow.current = { ...onNow.current, [key]: false };
           setFailed((f) => ({ ...f, [key]: true }));
           setOn((o) => ({ ...o, [key]: false }));
         },
@@ -310,6 +312,7 @@ export default function IntelMap() {
   };
 
   const toggle = (key: LayerKey, checked: boolean) => {
+    onNow.current = { ...onNow.current, [key]: checked };
     setOn((o) => ({ ...o, [key]: checked }));
     if (!checked) return;
     setFailed((f) => ({ ...f, [key]: false }));
@@ -319,7 +322,7 @@ export default function IntelMap() {
   const changeMetric = (m: string) => {
     setMetric(m);
     if (data.barrios?.metric === m) pending.current.barrios = undefined; // drop any in-flight other metric
-    else if (on.barrios) load("barrios", m);
+    else load("barrios", m); // the select only exists while barrios is on
   };
 
   // Mirror React state onto the map: add/update sources once per new dataset, then set visibility.
@@ -346,16 +349,18 @@ export default function IntelMap() {
 
   return (
     <Section title={COPY.sectionMapa}>
-      <label className={styles.select}>
-        {COPY.intelMapColorBy}
-        <select value={metric} onChange={(e) => changeMetric(e.target.value)}>
-          {CHOROPLETH_METRICS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {on.barrios ? (
+        <label className={styles.select}>
+          {COPY.intelMapColorBy}
+          <select value={metric} onChange={(e) => changeMetric(e.target.value)}>
+            {CHOROPLETH_METRICS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <div className={styles.controls}>
         {TOGGLES.map(({ key, label }) => (
           <label key={key} className={styles.toggle}>

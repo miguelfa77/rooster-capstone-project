@@ -138,7 +138,7 @@ const RESPONSES: Record<string, unknown> = {
   "/api/rooster/intel/neighborhoods?metric=gross_rental_yield_pct": neighborhoods(7),
 };
 
-let overrides: Record<string, () => Response> = {};
+let overrides: Record<string, () => Response | Promise<Response>> = {};
 const fetchMock = vi.fn(async (url: string) => {
   if (overrides[url]) return overrides[url]();
   if (url in RESPONSES) return Response.json(RESPONSES[url]);
@@ -258,6 +258,82 @@ describe("intel", () => {
     expect(alert).toHaveTextContent(COPY.toggleBarrios);
     expect(box).not.toBeChecked();
     expect(lastMap().getLayer("intel-barrios-fill")).toBeUndefined();
+  });
+
+  it("failed_layer_after_toggle_off_shows_no_error", async () => {
+    let fail: () => void = () => {};
+    const gate = new Promise<void>((r) => (fail = r));
+    overrides["/api/rooster/intel/overlays/tourism"] = async () => {
+      await gate;
+      return new Response("boom", { status: 500 });
+    };
+    await renderIntel();
+    const box = within(mapSection()).getByRole("checkbox", { name: COPY.toggleVut });
+    fireEvent.click(box);
+    fireEvent.click(box);
+    await act(async () => fail());
+    expect(within(mapSection()).queryByRole("alert")).toBeNull();
+    expect(box).not.toBeChecked();
+    // A later attempt fetches again rather than reusing the failed request.
+    fireEvent.click(box);
+    await waitFor(() => expect(calls("/api/rooster/intel/overlays/tourism")).toBe(2));
+  });
+
+  it("stale_metric_response_is_ignored", async () => {
+    let releaseA: () => void = () => {};
+    const gateA = new Promise<void>((r) => (releaseA = r));
+    overrides["/api/rooster/intel/neighborhoods?metric=investment_score"] = async () => {
+      await gateA;
+      return Response.json(RESPONSES["/api/rooster/intel/neighborhoods?metric=investment_score"]);
+    };
+    await renderIntel();
+    const s = mapSection();
+    fireEvent.click(within(s).getByRole("checkbox", { name: COPY.toggleBarrios }));
+    fireEvent.change(within(s).getByLabelText(COPY.intelMapColorBy), { target: { value: "gross_rental_yield_pct" } });
+    await waitFor(() => expect(lastMap().visible("intel-barrios-fill")).toBe(true));
+    await act(async () => releaseA());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const source = JSON.stringify(lastMap().getSource("intel-barrios").spec.data);
+    expect(source).toContain('"value":7');
+    expect(source).not.toContain('"value":8');
+  });
+
+  it("transit_stop_position_is_green", async () => {
+    await renderIntel();
+    fireEvent.click(within(mapSection()).getByRole("checkbox", { name: COPY.toggleTransport }));
+    await waitFor(() => expect(lastMap().visible("intel-transit")).toBe(true));
+    const color = lastMap().getLayer("intel-transit")!.paint!["circle-color"] as unknown[];
+    expect(color[0]).toBe("match");
+    const arms = color.slice(2, -1);
+    const colorFor = (kind: string) => {
+      for (let i = 0; i < arms.length; i += 2) {
+        const label = arms[i];
+        if (label === kind || (Array.isArray(label) && label.includes(kind))) return arms[i + 1];
+      }
+      return color.at(-1);
+    };
+    expect(colorFor("stop_position")).toBe("#1D9E75");
+    expect(colorFor("station")).toBe("#534AB7");
+    expect(colorFor("tram_stop")).toBe("#534AB7");
+    expect(colorFor("bus_stop")).toBe("#888780");
+  });
+
+  it("color_by_select_only_while_barrios_on", async () => {
+    await renderIntel();
+    const s = mapSection();
+    expect(within(s).queryByLabelText(COPY.intelMapColorBy)).toBeNull();
+    const box = within(s).getByRole("checkbox", { name: COPY.toggleBarrios });
+    fireEvent.click(box);
+    expect(within(s).getByLabelText(COPY.intelMapColorBy)).toBeInTheDocument();
+    fireEvent.click(box);
+    expect(within(s).queryByLabelText(COPY.intelMapColorBy)).toBeNull();
+  });
+
+  it("rank_caption_does_not_mention_bars", () => {
+    expect(COPY.intelRankCaption).toMatch(/puntuación de inversión/);
+    expect(COPY.intelRankCaption).not.toMatch(/barra/i);
   });
 
   it("ranking_sorts", async () => {

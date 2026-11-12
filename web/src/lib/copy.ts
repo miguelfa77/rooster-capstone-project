@@ -72,7 +72,8 @@ export const COPY = {
   intelScatterX: "Anuncios totales (liquidez →)",
   intelScatterY: "Rentabilidad bruta % (rentabilidad ↑)",
   intelRankCaption:
-    "Ordenado por puntuación de inversión. Barras = lectura rápida de rentabilidad, turismo y puntuación.",
+    "Ordenado por puntuación de inversión. Cada fila resume la rentabilidad, el turismo y la puntuación del barrio; " +
+    "toca una cabecera para reordenar.",
   intelScatterCaption:
     "Tamaño del punto = mediana €/m² venta. Arriba-izquierda = alta rentabilidad, poca oferta. " +
     "Arriba-derecha = equilibrio raro: rentabilidad y liquidez.",
