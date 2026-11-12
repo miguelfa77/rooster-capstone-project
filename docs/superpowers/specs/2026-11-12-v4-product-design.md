@@ -180,3 +180,5 @@ Component structure; exact shadcn components; table/virtualization library choic
 ## 9. Calls made by the orchestrator (for owner review)
 
 All of §7b except invite-only (owner's). Also: Branch `v4`; rebuild in place under `web/` (same service, compose unchanged; v3 screens deleted, plumbing kept); routes and nav labels above; Auth.js with own Postgres tables; user ID forwarded in a header behind the secret key; PDF via headless Chromium on the web server; share links as snapshots; calculator defaults above (editable); opportunity thresholds server-side; ticker change = month over month from listing snapshots; sign-in required for everything except share links.
+
+**Phase 1 plan call (2026-11-12):** Auth.js uses signed-cookie (JWT) sessions instead of session rows in Postgres; users live in `app.users`, created through the API at sign-in. The web server then needs no database connection of its own.
