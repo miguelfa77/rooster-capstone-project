@@ -23,7 +23,9 @@ services:
 
   sandbox:
     build: ./sandbox
-    # Listens on 8080 (sandbox/Dockerfile); reachable only inside the compose network.
+    # Listens on 8080 (sandbox/Dockerfile). Only on the internal network: reachable by the API, no internet egress.
+    networks:
+      - sandbox
 
   api:
     build:
@@ -36,6 +38,9 @@ services:
       ROOSTER_SANDBOX_URL: http://sandbox:8080
     ports:
       - "8000:8000"
+    networks:
+      - default
+      - sandbox
     depends_on:
       db:
         condition: service_healthy
@@ -51,6 +56,10 @@ services:
       - "3000:3000"
     depends_on:
       - api
+
+networks:
+  sandbox:
+    internal: true
 
 volumes:
   pgdata:

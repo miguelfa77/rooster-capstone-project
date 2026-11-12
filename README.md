@@ -31,12 +31,12 @@ Environment variables per service (copy **`.env.example`** to **`.env`**; it is 
 | Service | Variables |
 |---------|-----------|
 | **db** (compose) | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
-| **api** | `DATABASE_URL` (or `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`), `OPENAI_API_KEY` (or `OPENAI_KEY`), `ROOSTER_API_KEY` (shared secret, `X-Rooster-Key` header; if unset the API rejects every request), `ROOSTER_SANDBOX_URL` (must include `http://`; default `http://localhost:8001`), `ROOSTER_MAX_TURNS_PER_MINUTE` (turns that may start per rolling 60 s across all conversations; default `30`, `0` or negative disables, an invalid value falls back to `30` with a warning; over the cap → `429`) |
+| **api** | `DATABASE_URL` (or `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`), `OPENAI_API_KEY` (or `OPENAI_KEY`), `ROOSTER_API_KEY` (shared secret, `X-Rooster-Key` header; if unset the API rejects every request), `ROOSTER_SANDBOX_URL` (must include `http://`; default `http://localhost:8001`), `ROOSTER_MAX_TURNS_PER_MINUTE` (turns that may start per UTC minute across all conversations and API instances, counted in `app.turn_starts`; default `30`, `0` or negative disables, an invalid value falls back to `30` with a warning; over the cap → `429`) |
 | **sandbox** | `PORT` (default `8080` in its Docker image) |
 | **web** | `ROOSTER_API_URL` (e.g. `http://localhost:8000`), `ROOSTER_API_KEY` (same value as the API). Both are server-only: never prefix them with `NEXT_PUBLIC_`. |
 | **pipeline / dbt** | Same database as the API (`DATABASE_URL` or `PG*`). `agent/llm_sql.py` also loads **`agent/.env`**; pipeline CLIs load **`pipeline/.env`** and merge unset keys; dbt reads **`dbt/.env`** (see below). |
 
-The turn limit is counted per API process (a single instance is assumed).
+The turn limit is counted in the database (fixed one-minute windows), so it holds across any number of API instances; across a minute boundary up to twice the cap can start.
 
 Optional agent tuning: `ROOSTER_PLANNER_MODEL`, `ROOSTER_SYNTHESIZER_MODEL`, `ROOSTER_MEMORY_MODEL` and the `ROOSTER_REASONING_*` variables (see `agent/config.py`).
 
@@ -195,5 +195,6 @@ ROOSTER_API_KEY=... python3 -m tests.eval.run_eval compare --via-api http://loca
 ## Deploying
 
 No hosting configuration is checked in. Each service has its own Dockerfile: `api/Dockerfile` (build from the repo root), `sandbox/Dockerfile` (build from `sandbox/`), `web/Dockerfile` (build from `web/`). Set the variables in **Configuration** on each service; `ROOSTER_SANDBOX_URL` and `ROOSTER_API_URL` must point at the sandbox and API over the host's private network.
+The sandbox runs model-written code: keep it private (reachable only by the API) and without internet egress.
 
 Schema and data are **not** applied automatically: run `sql/*.sql` and **`dbt run`**, or copy a local database to Railway with **`bash scripts/sync_local_to_railway.sh`** (configure `scripts/.env` from `scripts/.env.example`).
