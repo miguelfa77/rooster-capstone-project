@@ -162,6 +162,17 @@ describe("maps", () => {
     expect(onLoad).toHaveBeenLastCalledWith(dark);
   });
 
+  it("base_map_waits_for_resolved_theme", () => {
+    theme.resolved = undefined;
+    const onLoad = vi.fn();
+    const { rerender } = render(<BaseMap onLoad={onLoad} />);
+    expect(fake.state.instances).toHaveLength(0);
+    theme.resolved = "dark";
+    rerender(<BaseMap onLoad={onLoad} />);
+    expect(fake.state.instances).toHaveLength(1);
+    expect(JSON.stringify(lastMap().options.style)).toContain("dark_all");
+  });
+
   it("choropleth_outline_and_no_data_colors_come_from_tokens", () => {
     setTokens({ "--muted-foreground": "#123456", "--muted-surface": "#abcdef" });
     render(<ChoroplethMap p={payload("choropleth")} />);

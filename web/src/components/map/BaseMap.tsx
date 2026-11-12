@@ -45,7 +45,9 @@ type Props = {
  * theme recreates the map, so onLoad re-adds overlays with the new theme's token colors.
  */
 export default function BaseMap({ onLoad, height = 420, children }: Props) {
-  const mode: Mode = useTheme().resolvedTheme === "dark" ? "dark" : "light";
+  // Undefined until next-themes has resolved the theme; wait, so dark users never get a throwaway light map.
+  const { resolvedTheme } = useTheme();
+  const mode: Mode | null = resolvedTheme === "dark" ? "dark" : resolvedTheme === "light" ? "light" : null;
   const container = useRef<HTMLDivElement>(null);
   const onLoadRef = useRef(onLoad);
   const [failed, setFailed] = useState(false);
@@ -55,7 +57,7 @@ export default function BaseMap({ onLoad, height = 420, children }: Props) {
   });
 
   useEffect(() => {
-    if (!container.current) return;
+    if (!container.current || !mode) return;
     let map: MapLibreMap;
     try {
       map = new MapLibreMap({
