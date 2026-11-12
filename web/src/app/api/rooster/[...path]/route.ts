@@ -4,11 +4,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ALLOWED_PREFIXES = new Set(["conversations", "intel"]);
-const DROP_REQUEST_HEADERS = ["host", "cookie", "x-rooster-key", "connection", "content-length"];
+const FORWARD_REQUEST_HEADERS = ["content-type", "accept", "accept-language"];
 // fetch() already decoded the body, so length/encoding headers no longer apply.
 const DROP_RESPONSE_HEADERS = ["content-encoding", "content-length", "transfer-encoding", "connection"];
 
 type Context = { params: Promise<{ path: string[] }> };
+
+let misconfigLogged = false;
 
 function json(status: number, detail: string): Response {
   return Response.json({ detail }, { status });
@@ -20,13 +22,25 @@ async function proxy(request: Request, { params }: Context): Promise<Response> {
     path.length > 0 && ALLOWED_PREFIXES.has(path[0]) && path.every((s) => s !== "" && s !== "." && s !== "..");
   if (!valid) return json(404, "not_found");
 
-  const headers = new Headers(request.headers);
-  for (const name of DROP_REQUEST_HEADERS) headers.delete(name);
-  headers.set("x-rooster-key", process.env.ROOSTER_API_KEY ?? "");
+  const base = process.env.ROOSTER_API_URL?.replace(/\/+$/, "");
+  const key = process.env.ROOSTER_API_KEY;
+  if (!base || !key) {
+    if (!misconfigLogged) {
+      misconfigLogged = true;
+      console.error("rooster proxy: ROOSTER_API_URL and ROOSTER_API_KEY must both be set");
+    }
+    return json(500, "proxy_misconfigured");
+  }
+
+  const headers = new Headers();
+  for (const name of FORWARD_REQUEST_HEADERS) {
+    const value = request.headers.get(name);
+    if (value !== null) headers.set(name, value);
+  }
+  headers.set("x-rooster-key", key);
 
   let upstream: Response;
   try {
-    const base = (process.env.ROOSTER_API_URL ?? "").replace(/\/+$/, "");
     const url = `${base}/${path.map(encodeURIComponent).join("/")}${new URL(request.url).search}`;
     upstream = await fetch(url, {
       method: request.method,
@@ -35,7 +49,8 @@ async function proxy(request: Request, { params }: Context): Promise<Response> {
       signal: request.signal,
       cache: "no-store",
     });
-  } catch {
+  } catch (err) {
+    if (!request.signal.aborted) console.error("rooster proxy: upstream fetch failed", err);
     return json(502, "upstream_unavailable");
   }
 

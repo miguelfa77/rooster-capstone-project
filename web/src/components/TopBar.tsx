@@ -20,7 +20,7 @@ export default function TopBar() {
       </div>
       <nav className={styles.nav}>
         {LINKS.map(({ href, label }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+          const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
           return (
             <Link key={href} href={href} className={styles.link} aria-current={active ? "page" : undefined}>
               {label}

@@ -62,7 +62,7 @@ export const COPY = {
 } as const;
 
 /** Same order and values as UI.CHOROPLETH_METRICS; the first entry is the default. */
-export const CHOROPLETH_METRICS: { label: string; value: string }[] = [
+export const CHOROPLETH_METRICS: readonly { readonly label: string; readonly value: string }[] = [
   { label: "Puntuación inversión", value: "investment_score" },
   { label: "Mediana venta €/m²", value: "median_venta_eur_per_sqm" },
   { label: "Mediana alquiler €/m²", value: "median_alquiler_eur_per_sqm" },

@@ -18,6 +18,7 @@ afterEach(() => {
   fetchMock.mockReset();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("rooster proxy", () => {
@@ -28,6 +29,10 @@ describe("rooster proxy", () => {
       headers: {
         "content-type": "application/json",
         "x-rooster-key": "forged",
+        accept: "text/event-stream",
+        "accept-language": "es-ES",
+        "x-forwarded-for": "1.2.3.4",
+        authorization: "Bearer t",
         cookie: "s=1",
         host: "web.test",
       },
@@ -42,8 +47,9 @@ describe("rooster proxy", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("x-rooster-key")).toBe("k");
     expect(headers.get("content-type")).toBe("application/json");
-    expect(headers.get("cookie")).toBeNull();
-    expect(headers.get("host")).toBeNull();
+    expect(headers.get("accept")).toBe("text/event-stream");
+    expect(headers.get("accept-language")).toBe("es-ES");
+    expect([...headers.keys()].sort()).toEqual(["accept", "accept-language", "content-type", "x-rooster-key"]);
     expect(new TextDecoder().decode(init.body)).toBe(JSON.stringify({ text: "hola" }));
     expect(init.signal).toBe(req.signal);
   });
@@ -86,10 +92,37 @@ describe("rooster proxy", () => {
   });
 
   it("upstream_down_502", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     fetchMock.mockRejectedValue(new TypeError("fetch failed"));
     const res = await GET(new Request("http://web.test/api/rooster/intel/framing"), ctx(["intel", "framing"]));
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ detail: "upstream_unavailable" });
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it("client_abort_not_logged", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+    controller.abort();
+    fetchMock.mockRejectedValue(new DOMException("aborted", "AbortError"));
+    const req = new Request("http://web.test/api/rooster/intel/framing", { signal: controller.signal });
+    const res = await GET(req, ctx(["intel", "framing"]));
+    expect(res.status).toBe(502);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("misconfigured_500", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const missing of ["ROOSTER_API_URL", "ROOSTER_API_KEY", "ROOSTER_API_URL"]) {
+      vi.stubEnv("ROOSTER_API_URL", "http://api.test");
+      vi.stubEnv("ROOSTER_API_KEY", "k");
+      vi.stubEnv(missing, "");
+      const res = await GET(new Request("http://web.test/api/rooster/intel/framing"), ctx(["intel", "framing"]));
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ detail: "proxy_misconfigured" });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledTimes(1);
   });
 
   it("query_string_forwarded", async () => {
