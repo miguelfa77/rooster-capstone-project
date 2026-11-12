@@ -103,3 +103,10 @@ Component file layout, exact markdown and table helpers, chart styling details, 
 CSS Modules over Tailwind (fewer moving parts); `maplibre-gl` used directly rather than a React wrapper; CARTO dark tiles; conversation id in `localStorage`; docker-compose for local whole-stack runs; Playwright against a fake API since no real keys/data exist in the build environment; published response models and stored ordered `blocks` (§5.7); refetch-on-`done` so live and reloaded views match; README eval procedure without a v2 baseline (§5.8).
 
 **Approval:** owner approved the addendum and the §5.7–5.8 calls on 2026-11-12.
+
+## 8. Addendum after design critique round 1 (2026-11-12)
+
+The blind design critique (DESIGN 7 / SIMPLICITY 6) flagged that nothing bounds LLM spend when there are no accounts. Small change, decided by the orchestrator:
+
+- **Global turn limit at the API.** The API is the single entry point for every client (web now, voice later), so the limit lives there. `ROOSTER_MAX_TURNS_PER_MINUTE` (default 30; `0` disables) caps how many turns may *start* per rolling 60 s across the whole process. A message over the cap gets `429 {"detail":"rate_limited"}` before any model call, and the conversation stays usable. Single-process assumption, stated in the README. The web app shows a Spanish notice ("Rooster está atendiendo muchas preguntas ahora mismo. Inténtalo de nuevo en un minuto.") and keeps the typed text, like the busy case, but does not poll.
+- Rejected from the critique, with reasons recorded in the ledger: removing the sandbox/`code` primitive (reverses the owner-approved spec; the sandbox is already optional — without it answers fall back to tables); merging planner and synthesiser (an agent-reasoning change the parent spec forbids); saving turns block-by-block (more state for little gain; turns are all-or-nothing by design).
