@@ -61,3 +61,18 @@ def test_openapi_json_is_fresh():
     from api.export_openapi import OUT_PATH, build_openapi
 
     assert json.loads(OUT_PATH.read_text(encoding="utf-8")) == build_openapi()
+
+
+def test_text_kpi_table_payloads_ignore_extra_keys():
+    for kind in ("text", "kpi", "table"):
+        p = next(p for p in FIXTURE["payloads"] if p["kind"] == kind)
+        assert PAYLOAD.validate_python({**p, "extra": 1}).kind == kind
+
+
+def test_get_conversation_tolerates_extra_key_on_text_block(client, store):  # noqa: F811
+    cid = uuid.uuid4()
+    assistant = {"role": "assistant", "blocks": [{"kind": "text", "content": "Hola", "extra": 1}]}
+    store.states[cid] = replace(TurnState.new(), messages=[{"role": "user", "content": "hola"}, assistant])
+    r = client.get(f"/conversations/{cid}", headers=AUTH)
+    assert r.status_code == 200
+    assert r.json()["messages"][1]["blocks"][0]["content"] == "Hola"

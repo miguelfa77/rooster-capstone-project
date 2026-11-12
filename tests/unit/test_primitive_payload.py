@@ -112,3 +112,18 @@ def test_code_failure_table_is_valid_json_and_capped(monkeypatch):
     out = build_primitive_payload({"kind": "code", "visualization_type": "plotly", "code": "c"}, [_ok(rows)])
     parsed = json.loads(out["rows_json"], parse_constant=lambda c: pytest.fail(f"invalid JSON token {c}"))
     assert len(parsed) == SYNTH_TABLE_FALLBACK_ROWS and parsed[0] == {"i": 0, "v": None}
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"success": True, "output_type": None, "output": "hola"},
+        {"success": True, "output_type": "text", "output": "hola"},
+        {"success": True, "output_type": "plotly_json", "output": ""},
+        {"success": True, "output_type": "folium_html", "output": None},
+    ],
+)
+def test_code_success_without_usable_output_falls_back_to_table(monkeypatch, result):
+    monkeypatch.setattr(pp, "call_sandbox", lambda code, data: result)
+    out = build_primitive_payload({"kind": "code", "visualization_type": "plotly", "code": "c"}, [_ok(LABEL_ROWS)])
+    assert out == {"kind": "table", "rows_json": json.dumps(LABEL_ROWS), "columns": []}

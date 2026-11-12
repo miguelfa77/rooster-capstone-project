@@ -2,7 +2,7 @@
 
 Primitive payloads are the synthesizer primitives as `build_primitive_payload` makes
 them self-contained: descriptors carry their `data` rows, `code` carries the sandbox
-output. Message models and the enriched payloads ignore unknown keys, so stored
+output. Message and payload models ignore unknown keys, so stored
 messages can keep internal fields (execution results, SQL) that the API does not send.
 Runtime behaviour does not depend on these models except GET /conversations/{id},
 which filters stored messages through ConversationOut.
@@ -32,8 +32,20 @@ Rows = list[dict[str, Any]]
 
 
 # ── Primitive payloads ────────────────────────────────────────────────────
-# Text, kpi and table payloads are the synthesizer primitives unchanged (strict, as
-# build_primitive_payload adds nothing to them); the rest add fields and tolerate extras.
+# Each payload subclasses its synthesizer primitive (one source of field definitions)
+# and ignores extra keys, so one odd stored block cannot break GET /conversations/{id}.
+
+
+class TextPayload(TextPrimitive):
+    model_config = _IGNORE_EXTRA
+
+
+class KpiPayload(KpiPrimitive):
+    model_config = _IGNORE_EXTRA
+
+
+class TablePayload(TablePrimitive):
+    model_config = _IGNORE_EXTRA
 
 
 class CodePayload(CodePrimitive):
@@ -69,9 +81,9 @@ class PointMapPayload(PointMapDescriptor):
 
 InnerPrimitivePayload = Annotated[
     Union[
-        TextPrimitive,
-        KpiPrimitive,
-        TablePrimitive,
+        TextPayload,
+        KpiPayload,
+        TablePayload,
         CodePayload,
         ChoroplethPayload,
         BarPayload,
@@ -90,9 +102,9 @@ class CompositePayload(CompositePrimitive):
 
 PrimitivePayload = Annotated[
     Union[
-        TextPrimitive,
-        KpiPrimitive,
-        TablePrimitive,
+        TextPayload,
+        KpiPayload,
+        TablePayload,
         CodePayload,
         ChoroplethPayload,
         BarPayload,

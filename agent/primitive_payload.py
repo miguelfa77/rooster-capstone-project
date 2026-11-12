@@ -39,13 +39,16 @@ def _rows_for_columns(execution_results: list[dict], required: tuple[str, ...]) 
     return []
 
 
+_OUTPUT_TYPES = ("plotly_json", "folium_html")  # anything else renders nothing: use the table
+
+
 def _code_payload(primitive: dict, execution_results: list[dict]) -> dict:
     candidates = _successful_rows(execution_results)
     rows = candidates[0] if candidates else []
     if rows:
         result = call_sandbox(primitive.get("code", ""), rows)
-        if result.get("success"):
-            return {**primitive, "output_type": result.get("output_type"), "output": result.get("output") or ""}
+        if result.get("success") and result.get("output_type") in _OUTPUT_TYPES and result.get("output"):
+            return {**primitive, "output_type": result.get("output_type"), "output": result["output"]}
     rows_json = json.dumps(to_jsonable(rows[:SYNTH_TABLE_FALLBACK_ROWS]), allow_nan=False)
     return {"kind": "table", "rows_json": rows_json, "columns": []}
 

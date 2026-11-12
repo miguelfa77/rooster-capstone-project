@@ -627,13 +627,13 @@
             "items": {
               "oneOf": [
                 {
-                  "$ref": "#/components/schemas/TextPrimitive"
+                  "$ref": "#/components/schemas/TextPayload"
                 },
                 {
-                  "$ref": "#/components/schemas/KpiPrimitive"
+                  "$ref": "#/components/schemas/KpiPayload"
                 },
                 {
-                  "$ref": "#/components/schemas/TablePrimitive"
+                  "$ref": "#/components/schemas/TablePayload"
                 },
                 {
                   "$ref": "#/components/schemas/CodePayload"
@@ -664,12 +664,12 @@
                   "choropleth": "#/components/schemas/ChoroplethPayload",
                   "code": "#/components/schemas/CodePayload",
                   "composite": "#/components/schemas/CompositePayload",
-                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "kpi": "#/components/schemas/KpiPayload",
                   "line": "#/components/schemas/LinePayload",
                   "point_map": "#/components/schemas/PointMapPayload",
                   "scatter": "#/components/schemas/ScatterPayload",
-                  "table": "#/components/schemas/TablePrimitive",
-                  "text": "#/components/schemas/TextPrimitive"
+                  "table": "#/components/schemas/TablePayload",
+                  "text": "#/components/schemas/TextPayload"
                 }
               }
             },
@@ -686,13 +686,13 @@
             "items": {
               "oneOf": [
                 {
-                  "$ref": "#/components/schemas/TextPrimitive"
+                  "$ref": "#/components/schemas/TextPayload"
                 },
                 {
-                  "$ref": "#/components/schemas/KpiPrimitive"
+                  "$ref": "#/components/schemas/KpiPayload"
                 },
                 {
-                  "$ref": "#/components/schemas/TablePrimitive"
+                  "$ref": "#/components/schemas/TablePayload"
                 },
                 {
                   "$ref": "#/components/schemas/CodePayload"
@@ -723,12 +723,12 @@
                   "choropleth": "#/components/schemas/ChoroplethPayload",
                   "code": "#/components/schemas/CodePayload",
                   "composite": "#/components/schemas/CompositePayload",
-                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "kpi": "#/components/schemas/KpiPayload",
                   "line": "#/components/schemas/LinePayload",
                   "point_map": "#/components/schemas/PointMapPayload",
                   "scatter": "#/components/schemas/ScatterPayload",
-                  "table": "#/components/schemas/TablePrimitive",
-                  "text": "#/components/schemas/TextPrimitive"
+                  "table": "#/components/schemas/TablePayload",
+                  "text": "#/components/schemas/TextPayload"
                 }
               }
             },
@@ -946,24 +946,24 @@
                   "bar": "#/components/schemas/BarPayload",
                   "choropleth": "#/components/schemas/ChoroplethPayload",
                   "code": "#/components/schemas/CodePayload",
-                  "kpi": "#/components/schemas/KpiPrimitive",
+                  "kpi": "#/components/schemas/KpiPayload",
                   "line": "#/components/schemas/LinePayload",
                   "point_map": "#/components/schemas/PointMapPayload",
                   "scatter": "#/components/schemas/ScatterPayload",
-                  "table": "#/components/schemas/TablePrimitive",
-                  "text": "#/components/schemas/TextPrimitive"
+                  "table": "#/components/schemas/TablePayload",
+                  "text": "#/components/schemas/TextPayload"
                 },
                 "propertyName": "kind"
               },
               "oneOf": [
                 {
-                  "$ref": "#/components/schemas/TextPrimitive"
+                  "$ref": "#/components/schemas/TextPayload"
                 },
                 {
-                  "$ref": "#/components/schemas/KpiPrimitive"
+                  "$ref": "#/components/schemas/KpiPayload"
                 },
                 {
-                  "$ref": "#/components/schemas/TablePrimitive"
+                  "$ref": "#/components/schemas/TablePayload"
                 },
                 {
                   "$ref": "#/components/schemas/CodePayload"
@@ -1058,8 +1058,7 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "KpiPrimitive": {
-        "additionalProperties": false,
+      "KpiPayload": {
         "properties": {
           "kind": {
             "const": "kpi",
@@ -1104,7 +1103,7 @@
           "label",
           "value"
         ],
-        "title": "KpiPrimitive",
+        "title": "KpiPayload",
         "type": "object"
       },
       "LinePayload": {
@@ -1817,8 +1816,7 @@
         "title": "TableColumn",
         "type": "object"
       },
-      "TablePrimitive": {
-        "additionalProperties": false,
+      "TablePayload": {
         "properties": {
           "kind": {
             "const": "table",
@@ -1840,11 +1838,10 @@
             "type": "array"
           }
         },
-        "title": "TablePrimitive",
+        "title": "TablePayload",
         "type": "object"
       },
-      "TextPrimitive": {
-        "additionalProperties": false,
+      "TextPayload": {
         "properties": {
           "kind": {
             "const": "text",
@@ -1879,7 +1876,7 @@
         "required": [
           "content"
         ],
-        "title": "TextPrimitive",
+        "title": "TextPayload",
         "type": "object"
       },
       "TooltipField": {
@@ -2481,6 +2478,55 @@
         "title": "CompositePrimitive",
         "type": "object"
       },
+      "KpiPrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "kpi",
+            "default": "kpi",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unit"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "KpiPrimitive",
+        "type": "object"
+      },
       "LineDescriptor": {
         "additionalProperties": false,
         "properties": {
@@ -2626,6 +2672,71 @@
         "title": "ScatterDescriptor",
         "type": "object"
       },
+      "TablePrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "table",
+            "default": "table",
+            "title": "Kind",
+            "type": "string"
+          },
+          "rows_json": {
+            "default": "[]",
+            "description": "JSON array of row objects.",
+            "title": "Rows Json",
+            "type": "string"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/TableColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          }
+        },
+        "title": "TablePrimitive",
+        "type": "object"
+      },
+      "TextPrimitive": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "text",
+            "default": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "default": "analysis",
+            "enum": [
+              "lead",
+              "analysis",
+              "recommendation",
+              "caveat",
+              "enumeration_intro"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "cited_data": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cited Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "TextPrimitive",
+        "type": "object"
+      },
       "PrimitiveBlock": {
         "discriminator": {
           "mapping": {
@@ -2682,24 +2793,24 @@
             "choropleth": "#/components/schemas/ChoroplethPayload",
             "code": "#/components/schemas/CodePayload",
             "composite": "#/components/schemas/CompositePayload",
-            "kpi": "#/components/schemas/KpiPrimitive",
+            "kpi": "#/components/schemas/KpiPayload",
             "line": "#/components/schemas/LinePayload",
             "point_map": "#/components/schemas/PointMapPayload",
             "scatter": "#/components/schemas/ScatterPayload",
-            "table": "#/components/schemas/TablePrimitive",
-            "text": "#/components/schemas/TextPrimitive"
+            "table": "#/components/schemas/TablePayload",
+            "text": "#/components/schemas/TextPayload"
           },
           "propertyName": "kind"
         },
         "oneOf": [
           {
-            "$ref": "#/components/schemas/TextPrimitive"
+            "$ref": "#/components/schemas/TextPayload"
           },
           {
-            "$ref": "#/components/schemas/KpiPrimitive"
+            "$ref": "#/components/schemas/KpiPayload"
           },
           {
-            "$ref": "#/components/schemas/TablePrimitive"
+            "$ref": "#/components/schemas/TablePayload"
           },
           {
             "$ref": "#/components/schemas/CodePayload"
