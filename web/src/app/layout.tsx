@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import TopBar from "@/components/TopBar";
 import { COPY } from "@/lib/copy";
+import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

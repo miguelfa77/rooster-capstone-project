@@ -1,0 +1,65 @@
+.wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(22, 22, 22, 0.9);
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.legendTitle {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.legendBar {
+  width: 160px;
+  max-width: 100%;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legendRange {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+}
+
+/* MapLibre popups are created outside React; restyle them for the dark theme. */
+.wrap :global(.maplibregl-popup-content) {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.wrap :global(.maplibregl-popup-tip) {
+  display: none;
+}
+
+.wrap :global(.maplibregl-popup-content a) {
+  color: var(--accent);
+}
