@@ -93,7 +93,7 @@ describe("useChat", () => {
     expect(live?.status).toBe("done");
     expect(live?.text).toBe("a medias");
     expect(live?.error?.suggestion).toBe(COPY.chatErrorSuggestion);
-    expect(live?.error?.reason).toBeTruthy();
+    expect(live?.error?.reason).toBe(COPY.chatStreamInterrupted);
     // Only the initial GET: no refetch after an incomplete stream.
     expect(fetchMock.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(1);
   });
@@ -135,5 +135,109 @@ describe("useChat", () => {
     expect(result.current.state.notice).toBe(COPY.busy);
     expect(result.current.state.live).toBeNull();
     expect(result.current.state.messages).toEqual(storedMessages);
+  });
+
+  it("error_event_skips_refetch_and_keeps_turn", async () => {
+    localStorage.setItem(STORAGE_KEY, "c1");
+    routes({
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
+      "POST /api/rooster/conversations/c1/messages": () =>
+        sse([{ type: "error", reason: "boom", suggestion: "otra vez" }, { type: "done" }]),
+    });
+
+    const { result } = renderHook(() => useChat());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(() => result.current.send("hola"));
+
+    expect(result.current.state.live?.status).toBe("done");
+    expect(result.current.state.live?.error).toEqual({ reason: "boom", suggestion: "otra vez" });
+    expect(fetchMock.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(1);
+  });
+
+  it("refetch_failure_keeps_done_turn_without_error", async () => {
+    localStorage.setItem(STORAGE_KEY, "c1");
+    let gets = 0;
+    routes({
+      "GET /api/rooster/conversations/c1": () => {
+        if (gets++ === 0) return Response.json({ id: "c1", messages: [] });
+        throw new Error("network");
+      },
+      "POST /api/rooster/conversations/c1/messages": () =>
+        sse([{ type: "text_delta", text: "respuesta" }, { type: "done" }]),
+    });
+
+    const { result } = renderHook(() => useChat());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(() => result.current.send("hola"));
+
+    expect(gets).toBe(2);
+    expect(result.current.state.live?.status).toBe("done");
+    expect(result.current.state.live?.text).toBe("respuesta");
+    expect(result.current.state.live?.error).toBeNull();
+  });
+
+  it("reset_during_create_does_not_persist", async () => {
+    let resolveCreate!: (r: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (resolveCreate = r)));
+    fetchMock.mockRejectedValue(new Error("no further fetch expected"));
+
+    const { result } = renderHook(() => useChat());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.send("hola");
+    });
+    act(() => result.current.reset());
+    await act(async () => {
+      resolveCreate(Response.json({ id: "new" }, { status: 201 }));
+      await pending;
+    });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(result.current.state.conversationId).toBeNull();
+    expect(result.current.state.live).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("mount_result_ignored_after_send_created_conversation", async () => {
+    localStorage.setItem(STORAGE_KEY, "old");
+    let resolveMount!: (r: Response) => void;
+    routes({
+      "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
+      "POST /api/rooster/conversations/new/messages": () => sse([{ type: "done" }]),
+      "GET /api/rooster/conversations/new": () => Response.json({ id: "new", messages: storedMessages }),
+    });
+    const routed = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/rooster/conversations/old"
+        ? new Promise<Response>((r) => (resolveMount = r))
+        : routed(url, init),
+    );
+
+    const { result } = renderHook(() => useChat());
+    await act(() => result.current.send("hola"));
+    await act(async () => {
+      resolveMount(new Response("", { status: 404 }));
+    });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("new");
+    expect(result.current.state.conversationId).toBe("new");
+    expect(result.current.state.messages).toEqual(storedMessages);
+  });
+
+  it("concurrent_sends_post_once", async () => {
+    localStorage.setItem(STORAGE_KEY, "c1");
+    routes({
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
+      "POST /api/rooster/conversations/c1/messages": () => sse([{ type: "done" }]),
+    });
+
+    const { result } = renderHook(() => useChat());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(() => Promise.all([result.current.send("uno"), result.current.send("dos")]));
+
+    const posts = fetchMock.mock.calls.filter(([u]) => u === "/api/rooster/conversations/c1/messages");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0][1].body)).toEqual({ text: "uno" });
   });
 });

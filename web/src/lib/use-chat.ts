@@ -22,7 +22,8 @@ export function useChat(): { state: ChatState; send: (text: string) => Promise<v
     }
     getConversation(id)
       .then((conv) => {
-        if (cancelled) return;
+        // A send that already created a conversation wins over the stored id.
+        if (cancelled || idRef.current) return;
         if (conv) {
           idRef.current = conv.id;
           dispatch({ type: "loaded", id: conv.id, messages: conv.messages });
@@ -33,7 +34,7 @@ export function useChat(): { state: ChatState; send: (text: string) => Promise<v
       })
       .catch(() => {
         // Network/server error: keep the id so the next send still targets it.
-        if (cancelled) return;
+        if (cancelled || idRef.current) return;
         idRef.current = id;
         dispatch({ type: "loaded", id, messages: [] });
       });
@@ -53,6 +54,7 @@ export function useChat(): { state: ChatState; send: (text: string) => Promise<v
       let id = idRef.current;
       if (!id) {
         id = await createConversation();
+        if (controller.signal.aborted) return;
         idRef.current = id;
         localStorage.setItem(STORAGE_KEY, id);
         dispatch({ type: "loaded", id, messages: [] });
@@ -67,16 +69,20 @@ export function useChat(): { state: ChatState; send: (text: string) => Promise<v
         return;
       }
       let sawDone = false;
+      let sawError = false;
       for await (const event of parseSSE(res.body)) {
         dispatch({ type: "event", event });
         if (event.type === "done") sawDone = true;
+        if (event.type === "error") sawError = true;
       }
       if (!sawDone) {
         dispatch({ type: "failed", reason: COPY.chatStreamInterrupted });
         return;
       }
-      // The stored conversation is the source of truth for the finished turn.
-      const conv = await getConversation(id);
+      // The `done` event already marked the live turn done. An errored turn stays
+      // on screen as streamed; otherwise the stored conversation replaces it.
+      if (sawError) return;
+      const conv = await getConversation(id).catch(() => null);
       if (conv && !controller.signal.aborted) dispatch({ type: "finished", messages: conv.messages });
     } catch {
       if (!controller.signal.aborted) dispatch({ type: "failed", reason: COPY.chatRequestFailed });
