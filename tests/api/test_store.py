@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -129,3 +130,39 @@ def test_non_json_values_are_stored(store):
     state.previous_execution_results = [{"v": Decimal("6.2"), "missing": float("nan")}]
     store.save(cid, state)
     assert store.load(cid).previous_execution_results[0] == {"v": 6.2, "missing": None}
+
+
+T0 = datetime(2026, 11, 12, 10, 0, 5, tzinfo=timezone.utc)
+
+
+def test_turn_starts_count_up_to_the_cap(store, engine):
+    assert [store.try_start_turn(2, at=T0 + timedelta(seconds=i)) for i in range(3)] == [True, True, False]
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT minute, n FROM app.turn_starts")).all()
+    assert rows == [(datetime(2026, 11, 12, 10, 0, tzinfo=timezone.utc), 3)]
+
+
+def test_turn_starts_each_minute_is_independent(store):
+    assert [store.try_start_turn(1, at=T0) for _ in range(2)] == [True, False]
+    assert store.try_start_turn(1, at=T0 + timedelta(minutes=1)) is True
+
+
+def test_turn_starts_default_to_the_database_clock(store, engine):
+    assert store.try_start_turn(5) is True
+    with engine.connect() as conn:
+        n, age = conn.execute(text("SELECT n, now() - minute FROM app.turn_starts")).one()
+    assert n == 1 and timedelta(0) <= age < timedelta(minutes=2)
+
+
+def test_turn_starts_older_than_an_hour_are_deleted(store, engine):
+    store.try_start_turn(5, at=T0)
+    store.try_start_turn(5, at=T0 + timedelta(minutes=30))
+    store.try_start_turn(5, at=T0 + timedelta(minutes=61))
+    with engine.connect() as conn:
+        minutes = conn.execute(text("SELECT minute FROM app.turn_starts ORDER BY minute")).scalars().all()
+    assert [m.minute for m in minutes] == [30, 1]
+
+
+def test_migration_is_idempotent(engine):
+    with engine.begin() as conn:
+        conn.execute(text(DDL.read_text()))

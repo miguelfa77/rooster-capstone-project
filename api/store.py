@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -84,6 +85,23 @@ class ConversationStore:
                     "res": _dumps(state.previous_execution_results),
                 },
             )
+
+    def try_start_turn(self, cap: int, at: datetime | None = None) -> bool:
+        """Count one turn start in its UTC minute; False once that minute's count exceeds cap.
+
+        `at` defaults to the database clock; rows older than an hour are deleted in passing.
+        """
+        with self.engine.begin() as conn:
+            minute, n = conn.execute(
+                text(
+                    "INSERT INTO app.turn_starts (minute, n) VALUES ("
+                    "date_trunc('minute', COALESCE(CAST(:at AS timestamptz), now()) AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', 1) "
+                    "ON CONFLICT (minute) DO UPDATE SET n = app.turn_starts.n + 1 RETURNING minute, n"
+                ),
+                {"at": at},
+            ).one()
+            conn.execute(text("DELETE FROM app.turn_starts WHERE minute < :m - interval '1 hour'"), {"m": minute})
+        return n <= cap
 
     @contextmanager
     def lock(self, conversation_id: uuid.UUID) -> Iterator[None]:

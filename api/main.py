@@ -12,7 +12,6 @@ import os
 import threading
 import time
 import uuid
-from collections import deque
 from contextlib import ExitStack
 from functools import lru_cache
 from typing import Any, Callable, Literal
@@ -90,8 +89,6 @@ def get_turn_context() -> TurnContext:
     )
 
 
-_turn_starts: deque[float] = deque()
-_turn_starts_lock = threading.Lock()
 _warned_bad_turn_limit = False
 
 
@@ -108,21 +105,6 @@ def _max_turns_per_minute() -> int:
             _warned_bad_turn_limit = True
             log.warning("Invalid ROOSTER_MAX_TURNS_PER_MINUTE=%r; using %d", raw, DEFAULT_MAX_TURNS_PER_MINUTE)
         return DEFAULT_MAX_TURNS_PER_MINUTE
-
-
-def _turn_allowed() -> bool:
-    """Record a turn start unless the per-minute cap (0 = off) is already reached in the last 60 s."""
-    cap = _max_turns_per_minute()
-    if cap == 0:
-        return True
-    now = time.monotonic()
-    with _turn_starts_lock:
-        while _turn_starts and now - _turn_starts[0] >= 60:
-            _turn_starts.popleft()
-        if len(_turn_starts) >= cap:
-            return False
-        _turn_starts.append(now)
-        return True
 
 
 def _parse_id(conversation_id: str) -> uuid.UUID:
@@ -175,7 +157,8 @@ def post_message(
     cid = _parse_id(conversation_id)
     if store.load(cid) is None:
         raise HTTPException(status_code=404, detail="not found")
-    if not _turn_allowed():
+    cap = _max_turns_per_minute()
+    if cap and not store.try_start_turn(cap):
         raise HTTPException(status_code=429, detail="rate_limited")
 
     held = ExitStack()
@@ -183,7 +166,6 @@ def post_message(
         held.enter_context(store.lock(cid))
     except ConversationBusy:
         raise HTTPException(status_code=409, detail="busy") from None
-    state = store.load(cid)
 
     def run(emit) -> None:
         """Run the turn, save it, then send `done` so a client never sees done before the save."""
@@ -200,11 +182,16 @@ def post_message(
             held.close()
         emit(DoneEvent())
 
-    return StreamingResponse(
-        stream_turn(run),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    try:  # anything failing before the stream starts must not leave the lock held
+        state = store.load(cid)
+        return StreamingResponse(
+            stream_turn(run),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    except BaseException:
+        held.close()
+        raise
 
 
 # ── Intel (read-only data for the dashboard) ──────────────────────────────

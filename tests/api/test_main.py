@@ -25,6 +25,11 @@ class FakeStore:
     def __init__(self):
         self.states: dict[uuid.UUID, TurnState] = {}
         self.busy: set[uuid.UUID] = set()
+        self.turn_starts = 0  # one fixed window; minute rollover is covered in test_store.py
+
+    def try_start_turn(self, cap):
+        self.turn_starts += 1
+        return self.turn_starts <= cap
 
     def create(self):
         cid = uuid.uuid4()
@@ -84,7 +89,6 @@ def client(monkeypatch, store):
     monkeypatch.setattr(main, "run_turn", scripted_turn)
     main.app.dependency_overrides[main.get_store] = lambda: store
     main.app.dependency_overrides[main.get_turn_context] = lambda: None
-    main._turn_starts.clear()
     yield TestClient(main.app)
     main.app.dependency_overrides.clear()
 
@@ -176,26 +180,19 @@ def test_turns_under_the_cap_are_accepted(client, monkeypatch):
     assert [_post(client, cid).status_code for _ in range(3)] == [200, 200, 200]
 
 
-def test_turn_over_the_cap_429_then_accepted_after_the_window(client, monkeypatch):
-    import api.main as main
-
-    now = [1000.0]
-    monkeypatch.setattr(main.time, "monotonic", lambda: now[0])
+def test_turn_over_the_cap_429(client, monkeypatch):
     monkeypatch.setenv("ROOSTER_MAX_TURNS_PER_MINUTE", "2")
     cid = _create(client)
     assert [_post(client, cid).status_code for _ in range(2)] == [200, 200]
     r = _post(client, cid)
     assert r.status_code == 429 and r.json() == {"detail": "rate_limited"}
-    now[0] += 59
-    assert _post(client, cid).status_code == 429
-    now[0] += 1
-    assert _post(client, cid).status_code == 200
 
 
-def test_turn_limit_zero_disables(client, monkeypatch):
+def test_turn_limit_zero_disables(client, store, monkeypatch):
     monkeypatch.setenv("ROOSTER_MAX_TURNS_PER_MINUTE", "0")
     cid = _create(client)
     assert all(_post(client, cid).status_code == 200 for _ in range(40))
+    assert store.turn_starts == 0  # the counter is not touched when the cap is off
 
 
 @pytest.mark.parametrize("raw", ["abc", "30.5", " "])
@@ -234,6 +231,22 @@ def test_turn_exception_streams_error_then_done(client, monkeypatch):
     assert [t for t, _ in events] == ["error", "done"]
     monkeypatch.setattr(main, "run_turn", scripted_turn)
     assert client.post(f"/conversations/{cid}/messages", json={"text": "otra"}, headers=AUTH).status_code == 200
+
+
+def test_lock_released_when_load_fails_after_locking(client, store, monkeypatch):
+    cid = _create(client)
+    real_load, calls = store.load, []
+
+    def load_then_fail(c):
+        calls.append(c)
+        if len(calls) > 1:  # the second load runs while the lock is held
+            raise RuntimeError("db down")
+        return real_load(c)
+
+    monkeypatch.setattr(store, "load", load_then_fail)
+    with pytest.raises(RuntimeError):
+        _post(client, cid)
+    assert not store.busy
 
 
 def test_save_failure_streams_error_then_done(client, store, monkeypatch):

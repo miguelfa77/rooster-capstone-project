@@ -18,3 +18,9 @@ CREATE TABLE IF NOT EXISTS app.messages (
     created_at       timestamptz NOT NULL DEFAULT now(),
     UNIQUE (conversation_id, position)
 );
+
+-- Turn starts per UTC minute, shared by every API instance (ROOSTER_MAX_TURNS_PER_MINUTE).
+CREATE TABLE IF NOT EXISTS app.turn_starts (
+    minute  timestamptz PRIMARY KEY,
+    n       int NOT NULL
+);
