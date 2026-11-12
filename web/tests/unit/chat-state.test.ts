@@ -27,6 +27,30 @@ describe("chatReducer", () => {
     expect(s.notice).toBeNull();
   });
 
+  it("send_after_errored_turn_keeps_it_in_messages", () => {
+    const prior: Message[] = [{ role: "user", content: "antes" }];
+    const errored = liveTurn({ text: "parcial", error: { reason: "Se cortó.", suggestion: "Reintenta." }, status: "done" });
+    const s = chatReducer({ ...idle, messages: prior, live: errored }, { type: "send", text: "otra" });
+    expect(s.messages).toEqual([
+      ...prior,
+      { role: "user", content: "hola" },
+      {
+        role: "assistant",
+        blocks: [],
+        summary: "",
+        primitive_payloads: [],
+        follow_ups: [],
+        graceful_fallback: { reason: "Se cortó.", suggestion: "Reintenta." },
+      },
+    ]);
+    expect(s.live).toEqual(liveTurn({ userText: "otra" }));
+  });
+
+  it("send_after_successful_live_turn_does_not_append", () => {
+    const s = chatReducer({ ...idle, live: liveTurn({ status: "done" }) }, { type: "send", text: "otra" });
+    expect(s.messages).toEqual([]);
+  });
+
   it("thought_appends", () => {
     let s = chatReducer(streaming, { type: "event", event: { type: "thought", text: "a" } });
     s = chatReducer(s, { type: "event", event: { type: "thought", text: "b" } });

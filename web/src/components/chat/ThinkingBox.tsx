@@ -8,10 +8,11 @@ import styles from "./ThinkingBox.module.css";
 export default function ThinkingBox({ thoughts, hasText }: { thoughts: string[]; hasText: boolean }) {
   const [open, setOpen] = useState(!hasText);
   const [prevHasText, setPrevHasText] = useState(hasText);
-  // Collapse on the first text_delta (state adjusted during render, not in an effect).
+  // Collapse on the first text_delta and reopen when a new turn starts without text
+  // (state adjusted during render, not in an effect).
   if (hasText !== prevHasText) {
     setPrevHasText(hasText);
-    if (hasText) setOpen(false);
+    setOpen(!hasText);
   }
   const latest = thoughts.at(-1);
 

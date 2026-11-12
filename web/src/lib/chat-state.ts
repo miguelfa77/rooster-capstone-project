@@ -67,8 +67,25 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, conversationId: action.id, messages: action.messages, loading: false };
     case "reset":
       return { ...initialChatState, loading: false };
-    case "send":
-      return { ...state, live: newLiveTurn(action.text), notice: null };
+    case "send": {
+      // A failed turn is not stored by the server; keep it visible as history.
+      const failed = state.live?.status === "done" && state.live.error ? state.live : null;
+      const messages: Message[] = failed
+        ? [
+            ...state.messages,
+            ...(failed.userText ? [{ role: "user" as const, content: failed.userText }] : []),
+            {
+              role: "assistant",
+              blocks: [],
+              summary: "",
+              primitive_payloads: [],
+              follow_ups: [],
+              graceful_fallback: failed.error,
+            },
+          ]
+        : state.messages;
+      return { ...state, messages, live: newLiveTurn(action.text), notice: null };
+    }
     case "event":
       return state.live ? { ...state, live: applyEvent(state.live, action.event) } : state;
     case "finished":

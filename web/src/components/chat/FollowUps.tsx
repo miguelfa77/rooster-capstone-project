@@ -21,8 +21,8 @@ export default function FollowUps({
   }
   return (
     <div className={styles.pills}>
-      {items.map((item) => (
-        <button key={item} type="button" className={styles.pill} onClick={() => onPick(item)}>
+      {items.map((item, i) => (
+        <button key={i} type="button" className={styles.pill} onClick={() => onPick(item)}>
           {item}
         </button>
       ))}

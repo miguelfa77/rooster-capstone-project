@@ -212,6 +212,45 @@ describe("ChatView", () => {
     expect(screen.getByText("Buscando barrios")).toBeInTheDocument();
   });
 
+  it("thinking_box_reopens_for_next_turn_after_failed_turn", () => {
+    setState({
+      live: live({ thoughts: ["a"], text: "parcial", error: { reason: "r", suggestion: "s" }, status: "done" }),
+    });
+    const { rerender } = render(<ChatView />);
+    expect(screen.getByRole("button", { name: /Pensando…/ })).toHaveAttribute("aria-expanded", "false");
+    setState({ live: live({ userText: "otra", thoughts: ["b"] }) });
+    rerender(<ChatView />);
+    expect(screen.getByRole("button", { name: /Pensando…/ })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("duplicate_follow_ups_render_each", () => {
+    setState({ messages: [{ role: "user", content: "a" }, assistant({ follow_ups: ["Igual", "Igual"] })] });
+    render(<ChatView />);
+    expect(screen.getAllByRole("button", { name: "Igual" })).toHaveLength(2);
+  });
+
+  it("auto_scroll_pauses_when_scrolled_up_and_resumes_on_new_turn", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, value: 5000 });
+    try {
+      setState({ messages: [{ role: "user", content: "a" }, assistant({ follow_ups: [] })] });
+      const { rerender } = render(<ChatView />);
+      expect(scroll).toHaveBeenCalled();
+      fireEvent.scroll(window); // innerHeight + scrollY is far from the bottom
+      scroll.mockClear();
+      setState({ messages: [{ role: "user", content: "a" }, assistant({ summary: "más" })] });
+      rerender(<ChatView />);
+      expect(scroll).not.toHaveBeenCalled();
+      setState({ messages: chat.state.messages, live: live() });
+      rerender(<ChatView />);
+      expect(scroll).toHaveBeenCalled();
+    } finally {
+      delete (document.documentElement as unknown as Record<string, unknown>).scrollHeight;
+      delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    }
+  });
+
   it("live_turn_shows_user_text_and_primitives", () => {
     setState({ live: live({ text: "Texto vivo", primitives: [{ kind: "kpi", label: "KPI vivo", value: "1", unit: null, delta: null }] }) });
     render(<ChatView />);

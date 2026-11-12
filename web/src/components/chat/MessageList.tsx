@@ -58,7 +58,12 @@ export default function MessageList({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  const prevLiveRef = useRef<LiveTurn | null>(null);
   useEffect(() => {
+    const prev = prevLiveRef.current;
+    prevLiveRef.current = live;
+    // A newly started turn always brings the reader back to the bottom.
+    if (live?.status === "streaming" && prev?.status !== "streaming") followRef.current = true;
     if (followRef.current) endRef.current?.scrollIntoView?.({ block: "end" });
   }, [messages, live]);
 
