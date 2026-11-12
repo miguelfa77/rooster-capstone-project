@@ -52,6 +52,11 @@ services:
     environment:
       ROOSTER_API_URL: http://api:8000
       ROOSTER_API_KEY: ${ROOSTER_API_KEY:?set ROOSTER_API_KEY in .env}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      AUTH_TRUST_HOST: "true"
+      ROOSTER_ALLOWED_EMAILS: ${ROOSTER_ALLOWED_EMAILS:-}
     ports:
       - "3000:3000"
     depends_on:

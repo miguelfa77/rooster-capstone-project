@@ -9,6 +9,14 @@ export const COPY = {
   navIntel: "Inteligencia",
   close: "Cerrar",
 
+  // Sign-in (/entrar)
+  signInWithGoogle: "Continuar con Google",
+  signInServiceError: "No pudimos iniciar tu sesión ahora mismo. Inténtalo de nuevo en unos minutos.",
+  inviteTitle: "Rooster es solo por invitación",
+  inviteHowToRequest:
+    "Para pedir acceso, escribe a la persona que te invitó a Rooster e indícale el correo de Google con el que quieres entrar.",
+  inviteTryAnotherAccount: "Probar con otra cuenta",
+
   // Chat
   chatInputPlaceholder: "Pregunta por anuncios, rentabilidades, barrios…",
   statusThinking: "Pensando…",
