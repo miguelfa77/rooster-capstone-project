@@ -16,6 +16,15 @@ export const COPY = {
   busy: "Rooster sigue respondiendo a tu mensaje anterior.",
   chatRequestFailed: "No se pudo contactar con Rooster.",
   chatStreamInterrupted: "La respuesta se interrumpió antes de terminar.",
+  chatSend: "Enviar",
+  chatMessagesLabel: "Conversación",
+  chatFollowUpsLabel: "Sugerencias:",
+  chatExamples: [
+    "¿Qué barrios de Valencia tienen la mejor rentabilidad bruta?",
+    "Muéstrame en un mapa la puntuación de inversión por barrio",
+    "¿Dónde está más barato el metro cuadrado en venta?",
+    "¿Qué barrios tienen buen transporte y poca presión turística?",
+  ],
 
   // Primitives
   emptyChart: "Sin datos para este gráfico.",
