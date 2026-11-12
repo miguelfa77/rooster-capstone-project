@@ -1,6 +1,6 @@
 # Rooster v4 — Product (new frontend + the backend it needs)
 
-**Status:** Ready for owner approval · **Date:** 2026-11-12 · **Branch:** `v4` (from `v3`)
+**Status:** Approved (owner, 2026-11-12) · **Date:** 2026-11-12 · **Branch:** `v4` (from `v3`)
 **Mockups:** `docs/design/v4-mockups/` (`ticker.html` is the agreed look; `dark-light.html`, `visual-direction.html` show how we got there)
 
 ## 1. Intent
