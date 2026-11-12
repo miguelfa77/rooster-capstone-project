@@ -6,8 +6,9 @@ import uuid
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from agent.turn import TurnState
 from api.sse import to_json as _dumps
@@ -20,6 +21,11 @@ class ConversationBusy(Exception):
 class ConversationStore:
     def __init__(self, engine: Engine):
         self.engine = engine
+        # Turn locks live on their own unpooled connections so a long turn never
+        # holds a connection (or an open transaction) from the shared pool.
+        self._lock_engine = create_engine(
+            engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+        )
 
     def create(self) -> uuid.UUID:
         cid = uuid.uuid4()
@@ -82,12 +88,14 @@ class ConversationStore:
     @contextmanager
     def lock(self, conversation_id: uuid.UUID) -> Iterator[None]:
         """Hold an exclusive advisory lock for one conversation, or raise ConversationBusy."""
-        with self.engine.connect() as conn:
-            with conn.begin():
-                acquired = conn.execute(
-                    text("SELECT pg_try_advisory_xact_lock(hashtext(CAST(:id AS text)))"),
-                    {"id": str(conversation_id)},
-                ).scalar_one()
-                if not acquired:
-                    raise ConversationBusy(str(conversation_id))
+        key = {"id": str(conversation_id)}
+        with self._lock_engine.connect() as conn:
+            acquired = conn.execute(
+                text("SELECT pg_try_advisory_lock(hashtext(CAST(:id AS text)))"), key
+            ).scalar_one()
+            if not acquired:
+                raise ConversationBusy(str(conversation_id))
+            try:
                 yield
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(hashtext(CAST(:id AS text)))"), key)

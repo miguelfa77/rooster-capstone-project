@@ -82,6 +82,45 @@ def test_lock_is_exclusive(store):
         pass  # released after the first block
 
 
+def test_lock_does_not_use_the_main_pool():
+    from api.store import ConversationStore
+
+    eng = create_engine(TEST_DB, pool_size=1, max_overflow=0, pool_timeout=1)
+    try:
+        store = ConversationStore(eng)
+        cid = uuid.uuid4()
+        with store.lock(cid):
+            with eng.connect() as conn:  # would time out if the lock held the only pooled connection
+                assert conn.execute(text("SELECT 1")).scalar_one() == 1
+    finally:
+        eng.dispose()
+
+
+def test_lock_leaves_no_transaction_open(store, engine):
+    cid = uuid.uuid4()
+    with store.lock(cid):
+        with engine.connect() as conn:
+            states = conn.execute(
+                text("SELECT state FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()")
+            ).scalars().all()
+    assert "idle in transaction" not in states
+
+
+def test_lock_released_when_holder_connection_dies(store, engine):
+    from api.store import ConversationBusy
+
+    cid = uuid.uuid4()
+    with engine.connect() as holder:
+        holder.execute(text("SELECT pg_advisory_lock(hashtext(CAST(:id AS text)))"), {"id": str(cid)})
+        holder.commit()
+        with pytest.raises(ConversationBusy):
+            with store.lock(cid):
+                pass
+        holder.invalidate()  # closes the DBAPI connection abruptly; Postgres drops its session locks
+    with store.lock(cid):
+        pass
+
+
 def test_non_json_values_are_stored(store):
     from decimal import Decimal
 
