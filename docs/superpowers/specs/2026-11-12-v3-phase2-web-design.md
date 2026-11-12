@@ -1,6 +1,6 @@
 # Rooster v3 Phase 2 — Web App (design addendum)
 
-**Status:** Proceeding (owner away; see §7) · **Branch:** `v3` · **Date:** 2026-11-12
+**Status:** Approved · **Branch:** `v3` · **Date:** 2026-11-12
 **Parent spec:** `2026-10-29-v3-api-web-voice-design.md` (approved). This addendum settles what §5.2 and §7 left to the builder and records two scope decisions made since. Where it is silent, the parent spec holds.
 
 ## 1. Intent
@@ -102,4 +102,4 @@ Component file layout, exact markdown and table helpers, chart styling details, 
 
 CSS Modules over Tailwind (fewer moving parts); `maplibre-gl` used directly rather than a React wrapper; CARTO dark tiles; conversation id in `localStorage`; docker-compose for local whole-stack runs; Playwright against a fake API since no real keys/data exist in the build environment; published response models and stored ordered `blocks` (§5.7); refetch-on-`done` so live and reloaded views match; README eval procedure without a v2 baseline (§5.8).
 
-**Approval:** the owner left before reviewing this addendum and asked for the work to continue unattended; the orchestrator proceeded on it as written.
+**Approval:** owner approved the addendum and the §5.7–5.8 calls on 2026-11-12.
