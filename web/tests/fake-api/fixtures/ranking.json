@@ -1,0 +1,38 @@
+[
+  {
+    "neighborhood_name": "Benimaclet",
+    "yield_pct": 6.8,
+    "eur_per_sqm": 2410,
+    "transit_stop_count": 18,
+    "transport_rating": "Alta",
+    "tourist_pct": 1.2,
+    "tourism_pressure": "Baja",
+    "score": 0.82,
+    "venta_count": 40,
+    "alquiler_count": 55
+  },
+  {
+    "neighborhood_name": "Russafa",
+    "yield_pct": 6.1,
+    "eur_per_sqm": 3350,
+    "transit_stop_count": 22,
+    "transport_rating": "Alta",
+    "tourist_pct": 4.8,
+    "tourism_pressure": "Alta",
+    "score": 0.71,
+    "venta_count": 70,
+    "alquiler_count": 50
+  },
+  {
+    "neighborhood_name": "Arrancapins",
+    "yield_pct": 5.2,
+    "eur_per_sqm": 2890,
+    "transit_stop_count": 12,
+    "transport_rating": "Media",
+    "tourist_pct": 2.1,
+    "tourism_pressure": "Media",
+    "score": 0.55,
+    "venta_count": 35,
+    "alquiler_count": 25
+  }
+]

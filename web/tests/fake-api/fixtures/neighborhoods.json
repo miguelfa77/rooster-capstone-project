@@ -1,0 +1,117 @@
+{
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                -0.376,
+                39.459
+              ],
+              [
+                -0.366,
+                39.459
+              ],
+              [
+                -0.366,
+                39.469
+              ],
+              [
+                -0.376,
+                39.469
+              ],
+              [
+                -0.376,
+                39.459
+              ]
+            ]
+          ]
+        },
+        "properties": {
+          "name": "Russafa",
+          "value": 0.71,
+          "listings": 120,
+          "yield_pct": 6.1
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                -0.36,
+                39.485
+              ],
+              [
+                -0.35,
+                39.485
+              ],
+              [
+                -0.35,
+                39.495
+              ],
+              [
+                -0.36,
+                39.495
+              ],
+              [
+                -0.36,
+                39.485
+              ]
+            ]
+          ]
+        },
+        "properties": {
+          "name": "Benimaclet",
+          "value": 0.82,
+          "listings": 95,
+          "yield_pct": 6.8
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                -0.385,
+                39.465
+              ],
+              [
+                -0.375,
+                39.465
+              ],
+              [
+                -0.375,
+                39.475
+              ],
+              [
+                -0.385,
+                39.475
+              ],
+              [
+                -0.385,
+                39.465
+              ]
+            ]
+          ]
+        },
+        "properties": {
+          "name": "Arrancapins",
+          "value": 0.55,
+          "listings": 60,
+          "yield_pct": 5.2
+        }
+      }
+    ]
+  },
+  "vmin": 0.55,
+  "vmax": 0.82
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "lat": 39.4699,
+    "lng": -0.3763,
+    "name": "Xàtiva",
+    "stop_type": "station"
+  },
+  {
+    "lat": 39.4745,
+    "lng": -0.3585,
+    "name": "Aragó",
+    "stop_type": "stop_position"
+  },
+  {
+    "lat": 39.4802,
+    "lng": -0.369,
+    "name": "Parada 1201",
+    "stop_type": "platform"
+  }
+]

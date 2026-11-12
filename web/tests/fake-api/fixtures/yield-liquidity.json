@@ -1,0 +1,29 @@
+[
+  {
+    "neighborhood_name": "Benimaclet",
+    "yield_pct": 6.8,
+    "listing_count": 95,
+    "investment_score": 0.82,
+    "transport_rating": "Alta",
+    "tourism_pressure": "Baja",
+    "eur_per_sqm": 2410
+  },
+  {
+    "neighborhood_name": "Russafa",
+    "yield_pct": 6.1,
+    "listing_count": 120,
+    "investment_score": 0.71,
+    "transport_rating": "Alta",
+    "tourism_pressure": "Alta",
+    "eur_per_sqm": 3350
+  },
+  {
+    "neighborhood_name": "Arrancapins",
+    "yield_pct": 5.2,
+    "listing_count": 60,
+    "investment_score": 0.55,
+    "transport_rating": "Media",
+    "tourism_pressure": "Media",
+    "eur_per_sqm": 2890
+  }
+]
