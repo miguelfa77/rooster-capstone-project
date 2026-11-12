@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rooster — visual directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #e9e9ec; color: #111; }
+  .intro { max-width: 1200px; margin: 0 auto; padding: 20px 16px 4px; }
+  .intro h1 { font-size: 20px; margin: 0 0 6px; }
+  .intro p { margin: 0 0 4px; color: #444; font-size: 14px; line-height: 1.45; }
+  .dir { max-width: 1200px; margin: 18px auto 30px; padding: 0 16px; }
+  .dir h2 { font-size: 17px; margin: 0 0 2px; }
+  .dir .why { font-size: 13.5px; color: #555; margin: 0 0 10px; line-height: 1.45; }
+  .scaler { width: 100%; overflow: hidden; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  .frame { width: 1280px; height: 800px; transform-origin: top left; display: grid; grid-template-columns: 220px 1fr 340px; font-size: 13px; }
+
+  /* shared structure */
+  .nav { display: flex; flex-direction: column; padding: 18px 14px; gap: 4px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; margin: 0 6px 18px; }
+  .logo .mark { width: 22px; height: 22px; border-radius: 6px; }
+  .nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; text-decoration: none; font-weight: 500; }
+  .nav .ico { width: 16px; height: 16px; border-radius: 4px; opacity: .7; }
+  .nav .sec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; margin: 16px 10px 4px; opacity: .6; font-weight: 600; }
+  .nav .conv { font-weight: 400; font-size: 12.5px; padding: 6px 10px; opacity: .85; }
+  .nav .spacer { flex: 1; }
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .top { display: flex; align-items: center; gap: 12px; padding: 12px 24px; }
+  .search { flex: 1; max-width: 460px; padding: 9px 12px; border-radius: 9px; font-size: 13px; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; margin-left: auto; display: grid; place-items: center; font-weight: 600; font-size: 12px; }
+  .content { padding: 4px 24px 24px; overflow: hidden; display: flex; flex-direction: column; gap: 14px; }
+  .crumb { font-size: 12px; opacity: .65; }
+  .head { display: flex; align-items: flex-end; gap: 14px; }
+  .head h1 { margin: 0; font-size: 28px; line-height: 1.1; }
+  .head .sub { font-size: 13px; opacity: .7; margin-top: 4px; }
+  .actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn { padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: 12.5px; }
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .kpi { padding: 12px 14px; border-radius: 10px; }
+  .kpi .l { font-size: 11.5px; opacity: .7; }
+  .kpi .v { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .d { font-size: 11.5px; margin-top: 2px; }
+  .row { display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px; }
+  .panel { border-radius: 10px; padding: 12px 14px; }
+  .panel h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+  .panel svg { display: block; width: 100%; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 500; font-size: 11.5px; padding: 6px 8px; opacity: .65; }
+  td { padding: 7px 8px; }
+  td.n, th.n { text-align: right; }
+  .tag { display: inline-block; padding: 2px 7px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .chat { display: flex; flex-direction: column; }
+  .chat-h { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-weight: 600; }
+  .chat-h .x { margin-left: auto; opacity: .55; font-weight: 400; font-size: 12px; }
+  .msgs { flex: 1; padding: 6px 14px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .u { align-self: flex-end; max-width: 80%; padding: 8px 11px; border-radius: 12px 12px 3px 12px; }
+  .a { max-width: 100%; line-height: 1.45; }
+  .a p { margin: 0 0 8px; }
+  .mini { border-radius: 9px; padding: 9px 10px; margin: 6px 0; }
+  .mini .r { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; margin: 4px 6px 0 0; padding: 5px 9px; border-radius: 99px; font-size: 11.5px; font-weight: 600; }
+  .think { font-size: 11.5px; opacity: .6; }
+  .composer { margin: 10px 14px 14px; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; }
+  .send { width: 26px; height: 26px; border-radius: 7px; }
+
+  /* ---------- A: Light institutional ---------- */
+  .A { background: #f6f7f9; color: #0f172a; }
+  .A .nav { background: #fff; border-right: 1px solid #e5e7eb; }
+  .A .logo .mark { background: #1d4ed8; }
+  .A .nav a { color: #334155; }
+  .A .nav a.on { background: #eef2ff; color: #1d4ed8; }
+  .A .nav .ico { background: currentColor; }
+  .A .top { background: #fff; border-bottom: 1px solid #e5e7eb; }
+  .A .search { background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; }
+  .A .avatar { background: #1d4ed8; color: #fff; }
+  .A .btn { border: 1px solid #e2e8f0; background: #fff; color: #0f172a; }
+  .A .btn.p { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+  .A .kpi, .A .panel { background: #fff; border: 1px solid #e5e7eb; }
+  .A .up { color: #059669; } .A .dn { color: #dc2626; }
+  .A tr + tr td { border-top: 1px solid #f1f5f9; }
+  .A .tag { background: #ecfdf5; color: #047857; }
+  .A .tag.w { background: #fffbeb; color: #b45309; }
+  .A .chat { background: #fff; border-left: 1px solid #e5e7eb; }
+  .A .chat-h { border-bottom: 1px solid #f1f5f9; }
+  .A .u { background: #1d4ed8; color: #fff; }
+  .A .mini { background: #f8fafc; border: 1px solid #e2e8f0; }
+  .A .chip { background: #eef2ff; color: #1d4ed8; }
+  .A .composer { border: 1px solid #e2e8f0; color: #94a3b8; }
+  .A .send { background: #1d4ed8; }
+  .A .line { stroke: #1d4ed8; } .A .area { fill: #1d4ed8; opacity: .08; } .A .grid { stroke: #eef2f7; } .A .ax { fill: #94a3b8; }
+
+  /* ---------- B: Dark terminal ---------- */
+  .B { background: #0b0d10; color: #e6e8eb; }
+  .B .nav { background: #0f1216; border-right: 1px solid #1d2229; }
+  .B .logo .mark { background: #e5484d; }
+  .B .nav a { color: #9aa3ad; }
+  .B .nav a.on { background: #1a1f26; color: #fff; }
+  .B .nav .ico { background: currentColor; }
+  .B .top { border-bottom: 1px solid #1d2229; }
+  .B .search { background: #12161b; border: 1px solid #222832; color: #6b7480; }
+  .B .avatar { background: #222832; color: #e6e8eb; }
+  .B .btn { border: 1px solid #2a313b; background: #12161b; color: #e6e8eb; }
+  .B .btn.p { background: #e5484d; border-color: #e5484d; color: #fff; }
+  .B .kpi, .B .panel { background: #12161b; border: 1px solid #1d2229; }
+  .B .kpi .v { font-family: "JetBrains Mono", monospace; font-size: 20px; }
+  .B .up { color: #3dd68c; } .B .dn { color: #ff6369; }
+  .B tr + tr td { border-top: 1px solid #1a1f26; }
+  .B td.n { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+  .B .tag { background: rgba(61,214,140,.12); color: #3dd68c; }
+  .B .tag.w { background: rgba(255,178,36,.12); color: #ffb224; }
+  .B .chat { background: #0f1216; border-left: 1px solid #1d2229; }
+  .B .chat-h { border-bottom: 1px solid #1a1f26; }
+  .B .u { background: #1f2630; color: #e6e8eb; }
+  .B .mini { background: #12161b; border: 1px solid #222832; }
+  .B .mini .r span:last-child { font-family: "JetBrains Mono", monospace; }
+  .B .chip { background: rgba(229,72,77,.12); color: #ff8589; }
+  .B .composer { background: #12161b; border: 1px solid #222832; color: #6b7480; }
+  .B .send { background: #e5484d; }
+  .B .line { stroke: #e5484d; } .B .area { fill: #e5484d; opacity: .12; } .B .grid { stroke: #1a1f26; } .B .ax { fill: #6b7480; }
+
+  /* ---------- C: Warm editorial ---------- */
+  .C { background: #f7f3ec; color: #1f1a16; }
+  .C .nav { background: #f1ebe1; border-right: 1px solid #e4dccd; }
+  .C .logo { font-family: Fraunces, serif; font-size: 20px; font-weight: 600; }
+  .C .logo .mark { background: #c2410c; border-radius: 50%; }
+  .C .nav a { color: #5b5047; }
+  .C .nav a.on { background: #fffaf2; color: #1f1a16; box-shadow: 0 1px 0 #e4dccd; }
+  .C .nav .ico { background: currentColor; border-radius: 50%; }
+  .C .top { border-bottom: 1px solid #e9e1d4; }
+  .C .search { background: #fffaf2; border: 1px solid #e4dccd; color: #9a8d80; }
+  .C .avatar { background: #1f1a16; color: #f7f3ec; }
+  .C .head h1 { font-family: Fraunces, serif; font-weight: 600; font-size: 32px; }
+  .C .btn { border: 1px solid #ddd3c3; background: #fffaf2; color: #1f1a16; }
+  .C .btn.p { background: #1f1a16; border-color: #1f1a16; color: #f7f3ec; }
+  .C .kpi, .C .panel { background: #fffaf2; border: 1px solid #e9e1d4; }
+  .C .kpi .v { font-family: Fraunces, serif; font-size: 24px; }
+  .C .panel h3 { font-family: Fraunces, serif; font-size: 15px; font-weight: 600; }
+  .C .up { color: #15803d; } .C .dn { color: #b91c1c; }
+  .C tr + tr td { border-top: 1px solid #efe8dc; }
+  .C .tag { background: #e8f2e3; color: #3f6b2b; }
+  .C .tag.w { background: #fbecd9; color: #9a4d0b; }
+  .C .chat { background: #fffaf2; border-left: 1px solid #e4dccd; }
+  .C .chat-h { border-bottom: 1px solid #efe8dc; font-family: Fraunces, serif; font-size: 16px; }
+  .C .u { background: #1f1a16; color: #f7f3ec; }
+  .C .mini { background: #f7f3ec; border: 1px solid #e9e1d4; }
+  .C .chip { background: #fbe7d9; color: #c2410c; }
+  .C .composer { background: #fff; border: 1px solid #e4dccd; color: #9a8d80; }
+  .C .send { background: #c2410c; }
+  .C .line { stroke: #c2410c; } .C .area { fill: #c2410c; opacity: .08; } .C .grid { stroke: #efe8dc; } .C .ax { fill: #9a8d80; }
+</style>
+</head>
+<body>
+<div class="intro">
+  <h1>Rooster — three visual directions</h1>
+  <p>Same screen in all three: the <b>Benimaclet</b> neighbourhood page, with the left navigation, search, key figures, price trend, map, listings, and the <b>Rooster chat sidebar</b> open on the right (answering a follow-up with a compact comparison that links out to the full view).</p>
+  <p>Only the feel changes. Tell me which is closest, or what to mix (e.g. "A's layout with C's typography").</p>
+</div>
+
+<template id="screen">
+  <aside class="nav">
+    <div class="logo"><span class="mark"></span>Rooster</div>
+    <a href="#"><span class="ico"></span>Inicio</a>
+    <a href="#"><span class="ico"></span>Mapa</a>
+    <a href="#" class="on"><span class="ico"></span>Barrios</a>
+    <a href="#"><span class="ico"></span>Anuncios</a>
+    <a href="#"><span class="ico"></span>Comparar</a>
+    <a href="#"><span class="ico"></span>Calculadora</a>
+    <a href="#"><span class="ico"></span>Seguimiento</a>
+    <div class="sec">Conversaciones</div>
+    <a href="#" class="conv">Benimaclet vs Russafa</a>
+    <a href="#" class="conv">Pisos &lt; 250k con 6 %+</a>
+    <a href="#" class="conv">Barrios con buen metro</a>
+    <div class="spacer"></div>
+    <a href="#"><span class="ico"></span>Ajustes</a>
+  </aside>
+  <section class="main">
+    <div class="top">
+      <div class="search">Buscar barrio, dirección o anuncio…</div>
+      <div class="avatar">MF</div>
+    </div>
+    <div class="content">
+      <div class="crumb">Barrios / Benimaclet</div>
+      <div class="head">
+        <div><h1>Benimaclet</h1><div class="sub">Distrito Benimaclet · 134 anuncios activos · datos a 10 nov 2026</div></div>
+        <div class="actions"><span class="btn">☆ Seguir</span><span class="btn">Comparar</span><span class="btn p">Exportar PDF</span></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="l">Rentabilidad bruta</div><div class="v">6,8 %</div><div class="d up">▲ 0,3 pp vs 6 m</div></div>
+        <div class="kpi"><div class="l">€/m² venta</div><div class="v">2.410 €</div><div class="d dn">▲ 4,1 % vs 6 m</div></div>
+        <div class="kpi"><div class="l">Alquiler mediano</div><div class="v">1.050 €</div><div class="d up">▲ 5,6 % vs 6 m</div></div>
+        <div class="kpi"><div class="l">Puntuación inversión</div><div class="v">82<span style="font-size:13px;opacity:.6">/100</span></div><div class="d">#1 de 71 barrios</div></div>
+        <div class="kpi"><div class="l">Presión turística</div><div class="v">1,2 %</div><div class="d">Baja</div></div>
+      </div>
+      <div class="row">
+        <div class="panel">
+          <h3>Precio €/m² y alquiler · últimos 12 meses</h3>
+          <svg viewBox="0 0 520 170" preserveAspectRatio="none" height="170">
+            <g class="grid" stroke-width="1"><line x1="30" y1="20" x2="515" y2="20"/><line x1="30" y1="65" x2="515" y2="65"/><line x1="30" y1="110" x2="515" y2="110"/><line x1="30" y1="150" x2="515" y2="150"/></g>
+            <path class="area" d="M30,120 L74,116 L118,118 L162,108 L206,104 L250,98 L294,92 L338,88 L382,80 L426,74 L470,66 L515,58 L515,150 L30,150 Z"/>
+            <polyline class="line" fill="none" stroke-width="2.4" points="30,120 74,116 118,118 162,108 206,104 250,98 294,92 338,88 382,80 426,74 470,66 515,58"/>
+            <polyline class="line" fill="none" stroke-width="1.6" stroke-dasharray="4 4" opacity=".55" points="30,132 74,130 118,126 162,127 206,121 250,118 294,113 338,111 382,106 426,101 470,98 515,92"/>
+            <g class="ax" font-size="10"><text x="0" y="24">2.5k</text><text x="0" y="114">2.2k</text><text x="30" y="166">dic</text><text x="250" y="166">jun</text><text x="490" y="166">nov</text></g>
+          </svg>
+        </div>
+        <div class="panel">
+          <h3>Ubicación</h3>
+          <svg viewBox="0 0 360 170" height="170">
+            <rect width="360" height="170" rx="8" class="area" style="opacity:.05"/>
+            <path d="M40,40 L120,20 L170,55 L150,110 L80,120 Z" fill="currentColor" opacity=".07" stroke="currentColor" stroke-opacity=".15"/>
+            <path d="M170,55 L260,35 L320,80 L280,140 L150,110 Z" fill="currentColor" opacity=".07" stroke="currentColor" stroke-opacity=".15"/>
+            <path class="line" d="M150,110 L280,140 L250,165 L110,160 L80,120 Z" fill="currentColor" stroke-width="2" style="fill-opacity:.0"/>
+            <path d="M150,110 L280,140 L250,165 L110,160 L80,120 Z" class="area" style="opacity:.35"/>
+            <g fill="currentColor" opacity=".55"><circle cx="160" cy="135" r="3"/><circle cx="200" cy="145" r="3"/><circle cx="230" cy="140" r="3"/><circle cx="130" cy="140" r="3"/></g>
+            <text x="165" y="125" font-size="11" font-weight="600" fill="currentColor">Benimaclet</text>
+          </svg>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Anuncios destacados · por debajo de la mediana €/m²</h3>
+        <table>
+          <tr><th>Anuncio</th><th class="n">Precio</th><th class="n">m²</th><th class="n">€/m²</th><th class="n">Rent. estimada</th><th></th></tr>
+          <tr><td>Piso 3 hab · C/ Murta</td><td class="n">189.000 €</td><td class="n">88</td><td class="n">2.148 €</td><td class="n">7,4 %</td><td><span class="tag">Oportunidad</span></td></tr>
+          <tr><td>Piso 2 hab · Av. Primat Reig</td><td class="n">172.500 €</td><td class="n">74</td><td class="n">2.331 €</td><td class="n">7,0 %</td><td><span class="tag">Oportunidad</span></td></tr>
+          <tr><td>Ático 2 hab · C/ Emilio Baró</td><td class="n">245.000 €</td><td class="n">96</td><td class="n">2.552 €</td><td class="n">6,1 %</td><td><span class="tag w">A reformar</span></td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+  <aside class="chat">
+    <div class="chat-h">Rooster <span class="x">⤢ pantalla completa · ✕</span></div>
+    <div class="msgs">
+      <div class="u">¿Cómo se compara con Russafa?</div>
+      <div class="a">
+        <div class="think">✓ Consultó métricas de 2 barrios</div>
+        <p>Benimaclet rinde <b>0,7 pp más</b> que Russafa y es un <b>28 % más barato</b> por m², con menos presión turística. Russafa tiene más liquidez.</p>
+        <div class="mini">
+          <div class="r"><span></span><span><b>Benimaclet · Russafa</b></span></div>
+          <div class="r"><span>Rentabilidad</span><span>6,8 % · 6,1 %</span></div>
+          <div class="r"><span>€/m² venta</span><span>2.410 · 3.350</span></div>
+          <div class="r"><span>Anuncios</span><span>134 · 221</span></div>
+        </div>
+        <span class="chip">Abrir comparación →</span><span class="chip">Ver Russafa →</span>
+      </div>
+      <div class="u">Calcula el piso de C/ Murta con hipoteca al 80 %</div>
+      <div class="a"><div class="think">● Calculando rentabilidad neta…</div></div>
+    </div>
+    <div class="composer"><span>Pregunta a Rooster…</span><span class="send"></span></div>
+  </aside>
+</template>
+
+<div class="dir"><h2>A · Light institutional</h2><p class="why">Closest to Fragua and most fintech/proptech tools: white, crisp, one confident blue, lots of air. Reads "trustworthy software for funds". Best for long sessions and printed/PDF reports.</p><div class="scaler"><div class="frame A"></div></div></div>
+<div class="dir"><h2>B · Dark terminal</h2><p class="why">An evolution of today's dark/red look toward a Bloomberg-style pro tool: dense, monospaced numbers, high contrast. Reads "power user". Feels more like a trading app than a property tool.</p><div class="scaler"><div class="frame B"></div></div></div>
+<div class="dir"><h2>C · Warm editorial</h2><p class="why">Cream paper, serif headings, terracotta accent. Reads "premium research publication", distinctive and very Valencian. Less common in data tools, so it stands out; slightly less "enterprise".</p><div class="scaler"><div class="frame C"></div></div></div>
+
+<script>
+  const tpl = document.getElementById('screen');
+  document.querySelectorAll('.frame').forEach(f => f.appendChild(tpl.content.cloneNode(true)));
+  function fit() {
+    document.querySelectorAll('.scaler').forEach(s => {
+      const f = s.querySelector('.frame');
+      const k = s.clientWidth / 1280;
+      f.style.transform = `scale(${k})`;
+      s.style.height = (800 * k) + 'px';
+    });
+  }
+  window.addEventListener('resize', fit); fit();
+</script>
+</body>
+</html>
