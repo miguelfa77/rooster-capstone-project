@@ -1,6 +1,13 @@
 "use client";
 
-import { Popup, type ExpressionSpecification, type Map as MapLibreMap, type MapLayerMouseEvent } from "maplibre-gl";
+import {
+  Popup,
+  type ExpressionSpecification,
+  type LngLat,
+  type Map as MapLibreMap,
+  type MapLayerMouseEvent,
+  type MapMouseEvent,
+} from "maplibre-gl";
 import { useMemo } from "react";
 import EmptyState from "@/components/primitives/EmptyState";
 import type { ChoroplethPayload } from "@/lib/types";
@@ -31,18 +38,21 @@ export default function ChoroplethMap({ p }: { p: ChoroplethPayload }) {
     map.addLayer({ id: "choropleth-outline", type: "line", source: SOURCE, paint: { "line-color": "#333", "line-width": 1 } });
 
     const popup = new Popup({ closeButton: false, closeOnClick: false });
-    const show = (e: MapLayerMouseEvent) => {
-      const props = e.features?.[0]?.properties;
+    const show = (lngLat: LngLat, props: Record<string, unknown> | undefined) => {
       if (!props) return;
-      popup.setLngLat(e.lngLat).setDOMContent(popupContent(p.tooltip_fields ?? [], props)).addTo(map);
+      popup.setLngLat(lngLat).setDOMContent(popupContent(p.tooltip_fields ?? [], props)).addTo(map);
     };
-    // mousemove for desktop hover, click for touch.
-    map.on("mousemove", FILL, show);
-    map.on("click", FILL, show);
+    // Desktop: hover. Touch: tap a polygon to open, tap anywhere else to close.
+    map.on("mousemove", FILL, (e: MapLayerMouseEvent) => show(e.lngLat, e.features?.[0]?.properties));
     map.on("mouseleave", FILL, () => popup.remove());
+    map.on("click", (e: MapMouseEvent) => {
+      const hit = map.queryRenderedFeatures(e.point, { layers: [FILL] })[0];
+      if (hit) show(e.lngLat, hit.properties);
+      else popup.remove();
+    });
 
     const bounds = boundsOf(fc);
-    if (bounds) map.fitBounds(bounds, { padding: 24, duration: 0 });
+    if (bounds) map.fitBounds(bounds, { padding: 24, maxZoom: 15, duration: 0 });
   };
 
   return (

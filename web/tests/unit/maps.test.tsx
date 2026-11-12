@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => {
     instances: [] as FakeMap[],
     popups: [] as FakePopup[],
     throwOnCreate: false,
+    rendered: [] as unknown[],
   };
   class FakeMap {
     options: Record<string, unknown>;
@@ -37,6 +38,9 @@ const fake = vi.hoisted(() => {
       this.layers.push(layer);
       return this;
     }
+    queryRenderedFeatures() {
+      return state.rendered;
+    }
     getCanvas() {
       return { style: {} as Record<string, string> };
     }
@@ -49,7 +53,7 @@ const fake = vi.hoisted(() => {
       }
       return this;
     }
-    fire(type: string, layer: string, e: unknown) {
+    fire(type: string, layer: string | undefined, e: unknown) {
       for (const h of this.handlers) if (h.type === type && h.layer === layer) h.cb(e);
     }
   }
@@ -106,6 +110,7 @@ afterEach(() => {
   fake.state.instances.length = 0;
   fake.state.popups.length = 0;
   fake.state.throwOnCreate = false;
+  fake.state.rendered = [];
 });
 
 describe("maps", () => {
@@ -153,6 +158,24 @@ describe("maps", () => {
     expect(node.textContent).toContain("Barrio: <b>Russafa</b>");
     expect(node.textContent).toContain("Rentabilidad: 6,10");
     expect(node.querySelector("b")).toBeNull();
+  });
+
+  it("choropleth_tap_outside_polygons_closes_popup", () => {
+    render(<ChoroplethMap p={payload("choropleth")} />);
+    const m = lastMap();
+    fake.state.rendered = [{ properties: { neighborhood_name: "Russafa" } }];
+    m.fire("click", undefined, { lngLat: { lng: -0.37, lat: 39.46 }, point: { x: 1, y: 1 } });
+    const popup = fake.state.popups.at(-1)!;
+    expect((popup.content as HTMLElement).textContent).toContain("Barrio: Russafa");
+    const remove = vi.spyOn(popup, "remove");
+    fake.state.rendered = [];
+    m.fire("click", undefined, { lngLat: { lng: 0, lat: 0 }, point: { x: 9, y: 9 } });
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("choropleth_fit_bounds_caps_zoom", () => {
+    render(<ChoroplethMap p={payload("choropleth")} />);
+    expect(lastMap().fitBounds.mock.calls[0][1]).toMatchObject({ maxZoom: 15 });
   });
 
   it("point_map_adds_circle_layer", () => {

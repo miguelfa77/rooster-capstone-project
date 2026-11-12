@@ -62,7 +62,10 @@ export function colorRamp(name: Colormap): string[] {
   return RAMPS[name] ?? RAMPS.YlOrRd;
 }
 
-/** Linear interpolation of `field` across the ramp, with stops evenly spread over [vmin, vmax]. */
+/**
+ * Returns a MapLibre `interpolate` expression (linear, not a `step`) mapping `field` across the ramp,
+ * with stops evenly spread over [vmin, vmax].
+ */
 export function stepExpression(field: string, vmin: number, vmax: number, ramp: string[]): ExpressionSpecification {
   const span = vmax > vmin ? vmax - vmin : 1; // stops must be strictly ascending
   const last = Math.max(1, ramp.length - 1);
