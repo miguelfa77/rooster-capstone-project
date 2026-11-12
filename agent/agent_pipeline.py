@@ -24,7 +24,7 @@ def _sql_escape(s: str) -> str:
 
 
 def get_live_schema_context() -> str:
-    """Build live DB snapshot text for the planner (call from app with @st.cache_data)."""
+    """Build live DB snapshot text for the planner."""
     engine = get_pg_engine()
     lines: list[str] = [
         "=== LIVE DATABASE STATE ===",
@@ -793,7 +793,7 @@ def format_last_assistant_for_planner(messages: list[dict[str, Any]]) -> str:
     """
     Build a compact text block from the last assistant turn so the planner can resolve
     "estos", "them", etc. Uses `summary` and `render_stack` (and legacy row fields) from
-    Streamlit chat history.
+    stored chat history.
     """
     for msg in reversed(messages or []):
         if msg.get("role") != "assistant":

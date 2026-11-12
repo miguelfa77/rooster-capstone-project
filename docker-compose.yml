@@ -1,0 +1,56 @@
+# Whole Rooster stack for local runs: PostGIS, sandbox, API and web.
+#   cp .env.example .env   # fill in OPENAI_API_KEY and ROOSTER_API_KEY
+#   docker compose up --build
+# Web: http://localhost:3000 · API: http://localhost:8000 · Postgres: localhost:5432
+# The database starts empty: see README "First run: data" for migrations, loaders and dbt.
+
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rooster}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rooster}
+      POSTGRES_DB: ${POSTGRES_DB:-rooster}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  sandbox:
+    build: ./sandbox
+    # Listens on 8080 (sandbox/Dockerfile); reachable only inside the compose network.
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rooster}:${POSTGRES_PASSWORD:-rooster}@db:5432/${POSTGRES_DB:-rooster}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
+      ROOSTER_API_KEY: ${ROOSTER_API_KEY:?set ROOSTER_API_KEY in .env}
+      ROOSTER_SANDBOX_URL: http://sandbox:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      sandbox:
+        condition: service_started
+
+  web:
+    build: ./web
+    environment:
+      ROOSTER_API_URL: http://api:8000
+      ROOSTER_API_KEY: ${ROOSTER_API_KEY:?set ROOSTER_API_KEY in .env}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

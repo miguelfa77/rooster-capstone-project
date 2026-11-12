@@ -1,4 +1,4 @@
-"""Cadenas de interfaz en español para Rooster (Streamlit)."""
+"""Spanish UI strings for the agent and API (the web app ports its copy to web/src/lib/copy.ts)."""
 
 # —— Página y pestañas ——
 PAGE_TITLE = "Rooster – Inmobiliario Valencia"

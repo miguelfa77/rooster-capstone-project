@@ -1,6 +1,6 @@
 """Intel-tab data queries, independent of any UI.
 
-Moved from app.py so the Streamlit app and the HTTP API share them.
+Served to the web Intel page through the HTTP API (api/main.py).
 """
 
 from __future__ import annotations

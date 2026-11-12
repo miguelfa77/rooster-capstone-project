@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 from agent import ui_es as UI
 from agent.synthesizer import BarDescriptor, CodePrimitive, KpiPrimitive, SynthesizedResponse, TextPrimitive
 from agent.turn import (
@@ -137,12 +134,6 @@ def test_previous_results_passed_to_loop(fake_agent, events, emit):
     state.previous_execution_results = [{"tool": "x"}]
     run_turn("q", state, _ctx(), emit)
     assert fake_agent.calls["loop"][0]["previous_execution_results"] == [{"tool": "x"}]
-
-
-def test_turn_module_has_no_streamlit():
-    code = "import sys, agent.turn; print('streamlit' in sys.modules)"
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "False"
 
 
 def test_primitive_events_carry_their_data(fake_agent, events, emit):

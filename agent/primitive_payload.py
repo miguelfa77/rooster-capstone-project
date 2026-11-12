@@ -1,7 +1,7 @@
 """Make a synthesized primitive self-contained for API clients.
 
-Descriptors get the rows they render (`data`), routed by column presence the same
-way the Streamlit renderer does. `code` primitives are executed in the sandbox and
+Descriptors get the rows they render (`data`), routed by column presence as
+the v2 Streamlit renderer did. `code` primitives are executed in the sandbox and
 carry their output; if that fails they become a table of the data, as in v2.
 """
 

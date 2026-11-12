@@ -7,3 +7,6 @@
 .venv
 .superpowers
 **/data/
+# The web app builds from web/ with its own .dockerignore; keep it out of the root context.
+web/
+**/node_modules

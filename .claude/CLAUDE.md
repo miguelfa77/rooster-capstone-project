@@ -2,7 +2,7 @@
 
 **What it is:** Spanish-language AI real estate analytics chatbot for Valencia. Investors ask natural language questions; the agent queries a PostGIS database and returns dynamic visualizations and prose. Single city, single domain.
 
-**Stack:** Python · PostgreSQL + PostGIS · dbt · OpenAI Responses API (GPT-5.5) · Streamlit · Folium · Plotly · Railway
+**Stack:** Python · PostgreSQL + PostGIS · dbt · OpenAI Responses API (GPT-5.5) · FastAPI · Next.js + TypeScript (Recharts, MapLibre, Plotly for `code` output) · Docker
 
 ---
 
@@ -29,7 +29,7 @@ Rooster's agent mirrors how a frontier LLM natively operates: a reasoning model 
 **Python's job is narrow:**
 - Build SQL from tool params (model never writes SQL directly)
 - Return real errors as structured results — never silently swallow them
-- Render visualizations from structured descriptors the model emits
+- Attach the data rows each structured descriptor needs (`agent/primitive_payload.py`); the web app renders them
 
 **The failure mode we actively avoid:** adding a new layer every time something breaks. When something fails, the right question is always "does the model need better information at the failing stage?" — almost never "should we add a checker on top of it?"
 
@@ -46,7 +46,7 @@ user message
   → [model self-corrects if executor fails — max 3-5 loop steps]
   → synthesiser (GPT-5.5)   # emits primitives: descriptor | text | kpi | table
   → [code primitive pre-check → sandbox → if fails, re-synthesise with error]
-  → agent/turn.py emits events → Streamlit (renders primitives) / API (streams SSE)
+  → agent/turn.py emits events → API (streams SSE) → Next.js web app (renders primitives)
   → memory_updater          # gpt-5-mini, updates structured session memory
 ```
 
@@ -56,7 +56,7 @@ user message
 
 **Semantic layer** — three YAML registries (`metrics.yml`, `concepts.yml`, `heuristics.yml`) that give the model self-knowledge about the data: what columns exist, what user-facing terms mean, how compositional concepts like "buena zona" translate to filter expressions, and what spatial references like "el centro" resolve to. The model reads these as context — not a gatekeeper.
 
-**Visualization descriptors** — the synthesiser emits structured JSON descriptors for standard chart types instead of writing raw Python code. Each descriptor is rendered by a verified Python template with no code generation risk:
+**Visualization descriptors** — the synthesiser emits structured JSON descriptors for standard chart types instead of writing raw Python code. Each descriptor is rendered by a fixed web component (`web/src/components/primitives/`) with no code generation risk:
 - `choropleth` — neighborhood polygon map colored by a metric (requires `geom` column)
 - `bar` — horizontal/vertical bar ranking chart
 - `scatter` — two-metric scatter / correlation plot
@@ -65,7 +65,7 @@ user message
 
 The `code` primitive (free-form Python via sandbox) is reserved for non-standard visualizations not covered by descriptors.
 
-**Multi-result rendering** — each descriptor renderer uses `_get_rows_for_columns(*required)` to find the right dataset from all execution results by column presence. A choropleth needs `geom` + metric; a point_map needs `lat` + `lng`. Multi-tool responses automatically route to the correct dataset per primitive.
+**Multi-result rendering** — `agent/primitive_payload.py` (`build_primitive_payload`) picks the right dataset for each descriptor from all execution results by column presence and attaches it as `data`. A choropleth needs `geom` + metric; a point_map needs `lat` + `lng`. Multi-tool responses automatically route to the correct dataset per primitive. The web app never re-routes rows.
 
 **Multi-turn data coherence** — `filter_shown_data` tool filters the previous turn's in-memory rows in Python with no DB query. Enables follow-up questions like "de estos, muéstrame solo los que tienen yield > 6%" to operate on already-fetched data. Previous execution results are passed to `run_agent_loop_pipeline` each turn.
 
@@ -96,8 +96,10 @@ tourist_density_pct  median_venta_eur_per_sqm  data_confidence
 
 ## Deployment
 
-Two Railway services: the main Streamlit app and the sandbox FastAPI service (root dir `sandbox/`, separate Dockerfile). One Railway PostGIS 17 database. Communication between app and sandbox via Railway private networking (`ROOSTER_SANDBOX_URL` — must include `http://` scheme).
+Three services plus one PostGIS 17 database, each with its own Dockerfile; `docker-compose.yml` runs the whole stack locally. No hosting config is checked in.
 
-API service (v3): `api/` FastAPI app (`api/Dockerfile`, build from repo root), conversations stored in the `app` schema (`sql/migrate_app_conversations.sql`). Shares `agent/turn.py` and `agent/intel_data.py` with Streamlit.
+- **api** — `api/` FastAPI app (`api/Dockerfile`, build from repo root), runs `agent/turn.py` and `agent/intel_data.py`; conversations stored in the `app` schema (`sql/migrate_app_conversations.sql`). Publishes `api/openapi.json`; `web/src/lib/api-types.ts` is generated from it.
+- **sandbox** — `sandbox/` FastAPI service (own Dockerfile, port 8080), executes `code` primitives. The API reaches it via `ROOSTER_SANDBOX_URL` (must include `http://` scheme).
+- **web** — `web/` Next.js app (`web/Dockerfile`, port 3000). Its server-side proxy `/api/rooster/*` forwards to `ROOSTER_API_URL` with `X-Rooster-Key`; the browser never sees the key or calls FastAPI directly.
 
-**Key env vars:** `DATABASE_URL` · `OPENAI_API_KEY` · `ROOSTER_SANDBOX_URL` · `ROOSTER_API_KEY` (API only)
+**Key env vars:** api: `DATABASE_URL` · `OPENAI_API_KEY` · `ROOSTER_SANDBOX_URL` · `ROOSTER_API_KEY` — web (server-only): `ROOSTER_API_URL` · `ROOSTER_API_KEY`

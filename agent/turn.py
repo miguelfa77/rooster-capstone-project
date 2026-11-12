@@ -1,8 +1,7 @@
 """One chat turn, independent of any UI.
 
 `run_turn` runs the agent loop, synthesis, code-primitive correction and memory
-update for a single user message, reporting progress through `emit`. Streamlit
-and the HTTP API are both clients of this module.
+update for a single user message, reporting progress through `emit`. The HTTP API (api/) is its client.
 """
 
 from __future__ import annotations

@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import pandas as pd
 import pytest
 
@@ -37,9 +34,3 @@ def test_framing_none_without_analytics_views(monkeypatch):
 def test_ranking_empty_without_analytics_views(monkeypatch):
     monkeypatch.setattr(intel, "analytics_views_available", lambda: {"neighborhood_metrics": False})
     assert intel.neighborhood_ranking().empty and intel.yield_liquidity().empty
-
-
-def test_intel_module_has_no_streamlit():
-    code = "import sys, agent.intel_data; print('streamlit' in sys.modules)"
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "False"
