@@ -185,6 +185,35 @@ describe("useChat", () => {
     }
   });
 
+  it("429_sets_rate_limited_keeps_text_and_does_not_poll", async () => {
+    localStorage.setItem(STORAGE_KEY, "c1");
+    let gets = 0;
+    routes({
+      "GET /api/rooster/conversations/c1": () => {
+        gets++;
+        return Response.json({ id: "c1", messages: storedMessages });
+      },
+      "POST /api/rooster/conversations/c1/messages": () =>
+        Response.json({ detail: "rate_limited" }, { status: 429 }),
+    });
+
+    const { result } = renderHook(() => useChat());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    vi.useFakeTimers();
+    try {
+      await act(() => result.current.send("otra"));
+
+      expect(result.current.state.notice).toBe(COPY.rateLimited);
+      expect(result.current.state.draft).toEqual({ text: "otra" });
+      expect(result.current.state.live).toBeNull();
+      expect(result.current.state.messages).toEqual(storedMessages);
+      await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
+      expect(gets).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("error_event_skips_refetch_and_keeps_turn", async () => {
     localStorage.setItem(STORAGE_KEY, "c1");
     routes({

@@ -14,6 +14,7 @@ export const COPY = {
   newConversation: "Nueva conversación",
   chatErrorSuggestion: "Vuelve a intentarlo en unos segundos; si persiste, recarga la página.",
   busy: "Rooster sigue respondiendo a tu mensaje anterior.",
+  rateLimited: "Rooster está atendiendo muchas preguntas ahora mismo. Inténtalo de nuevo en un minuto.",
   chatRequestFailed: "No se pudo contactar con Rooster.",
   chatStreamInterrupted: "La respuesta se interrumpió antes de terminar.",
   chatSend: "Enviar",

@@ -113,6 +113,10 @@ export function useChat(): { state: ChatState; send: (text: string) => Promise<v
         startPoll(id);
         return;
       }
+      if (res.status === 429) {
+        dispatch({ type: "rateLimited", text });
+        return;
+      }
       if (!res.ok || !res.body) {
         dispatch({ type: "failed", reason: COPY.chatRequestFailed });
         return;

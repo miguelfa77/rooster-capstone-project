@@ -31,10 +31,12 @@ Environment variables per service (copy **`.env.example`** to **`.env`**; it is 
 | Service | Variables |
 |---------|-----------|
 | **db** (compose) | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
-| **api** | `DATABASE_URL` (or `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`), `OPENAI_API_KEY` (or `OPENAI_KEY`), `ROOSTER_API_KEY` (shared secret, `X-Rooster-Key` header; if unset the API rejects every request), `ROOSTER_SANDBOX_URL` (must include `http://`; default `http://localhost:8001`) |
+| **api** | `DATABASE_URL` (or `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`), `OPENAI_API_KEY` (or `OPENAI_KEY`), `ROOSTER_API_KEY` (shared secret, `X-Rooster-Key` header; if unset the API rejects every request), `ROOSTER_SANDBOX_URL` (must include `http://`; default `http://localhost:8001`), `ROOSTER_MAX_TURNS_PER_MINUTE` (turns that may start per rolling 60 s across all conversations; default `30`, `0` disables; over the cap → `429`) |
 | **sandbox** | `PORT` (default `8080` in its Docker image) |
 | **web** | `ROOSTER_API_URL` (e.g. `http://localhost:8000`), `ROOSTER_API_KEY` (same value as the API). Both are server-only: never prefix them with `NEXT_PUBLIC_`. |
 | **pipeline / dbt** | Same database as the API (`DATABASE_URL` or `PG*`). `agent/llm_sql.py` also loads **`agent/.env`**; pipeline CLIs load **`pipeline/.env`** and merge unset keys; dbt reads **`dbt/.env`** (see below). |
+
+The turn limit is counted per API process (a single instance is assumed).
 
 Optional agent tuning: `ROOSTER_PLANNER_MODEL`, `ROOSTER_SYNTHESIZER_MODEL`, `ROOSTER_MEMORY_MODEL` and the `ROOSTER_REASONING_*` variables (see `agent/config.py`).
 
@@ -145,7 +147,7 @@ The agent runs behind a FastAPI service (`api/`); the web app is its client. Tur
 |--------|------|---------|
 | `GET` | `/health` | `{"ok": true}` |
 | `POST` | `/conversations` | `201 {"id"}` |
-| `POST` | `/conversations/{id}/messages` | Body `{"text"}` (1–2000 chars). Streams Server-Sent Events. `404` unknown id, `409` a turn is already running. |
+| `POST` | `/conversations/{id}/messages` | Body `{"text"}` (1–2000 chars). Streams Server-Sent Events. `404` unknown id, `409` a turn is already running, `429` the turn limit was reached. |
 | `GET` | `/conversations/{id}` | `{"id", "messages"}`; assistant messages carry the ordered `blocks` the web renders |
 | `GET` | `/intel/framing`, `/intel/neighborhoods?metric=…`, `/intel/overlays/transit`, `/intel/overlays/tourism`, `/intel/listings?operation=All\|venta\|alquiler`, `/intel/parcels`, `/intel/ranking`, `/intel/yield-liquidity` | Intel page data (cached 5–10 min) |
 

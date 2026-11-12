@@ -11,6 +11,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from contextlib import ExitStack
 from functools import lru_cache
 from typing import Any, Callable, Literal
@@ -85,6 +86,25 @@ def get_turn_context() -> TurnContext:
     )
 
 
+_turn_starts: deque[float] = deque()
+_turn_starts_lock = threading.Lock()
+
+
+def _turn_allowed() -> bool:
+    """Record a turn start unless ROOSTER_MAX_TURNS_PER_MINUTE (default 30, 0 = off) already started in 60 s."""
+    cap = int(os.getenv("ROOSTER_MAX_TURNS_PER_MINUTE") or 30)
+    if cap <= 0:
+        return True
+    now = time.monotonic()
+    with _turn_starts_lock:
+        while _turn_starts and now - _turn_starts[0] >= 60:
+            _turn_starts.popleft()
+        if len(_turn_starts) >= cap:
+            return False
+        _turn_starts.append(now)
+        return True
+
+
 def _parse_id(conversation_id: str) -> uuid.UUID:
     try:
         return uuid.UUID(conversation_id)
@@ -135,6 +155,8 @@ def post_message(
     cid = _parse_id(conversation_id)
     if store.load(cid) is None:
         raise HTTPException(status_code=404, detail="not found")
+    if not _turn_allowed():
+        raise HTTPException(status_code=429, detail="rate_limited")
 
     held = ExitStack()
     try:
