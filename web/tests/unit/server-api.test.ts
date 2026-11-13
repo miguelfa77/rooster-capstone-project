@@ -29,15 +29,20 @@ describe("server-api", () => {
     });
   });
 
-  it("fetch_me_unknown_user_is_null", async () => {
-    for (const status of [401, 404]) {
-      fetchMock.mockResolvedValue(Response.json({ detail: "x" }, { status }));
-      await expect(fetchMe("u1"), String(status)).resolves.toBeNull();
-    }
+  it("fetch_me_null_on_user_required", async () => {
+    fetchMock.mockResolvedValue(Response.json({ detail: "user_required" }, { status: 401 }));
+    await expect(fetchMe("u1")).resolves.toBeNull();
+  });
+
+  it("fetch_me_throws_on_bad_key", async () => {
+    fetchMock.mockResolvedValue(Response.json({ detail: "unauthorized" }, { status: 401 }));
+    await expect(fetchMe("u1")).rejects.toThrow();
   });
 
   it("fetch_me_throws_on_other_errors", async () => {
-    fetchMock.mockResolvedValue(new Response("", { status: 503 }));
-    await expect(fetchMe("u1")).rejects.toThrow();
+    for (const res of [new Response("", { status: 503 }), Response.json({ detail: "x" }, { status: 404 }), new Response("no json", { status: 401 })]) {
+      fetchMock.mockResolvedValue(res);
+      await expect(fetchMe("u1"), String(res.status)).rejects.toThrow();
+    }
   });
 });

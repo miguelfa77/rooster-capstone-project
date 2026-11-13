@@ -18,8 +18,14 @@ export function MobileNav({ children }: { children: ReactNode }) {
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="bg-card w-[260px] gap-0 p-0"
+        className="bg-card w-[260px] gap-0 p-0 focus:outline-none"
         aria-describedby={undefined}
+        // Focus the sheet itself rather than its close button, so pointer opens show no focus ring;
+        // keyboard users Tab straight into the nav.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
         onClick={(e) => {
           if ((e.target as Element).closest("a[href]")) setOpen(false);
         }}

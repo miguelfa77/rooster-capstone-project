@@ -179,6 +179,13 @@ describe("theme", () => {
     expect(screen.getByText("g").className).toContain("bg-primary-solid");
   });
 
+  it("muted_text_on_secondary_at_least_4_5", () => {
+    // e.g. the nav's "Pronto" badge (secondary badge with muted-foreground text).
+    for (const mode of MODES) {
+      expect(contrast(color(mode, "--muted-foreground"), color(mode, "--secondary")), mode).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("placeholder_contrast_at_least_4_5", () => {
     for (const mode of MODES) {
       const surfaces = [color(mode, "--background"), color(mode, "--card")];

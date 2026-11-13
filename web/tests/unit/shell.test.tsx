@@ -112,7 +112,10 @@ describe("LeftNav", () => {
 describe("UserMenu", () => {
   it("user_menu_shows_name_email_and_signs_out", () => {
     withProviders(<UserMenu user={USER} />);
-    expect(screen.getByRole("button", { name: "Menú de usuario" })).toHaveTextContent("MF");
+    const trigger = screen.getByRole("button", { name: "Menú de usuario" });
+    expect(trigger).toHaveTextContent("MF");
+    // Dark fill with light text in light mode; a subtle raised fill in dark mode (mockup .L/.B).
+    expect(within(trigger).getByText("MF")).toHaveClass("bg-foreground", "text-background", "dark:bg-input", "dark:text-foreground");
     const menu = openMenu();
     expect(within(menu).getByText("María Fernández")).toBeInTheDocument();
     expect(within(menu).getByText("maria@example.es")).toBeInTheDocument();
@@ -149,6 +152,8 @@ describe("AppShell", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     act(() => screen.getByRole("button", { name: "Abrir menú" }).click());
     const dialog = screen.getByRole("dialog");
+    // Focus goes to the sheet itself, not the close button (no ring on pointer opens).
+    expect(dialog).toHaveFocus();
     expect(within(dialog).getByRole("link", { name: "Inicio" })).toHaveAttribute("href", "/");
     act(() => within(dialog).getByRole("link", { name: "Inicio" }).click());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -162,7 +167,10 @@ describe("AppShell", () => {
     );
     const search = screen.getByRole("searchbox", { name: "Buscar" });
     expect(search).toBeDisabled();
-    expect(search).toHaveAttribute("placeholder", "Buscar barrio, dirección o anuncio…");
+    // Short hint below sm, the full one from sm up (never clipped mid-word).
+    const form = search.closest("[role=search]")!;
+    expect(within(form as HTMLElement).getByText("Buscar…")).toHaveClass("sm:hidden");
+    expect(within(form as HTMLElement).getByText("Buscar barrio, dirección o anuncio…")).toHaveClass("hidden", "sm:inline");
     expect(screen.getByRole("button", { name: "Pregunta a Rooster" })).toBeInTheDocument();
     expect(screen.getByText("slot-chat")).toBeInTheDocument();
   });

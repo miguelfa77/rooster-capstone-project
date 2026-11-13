@@ -51,7 +51,7 @@ export function UserMenu({ user }: { user: UserOut }) {
       >
         <Avatar className="size-8">
           {user.image && <AvatarImage src={user.image} alt="" />}
-          <AvatarFallback className="bg-foreground text-background text-xs font-semibold">
+          <AvatarFallback className="bg-foreground text-background dark:bg-input dark:text-foreground text-xs font-semibold">
             {initials(user)}
           </AvatarFallback>
         </Avatar>

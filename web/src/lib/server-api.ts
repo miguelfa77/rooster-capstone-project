@@ -5,7 +5,11 @@ import { cache } from "react";
 import { currentUserId } from "@/auth";
 import type { UserOut } from "./types";
 
-/** GET /me for `userId`; null when the API does not know the user (401/404). */
+/**
+ * GET /me for `userId`; null only when the API does not know the user (401 "user_required").
+ * Anything else, including 401 "unauthorized" (wrong API key), throws: a misconfiguration
+ * must surface as an error, not sign everyone out.
+ */
 export async function fetchMe(userId: string): Promise<UserOut | null> {
   const base = process.env.ROOSTER_API_URL?.replace(/\/+$/, "");
   const key = process.env.ROOSTER_API_KEY;
@@ -14,9 +18,17 @@ export async function fetchMe(userId: string): Promise<UserOut | null> {
     headers: { "x-rooster-key": key, "x-rooster-user": userId },
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 404) return null;
+  if (res.status === 401 && (await detail(res)) === "user_required") return null;
   if (!res.ok) throw new Error(`GET /me failed: HTTP ${res.status}`);
   return (await res.json()) as UserOut;
+}
+
+async function detail(res: Response): Promise<unknown> {
+  try {
+    return ((await res.json()) as { detail?: unknown }).detail;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The signed-in user as the API knows them, or null; deduplicated within one request. */
