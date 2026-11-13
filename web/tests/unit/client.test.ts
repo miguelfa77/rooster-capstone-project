@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createConversation, getConversation, sendMessage, STORAGE_KEY } from "@/lib/client";
+import {
+  createConversation,
+  getConversation,
+  getIntel,
+  getMe,
+  patchPreferences,
+  sendMessage,
+  SignedOutError,
+  STORAGE_KEY,
+} from "@/lib/client";
 
 const fetchMock = vi.fn();
 
@@ -47,5 +56,46 @@ describe("client", () => {
       body: JSON.stringify({ text: "hola" }),
       signal,
     });
+  });
+});
+
+describe("client signed out", () => {
+  const assign = vi.fn();
+  beforeEach(() => vi.stubGlobal("location", { ...window.location, assign }));
+  afterEach(() => assign.mockReset());
+
+  it("client_401_redirects_to_entrar", async () => {
+    const calls: [string, () => Promise<unknown>][] = [
+      ["getMe", () => getMe()],
+      ["patchPreferences", () => patchPreferences({ theme: "dark" })],
+      ["createConversation", () => createConversation()],
+      ["getConversation", () => getConversation("c1")],
+      ["sendMessage", () => sendMessage("c1", "hola")],
+      ["getIntel", () => getIntel("framing")],
+    ];
+    for (const [name, call] of calls) {
+      assign.mockReset();
+      fetchMock.mockResolvedValue(Response.json({ detail: "signed_out" }, { status: 401 }));
+      await expect(call(), name).rejects.toThrow(SignedOutError);
+      expect(assign, name).toHaveBeenCalledWith("/entrar");
+    }
+  });
+
+  it("get_me_and_patch_preferences", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ id: "u1", email: "a@b.es", name: null, image: null, preferences: {} }));
+    await expect(getMe()).resolves.toMatchObject({ id: "u1" });
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/rooster/me");
+
+    fetchMock.mockResolvedValueOnce(Response.json({ theme: "dark" }));
+    await expect(patchPreferences({ theme: "dark" })).resolves.toEqual({ theme: "dark" });
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/rooster/me/preferences", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ theme: "dark" }),
+    });
+
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 500 }));
+    await expect(patchPreferences({ theme: "dark" })).rejects.toThrow();
+    expect(assign).not.toHaveBeenCalled();
   });
 });

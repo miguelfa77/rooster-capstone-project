@@ -42,3 +42,9 @@ export type YieldLiquidityRow = Schemas["YieldLiquidityRow"];
 export type ListingRow = Schemas["ListingRow"];
 export type TransitRow = Schemas["TransitRow"];
 export type TourismRow = Schemas["TourismRow"];
+
+export type UserOut = Schemas["UserOut"];
+/** PATCH /me/preferences body; null or missing keys are left unchanged. */
+export type Preferences = Schemas["Preferences"];
+export type StoredPreferences = Schemas["StoredPreferences"];
+export type ConversationSummary = Schemas["ConversationSummary"];
