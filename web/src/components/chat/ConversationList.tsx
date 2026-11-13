@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { PencilIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,16 +33,19 @@ function titleOf(c: ConversationSummary): string {
 }
 
 /**
- * `nav`: the 8 most recent conversations (sidebar, Inicio). `page`: all of them, with date,
- * rename and delete (/chat). Switching is disabled while a turn is streaming.
+ * `nav`: the 8 most recent conversations (sidebar). `recent`: the same list on Inicio, where a
+ * click also shows the conversation. `page`: all of them, with date, rename and delete (/chat).
+ * Switching is disabled while the chat is busy with a turn.
  */
-export function ConversationList({ variant }: { variant: "nav" | "page" }) {
+export function ConversationList({ variant }: { variant: "nav" | "recent" | "page" }) {
   const { items, loading, rename, remove } = useConversations();
   const chat = useChatContext();
   const router = useRouter();
   const activeId = chat.state.conversationId;
   const streaming = isStreaming(chat);
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  /** The edit being committed or cancelled, so the blur that follows Enter/Esc is a no-op. */
+  const editDone = useRef(false);
   const [deleting, setDeleting] = useState<ConversationSummary | null>(null);
 
   if (loading && items.length === 0) {
@@ -54,12 +57,16 @@ export function ConversationList({ variant }: { variant: "nav" | "page" }) {
     );
   }
   if (items.length === 0) {
-    return <p className="text-muted-foreground px-2.5 py-1 text-sm">{COPY.homeRecentEmpty}</p>;
+    return (
+      <p className="text-muted-foreground px-2.5 py-1 text-sm">
+        {variant === "nav" ? COPY.navConversationsEmpty : COPY.homeRecentEmpty}
+      </p>
+    );
   }
 
   const select = (id: string) => {
     chat.open(id);
-    if (variant === "page") showConversation(router, id);
+    if (variant !== "nav") showConversation(router, id);
   };
 
   const itemButton = (c: ConversationSummary, className: string) => (
@@ -77,7 +84,7 @@ export function ConversationList({ variant }: { variant: "nav" | "page" }) {
     </button>
   );
 
-  if (variant === "nav") {
+  if (variant !== "page") {
     return (
       <ul className="flex flex-col gap-0.5">
         {items.slice(0, NAV_MAX).map((c) => (
@@ -100,20 +107,23 @@ export function ConversationList({ variant }: { variant: "nav" | "page" }) {
     );
   }
 
-  const save = () => {
-    if (!editing) return;
+  const startEdit = (c: ConversationSummary) => {
+    editDone.current = false;
+    setEditing({ id: c.id, value: c.title ?? "" });
+  };
+  // Enter and blur save; Esc cancels. Whichever comes first ends the edit.
+  const finishEdit = (save: boolean) => {
+    if (!editing || editDone.current) return;
+    editDone.current = true;
+    setEditing(null);
     const title = editing.value.trim();
     const original = items.find((c) => c.id === editing.id);
-    setEditing(null);
-    if (title && original && title !== original.title) void rename(editing.id, title);
+    if (save && title && original && title !== original.title) void rename(editing.id, title);
   };
   const onEditKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" || e.key === "Escape") {
       e.preventDefault();
-      save();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setEditing(null);
+      finishEdit(e.key === "Enter");
     }
   };
 
@@ -130,7 +140,7 @@ export function ConversationList({ variant }: { variant: "nav" | "page" }) {
       <ul className="bg-card divide-y rounded-lg border">
         {items.map((c) => {
           const title = titleOf(c);
-          // The conversation being streamed cannot be deleted until the turn ends.
+          // The conversation of a running turn cannot be renamed or deleted until the turn ends.
           const locked = streaming && c.id === activeId;
           return (
             <li key={c.id} className="flex min-w-0 items-center gap-2 px-3 py-2">
@@ -142,6 +152,7 @@ export function ConversationList({ variant }: { variant: "nav" | "page" }) {
                   maxLength={TITLE_MAX}
                   onChange={(e) => setEditing({ id: c.id, value: e.target.value })}
                   onKeyDown={onEditKey}
+                  onBlur={() => finishEdit(true)}
                   className="h-8 flex-1"
                 />
               ) : (
@@ -157,7 +168,8 @@ export function ConversationList({ variant }: { variant: "nav" | "page" }) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={COPY.conversationRename.replace("{title}", title)}
-                onClick={() => setEditing({ id: c.id, value: c.title ?? "" })}
+                disabled={locked}
+                onClick={() => startEdit(c)}
               >
                 <PencilIcon aria-hidden />
               </Button>

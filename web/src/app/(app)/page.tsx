@@ -12,7 +12,8 @@ export default async function HomePage() {
   const user = await getCurrentUser();
   const name = firstName(user?.name);
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12">
+    // Left-aligned with the top bar's horizontal padding (px-3 / sm:px-6).
+    <div className="flex w-full max-w-3xl flex-col gap-8 px-3 py-8 sm:px-6 sm:py-12">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           {name ? COPY.homeGreeting.replace("{name}", name) : COPY.homeGreetingNoName}
@@ -29,7 +30,7 @@ export default async function HomePage() {
         <h2 id="home-recent" className="text-base font-semibold">
           {COPY.homeRecentConversations}
         </h2>
-        <ConversationList variant="nav" />
+        <ConversationList variant="recent" />
       </section>
     </div>
   );

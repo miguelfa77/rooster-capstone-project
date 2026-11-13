@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { chatReducer, initialChatState, type ChatState } from "./chat-state";
 import { createConversation, getConversation, sendMessage, storageKey } from "./client";
 import { COPY } from "./copy";
@@ -19,6 +19,8 @@ export type UseChatOptions = {
 
 export type Chat = {
   state: ChatState;
+  /** True from a send's start until it settles (stream and stored refetch); reset/open/startChat are ignored meanwhile. */
+  busy: boolean;
   send: (text: string) => Promise<void>;
   /** Start a new, empty conversation. Ignored while a turn is streaming. */
   reset: () => void;
@@ -33,6 +35,8 @@ export function useChat({ userId, onConversationsChanged }: UseChatOptions): Cha
   const key = storageKey(userId);
   const idRef = useRef<string | null>(null);
   const streamingRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const changedRef = useRef(onConversationsChanged);
   useEffect(() => {
     changedRef.current = onConversationsChanged;
@@ -78,7 +82,14 @@ export function useChat({ userId, onConversationsChanged }: UseChatOptions): Cha
     [stopPoll],
   );
 
-  useEffect(() => stopPoll, [stopPoll]);
+  // Unmount (e.g. sign-out): stop polling and abandon a running send.
+  useEffect(
+    () => () => {
+      stopPoll();
+      abortRef.current?.abort();
+    },
+    [stopPoll],
+  );
 
   // Restore the stored conversation; a stale id (404) is forgotten.
   useEffect(() => {
@@ -112,62 +123,75 @@ export function useChat({ userId, onConversationsChanged }: UseChatOptions): Cha
     };
   }, [key]);
 
-  const send = useCallback(async (text: string) => {
-    if (streamingRef.current) return;
-    streamingRef.current = true;
-    stopPoll();
-    // Dispatched first so every failure below has a live turn with the user's text.
-    dispatch({ type: "send", text });
-    try {
-      let id = idRef.current;
-      if (!id) {
-        id = await createConversation();
-        idRef.current = id;
-        storedCountRef.current = 0;
-        localStorage.setItem(key, id);
-        dispatch({ type: "loaded", id, messages: [] });
+  const send = useCallback(
+    async (text: string) => {
+      if (streamingRef.current) return;
+      streamingRef.current = true;
+      setBusy(true);
+      stopPoll();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const aborted = () => controller.signal.aborted;
+      // Dispatched first so every failure below has a live turn with the user's text.
+      dispatch({ type: "send", text });
+      try {
+        let id = idRef.current;
+        if (!id) {
+          id = await createConversation();
+          if (aborted()) return;
+          idRef.current = id;
+          storedCountRef.current = 0;
+          localStorage.setItem(key, id);
+          dispatch({ type: "loaded", id, messages: [] });
+          notifyChanged();
+        }
+        const res = await sendMessage(id, text, controller.signal);
+        if (aborted()) return;
+        if (res.status === 409) {
+          dispatch({ type: "busy", text });
+          startPoll(id);
+          return;
+        }
+        if (res.status === 429) {
+          dispatch({ type: "rateLimited", text });
+          return;
+        }
+        if (!res.ok || !res.body) {
+          dispatch({ type: "failed", reason: COPY.chatRequestFailed });
+          return;
+        }
+        let sawDone = false;
+        let sawError = false;
+        for await (const event of parseSSE(res.body)) {
+          if (aborted()) return;
+          dispatch({ type: "event", event });
+          if (event.type === "done") sawDone = true;
+          if (event.type === "error") sawError = true;
+        }
+        if (aborted()) return;
+        if (!sawDone) {
+          dispatch({ type: "failed", reason: COPY.chatStreamInterrupted });
+          return;
+        }
         notifyChanged();
+        // The `done` event already marked the live turn done. An errored turn stays
+        // on screen as streamed; otherwise the stored conversation replaces it.
+        if (sawError) return;
+        const conv = await getConversation(id).catch(() => null);
+        if (conv && !aborted()) {
+          storedCountRef.current = conv.messages.length;
+          dispatch({ type: "finished", messages: conv.messages });
+        }
+      } catch {
+        if (!aborted()) dispatch({ type: "failed", reason: COPY.chatRequestFailed });
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
+        streamingRef.current = false;
+        if (!aborted()) setBusy(false);
       }
-      const res = await sendMessage(id, text);
-      if (res.status === 409) {
-        dispatch({ type: "busy", text });
-        startPoll(id);
-        return;
-      }
-      if (res.status === 429) {
-        dispatch({ type: "rateLimited", text });
-        return;
-      }
-      if (!res.ok || !res.body) {
-        dispatch({ type: "failed", reason: COPY.chatRequestFailed });
-        return;
-      }
-      let sawDone = false;
-      let sawError = false;
-      for await (const event of parseSSE(res.body)) {
-        dispatch({ type: "event", event });
-        if (event.type === "done") sawDone = true;
-        if (event.type === "error") sawError = true;
-      }
-      if (!sawDone) {
-        dispatch({ type: "failed", reason: COPY.chatStreamInterrupted });
-        return;
-      }
-      notifyChanged();
-      // The `done` event already marked the live turn done. An errored turn stays
-      // on screen as streamed; otherwise the stored conversation replaces it.
-      if (sawError) return;
-      const conv = await getConversation(id).catch(() => null);
-      if (conv) {
-        storedCountRef.current = conv.messages.length;
-        dispatch({ type: "finished", messages: conv.messages });
-      }
-    } catch {
-      dispatch({ type: "failed", reason: COPY.chatRequestFailed });
-    } finally {
-      streamingRef.current = false;
-    }
-  }, [key, notifyChanged, startPoll, stopPoll]);
+    },
+    [key, notifyChanged, startPoll, stopPoll],
+  );
 
   const reset = useCallback(() => {
     if (streamingRef.current) return;
@@ -216,5 +240,5 @@ export function useChat({ userId, onConversationsChanged }: UseChatOptions): Cha
     [reset, send],
   );
 
-  return { state, send, reset, open, startChat };
+  return { state, busy, send, reset, open, startChat };
 }

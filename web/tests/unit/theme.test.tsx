@@ -191,6 +191,8 @@ describe("theme", () => {
     const cls = screen.getByRole("button", { name: "x" }).className;
     expect(cls).toContain("bg-destructive-solid");
     expect(cls).not.toMatch(/dark:bg-/);
+    // One value for both modes, defined once.
+    expect(varValue(block(".dark"), "--destructive-solid")).toBeUndefined();
     for (const mode of MODES) {
       expect(contrast("#ffffff", color(mode, "--destructive-solid")), mode).toBeGreaterThanOrEqual(4.5);
     }

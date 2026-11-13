@@ -21,6 +21,7 @@ export const COPY = {
   navSoon: "Pronto",
   navUnavailable: "No disponible todavía",
   navConversations: "Conversaciones",
+  navConversationsEmpty: "Sin conversaciones todavía",
   navOpenMenu: "Abrir menú",
   searchLabel: "Buscar",
   searchPlaceholder: "Buscar barrio, dirección o anuncio…",
@@ -37,6 +38,11 @@ export const COPY = {
   homeExamplesLabel: "Preguntas de ejemplo",
   homeRecentConversations: "Conversaciones recientes",
   homeRecentEmpty: "Tus conversaciones aparecerán aquí.",
+
+  // Error boundary of the signed-in area
+  errorTitle: "Algo ha fallado",
+  errorBody: "No pudimos cargar esta página. Inténtalo de nuevo en unos segundos.",
+  errorRetry: "Reintentar",
 
   // Conversations
   conversationsTitle: "Conversaciones",

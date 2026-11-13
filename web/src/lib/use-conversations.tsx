@@ -19,6 +19,11 @@ export type Conversations = {
 
 const ConversationsContext = createContext<Conversations | null>(null);
 
+/** Most recently updated first, as the API lists them. */
+function byUpdatedDesc(items: ConversationSummary[]): ConversationSummary[] {
+  return [...items].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+}
+
 export function ConversationsProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,27 +33,27 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     setItems(next);
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      update(await listConversations());
-    } catch {
-      // Keep what is shown; the next refresh retries.
-    } finally {
-      setLoading(false);
-    }
+  // Every list request takes a number; only the latest one started may apply its answer.
+  const seq = useRef(0);
+  const load = useCallback(() => {
+    const mine = ++seq.current;
+    return listConversations()
+      .then((list) => {
+        if (mine === seq.current) update(list);
+      })
+      .catch(() => {
+        // Keep what is shown; the next refresh retries.
+      })
+      .finally(() => {
+        if (mine === seq.current) setLoading(false);
+      });
   }, [update]);
 
-  // First load (written out rather than calling refresh(): setState only in the callbacks).
+  const refresh = useCallback(() => load(), [load]);
+
   useEffect(() => {
-    let cancelled = false;
-    listConversations()
-      .then((list) => !cancelled && update(list))
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [update]);
+    void load();
+  }, [load]);
 
   const rename = useCallback(
     async (id: string, title: string) => {
@@ -57,7 +62,7 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
       update(current.current.map((c) => (c.id === id ? { ...c, title } : c)));
       try {
         const saved = await renameConversation(id, title);
-        update(current.current.map((c) => (c.id === id ? saved : c)));
+        update(byUpdatedDesc(current.current.map((c) => (c.id === id ? saved : c))));
       } catch (err) {
         if (err instanceof SignedOutError) return;
         // Roll back only if no later rename has replaced this one.

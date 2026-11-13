@@ -22,7 +22,7 @@ export function useChatContext(): Chat {
   return chat;
 }
 
-/** True while a turn is being streamed; switching or starting conversations is disabled then. */
+/** True while a send is running (stream and stored refetch); switching or starting conversations is disabled then. */
 export function isStreaming(chat: Chat): boolean {
-  return chat.state.live?.status === "streaming";
+  return chat.busy;
 }

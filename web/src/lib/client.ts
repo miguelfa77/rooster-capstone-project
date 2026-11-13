@@ -1,6 +1,6 @@
 // Browser-side API client. Talks only to the Next proxy under /api/rooster.
 // Every call treats 401 as "signed out": it sends the browser to /entrar and throws.
-import type { ConversationOut, ConversationSummary, Preferences, UserOut } from "./types";
+import type { ConversationOut, ConversationSummary, Preferences, StoredPreferences, UserOut } from "./types";
 
 const BASE = "/api/rooster";
 
@@ -33,14 +33,14 @@ export async function getMe(): Promise<UserOut> {
   return (await res.json()) as UserOut;
 }
 
-export async function patchPreferences(p: Partial<Preferences>): Promise<Preferences> {
+export async function patchPreferences(p: Partial<Preferences>): Promise<StoredPreferences> {
   const res = await call("me/preferences", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(p),
   });
   if (!res.ok) throw new Error(`patch preferences failed: HTTP ${res.status}`);
-  return (await res.json()) as Preferences;
+  return (await res.json()) as StoredPreferences;
 }
 
 export async function createConversation(): Promise<string> {

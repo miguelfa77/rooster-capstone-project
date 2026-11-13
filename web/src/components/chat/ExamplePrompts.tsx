@@ -36,7 +36,7 @@ export function ExamplePrompts({ items }: { items: readonly string[] }) {
               // Settles at the end of the turn, or at once if the start was ignored.
               void chat.startChat(text).finally(() => (pending.current = false));
             }}
-            className="bg-card hover:bg-accent focus-visible:ring-ring/50 block max-w-full rounded-full border px-3.5 py-2 text-left text-sm outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60"
+            className="bg-card hover:bg-accent focus-visible:ring-ring/50 block max-w-full rounded-2xl border sm:rounded-full px-3.5 py-2 text-left text-sm outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {text}
           </button>
