@@ -35,6 +35,8 @@
   --accent-surface: #f1f2f4;
   --accent-foreground: #16181d;
   --destructive: #cd2b31;
+  /* Filled destructive buttons with white text, in both modes. */
+  --destructive-solid: #cd2b31;
   --border: #e6e7ea;
   --input: #dfe1e5;
   --ring: #e5484d;
@@ -77,6 +79,7 @@
   --accent-surface: #1a1f26;
   --accent-foreground: #e6e8eb;
   --destructive: #ff6369;
+  --destructive-solid: #cd2b31;
   --border: #1d2229;
   --input: #2a313b;
   --ring: #e5484d;
@@ -125,6 +128,7 @@
   --color-accent: var(--accent-surface);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-solid: var(--destructive-solid);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

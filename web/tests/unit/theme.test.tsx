@@ -186,6 +186,16 @@ describe("theme", () => {
     }
   });
 
+  it("destructive_button_contrast_at_least_4_5", () => {
+    render(<Button variant="destructive">x</Button>);
+    const cls = screen.getByRole("button", { name: "x" }).className;
+    expect(cls).toContain("bg-destructive-solid");
+    expect(cls).not.toMatch(/dark:bg-/);
+    for (const mode of MODES) {
+      expect(contrast("#ffffff", color(mode, "--destructive-solid")), mode).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("placeholder_contrast_at_least_4_5", () => {
     for (const mode of MODES) {
       const surfaces = [color(mode, "--background"), color(mode, "--card")];

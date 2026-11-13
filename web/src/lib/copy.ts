@@ -38,6 +38,20 @@ export const COPY = {
   homeRecentConversations: "Conversaciones recientes",
   homeRecentEmpty: "Tus conversaciones aparecerán aquí.",
 
+  // Conversations
+  conversationsTitle: "Conversaciones",
+  conversationsSeeAll: "Ver todas",
+  conversationsLoading: "Cargando conversaciones…",
+  conversationTitleLabel: "Título de la conversación",
+  conversationRename: "Renombrar «{title}»",
+  conversationDelete: "Eliminar «{title}»",
+  conversationDeleteTitle: "¿Eliminar esta conversación?",
+  conversationDeleteBody: "Se eliminará «{title}» y no podrás recuperarla.",
+  conversationDeleteConfirm: "Eliminar",
+  cancel: "Cancelar",
+  conversationRenameError: "No se pudo renombrar la conversación. Inténtalo de nuevo.",
+  conversationDeleteError: "No se pudo eliminar la conversación. Inténtalo de nuevo.",
+
   // Sign-in (/entrar)
   signInWithGoogle: "Continuar con Google",
   signInServiceError: "No pudimos iniciar tu sesión ahora mismo. Inténtalo de nuevo en unos minutos.",

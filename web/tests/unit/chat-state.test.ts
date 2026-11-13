@@ -136,4 +136,10 @@ describe("chatReducer", () => {
     expect(s.notice).toBeNull();
     expect(s.draft).toBeNull();
   });
+
+  it("open_switches_conversation_and_clears_turn", () => {
+    const before: ChatState = { ...streaming, messages: [{ role: "user", content: "x" }], notice: "n", draft: { text: "d" } };
+    const s = chatReducer(before, { type: "open", id: "c2" });
+    expect(s).toEqual({ ...initialChatState, conversationId: "c2", loading: true });
+  });
 });

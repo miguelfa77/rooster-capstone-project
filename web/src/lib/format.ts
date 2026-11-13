@@ -57,3 +57,19 @@ export function formatNumber(value: unknown): string {
   const n = toNumber(value);
   return n === null ? asText(value) : COMPACT.format(n);
 }
+
+const DAY_MS = 86_400_000;
+const RELATIVE = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
+
+/** "hoy", "ayer", "hace N días" within a week (by calendar day); older ⇒ "6 nov" ("24 dic 2025" in another year). */
+export function relativeDay(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(date)) / DAY_MS);
+  if (days >= 0 && days < 7) return RELATIVE.format(-days, "day");
+  return date.toLocaleDateString("es", {
+    day: "numeric",
+    month: "short",
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  });
+}

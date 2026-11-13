@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatProvider, useChatContext } from "@/lib/chat-context";
+import { ConversationsProvider } from "@/lib/use-conversations";
 import type { Message } from "@/lib/types";
 
 const fetchMock = vi.fn();
@@ -24,7 +25,11 @@ function Consumer() {
 }
 
 function Shell({ show }: { show: boolean }) {
-  return <ChatProvider>{show ? <Consumer /> : null}</ChatProvider>;
+  return (
+    <ConversationsProvider>
+      <ChatProvider userId="u1">{show ? <Consumer /> : null}</ChatProvider>
+    </ConversationsProvider>
+  );
 }
 
 beforeEach(() => {
@@ -46,6 +51,7 @@ describe("ChatProvider", () => {
     let gets = 0;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const key = `${init?.method ?? "GET"} ${url}`;
+      if (key === "GET /api/rooster/conversations") return Response.json([]);
       if (key === "POST /api/rooster/conversations") return Response.json({ id: "c1" }, { status: 201 });
       if (key === "POST /api/rooster/conversations/c1/messages")
         return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });

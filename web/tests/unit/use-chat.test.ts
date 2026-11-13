@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEY } from "@/lib/client";
+import { storageKey } from "@/lib/client";
 import { COPY } from "@/lib/copy";
 import { useChat } from "@/lib/use-chat";
 import type { ConversationOut, Message } from "@/lib/types";
@@ -28,6 +28,8 @@ function routes(handlers: Record<string, Route>) {
   });
 }
 
+const KEY = storageKey("u1");
+
 beforeEach(() => {
   localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
@@ -40,23 +42,23 @@ afterEach(() => {
 
 describe("useChat", () => {
   it("restores_history_from_storage", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     const conv: ConversationOut = { id: "c1", title: null, messages: storedMessages };
     routes({ "GET /api/rooster/conversations/c1": () => Response.json(conv) });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.conversationId).toBe("c1");
     expect(result.current.state.messages).toEqual(storedMessages);
   });
 
-  it("stale_id_cleared_on_404", async () => {
-    localStorage.setItem(STORAGE_KEY, "gone");
+  it("stale_id_404_cleared", async () => {
+    localStorage.setItem(KEY, "gone");
     routes({ "GET /api/rooster/conversations/gone": () => new Response("", { status: 404 }) });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
     expect(result.current.state.conversationId).toBeNull();
     expect(result.current.state.messages).toEqual([]);
   });
@@ -68,24 +70,24 @@ describe("useChat", () => {
       "GET /api/rooster/conversations/new": () => Response.json({ id: "new", messages: storedMessages }),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await act(() => result.current.send("hola"));
 
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("new");
+    expect(localStorage.getItem(KEY)).toBe("new");
     expect(result.current.state.conversationId).toBe("new");
     const post = fetchMock.mock.calls.find(([u]) => u === "/api/rooster/conversations/new/messages");
     expect(JSON.parse(post![1].body)).toEqual({ text: "hola" });
   });
 
   it("stream_without_done_fails", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     routes({
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () => sse([{ type: "text_delta", text: "a medias" }]),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await act(() => result.current.send("hola"));
 
@@ -99,7 +101,7 @@ describe("useChat", () => {
   });
 
   it("refetches_after_done", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     let gets = 0;
     routes({
       "GET /api/rooster/conversations/c1": () =>
@@ -112,7 +114,7 @@ describe("useChat", () => {
         ]),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await act(() => result.current.send("hola"));
 
@@ -122,7 +124,7 @@ describe("useChat", () => {
   });
 
   it("409_sets_busy_keeps_text_and_polls_until_stored", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     const grown: Message[] = [...storedMessages, { role: "user", content: "x" }, storedMessages[1]];
     let gets = 0;
     routes({
@@ -131,7 +133,7 @@ describe("useChat", () => {
       "POST /api/rooster/conversations/c1/messages": () => Response.json({ detail: "busy" }, { status: 409 }),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     vi.useFakeTimers();
     try {
@@ -163,7 +165,7 @@ describe("useChat", () => {
   });
 
   it("409_poll_gives_up_after_two_minutes", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     let gets = 0;
     routes({
       "GET /api/rooster/conversations/c1": () => {
@@ -173,7 +175,7 @@ describe("useChat", () => {
       "POST /api/rooster/conversations/c1/messages": () => Response.json({ detail: "busy" }, { status: 409 }),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     vi.useFakeTimers();
     try {
@@ -186,7 +188,7 @@ describe("useChat", () => {
   });
 
   it("429_sets_rate_limited_keeps_text_and_does_not_poll", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     let gets = 0;
     routes({
       "GET /api/rooster/conversations/c1": () => {
@@ -197,7 +199,7 @@ describe("useChat", () => {
         Response.json({ detail: "rate_limited" }, { status: 429 }),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     vi.useFakeTimers();
     try {
@@ -215,14 +217,14 @@ describe("useChat", () => {
   });
 
   it("error_event_skips_refetch_and_keeps_turn", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     routes({
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () =>
         sse([{ type: "error", reason: "boom", suggestion: "otra vez" }, { type: "done" }]),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await act(() => result.current.send("hola"));
 
@@ -232,7 +234,7 @@ describe("useChat", () => {
   });
 
   it("refetch_failure_keeps_done_turn_without_error", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     let gets = 0;
     routes({
       "GET /api/rooster/conversations/c1": () => {
@@ -243,7 +245,7 @@ describe("useChat", () => {
         sse([{ type: "text_delta", text: "respuesta" }, { type: "done" }]),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await act(() => result.current.send("hola"));
 
@@ -253,31 +255,151 @@ describe("useChat", () => {
     expect(result.current.state.live?.error).toBeNull();
   });
 
-  it("reset_during_create_does_not_persist", async () => {
-    let resolveCreate!: (r: Response) => void;
-    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (resolveCreate = r)));
-    fetchMock.mockRejectedValue(new Error("no further fetch expected"));
+  it("open_and_reset_ignored_while_streaming", async () => {
+    localStorage.setItem(KEY, "c1");
+    const enc = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start: (c) => void (stream = c) });
+    routes({
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
+      "POST /api/rooster/conversations/c1/messages": () =>
+        new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     let pending!: Promise<void>;
     act(() => {
       pending = result.current.send("hola");
     });
+    await waitFor(() => expect(result.current.state.live?.status).toBe("streaming"));
+
+    act(() => result.current.open("c2"));
     act(() => result.current.reset());
+    await act(() => result.current.startChat("otra"));
+    expect(result.current.state.conversationId).toBe("c1");
+    expect(result.current.state.live?.userText).toBe("hola");
+    expect(localStorage.getItem(KEY)).toBe("c1");
+
     await act(async () => {
-      resolveCreate(Response.json({ id: "new" }, { status: 201 }));
+      stream.enqueue(enc.encode(`event: done\ndata: {"type":"done"}\n\n`));
+      stream.close();
       await pending;
     });
+    // Nothing was fetched for c2 and only one message was posted.
+    expect(fetchMock.mock.calls.map(([u]) => u)).not.toContain("/api/rooster/conversations/c2");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
 
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  it("open_loads_and_marks_active", async () => {
+    localStorage.setItem(KEY, "c1");
+    const other: Message[] = [{ role: "user", content: "otra" }];
+    let resolveOpen!: (r: Response) => void;
+    routes({
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
+    });
+    const routed = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/rooster/conversations/c2"
+        ? new Promise<Response>((r) => (resolveOpen = r))
+        : routed(url, init),
+    );
+
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    act(() => result.current.open("c2"));
+    // Marked active (and remembered) right away; messages arrive with the load.
+    expect(result.current.state.conversationId).toBe("c2");
+    expect(result.current.state.loading).toBe(true);
+    expect(result.current.state.messages).toEqual([]);
+    expect(localStorage.getItem(KEY)).toBe("c2");
+
+    await act(async () => resolveOpen(Response.json({ id: "c2", messages: other })));
+    expect(result.current.state.loading).toBe(false);
+    expect(result.current.state.messages).toEqual(other);
+
+    // Re-opening the active conversation does not refetch it.
+    const calls = fetchMock.mock.calls.length;
+    act(() => result.current.open("c2"));
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  it("open_404_clears_stored_id", async () => {
+    routes({ "GET /api/rooster/conversations/gone": () => new Response("", { status: 404 }) });
+    const onConversationsChanged = vi.fn();
+
+    const { result } = renderHook(() => useChat({ userId: "u1", onConversationsChanged }));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(async () => result.current.open("gone"));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
     expect(result.current.state.conversationId).toBeNull();
-    expect(result.current.state.live).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(onConversationsChanged).toHaveBeenCalled();
+  });
+
+  it("storage_key_is_per_user", async () => {
+    localStorage.setItem(KEY, "c1");
+    routes({
+      "POST /api/rooster/conversations": () => Response.json({ id: "mine" }, { status: 201 }),
+      "POST /api/rooster/conversations/mine/messages": () => sse([{ type: "done" }]),
+      "GET /api/rooster/conversations/mine": () => Response.json({ id: "mine", messages: storedMessages }),
+    });
+
+    // Another user on the same browser does not pick up u1's conversation.
+    const { result } = renderHook(() => useChat({ userId: "u2" }));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    expect(result.current.state.conversationId).toBeNull();
+    await act(() => result.current.send("hola"));
+
+    expect(localStorage.getItem(storageKey("u2"))).toBe("mine");
+    expect(localStorage.getItem(KEY)).toBe("c1");
+    expect(fetchMock.mock.calls.map(([u]) => u)).not.toContain("/api/rooster/conversations/c1");
+  });
+
+  it("refresh_after_turn_finishes", async () => {
+    let onCreatedCalls = -1;
+    const onConversationsChanged = vi.fn();
+    routes({
+      "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
+      "POST /api/rooster/conversations/new/messages": () => {
+        onCreatedCalls = onConversationsChanged.mock.calls.length;
+        return sse([{ type: "done" }]);
+      },
+      "GET /api/rooster/conversations/new": () => Response.json({ id: "new", messages: storedMessages }),
+    });
+
+    const { result } = renderHook(() => useChat({ userId: "u1", onConversationsChanged }));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(() => result.current.send("hola"));
+
+    // Once after creating the conversation, once after the turn finished (the title may be set).
+    expect(onCreatedCalls).toBe(1);
+    expect(onConversationsChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("start_chat_resets_then_sends", async () => {
+    localStorage.setItem(KEY, "c1");
+    routes({
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
+      "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
+      "POST /api/rooster/conversations/new/messages": () => sse([{ type: "done" }]),
+      "GET /api/rooster/conversations/new": () =>
+        Response.json({ id: "new", messages: [{ role: "user", content: "pregunta" }] }),
+    });
+
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
+    await waitFor(() => expect(result.current.state.conversationId).toBe("c1"));
+    await act(() => result.current.startChat("pregunta"));
+
+    expect(result.current.state.conversationId).toBe("new");
+    expect(result.current.state.messages).toEqual([{ role: "user", content: "pregunta" }]);
+    expect(localStorage.getItem(KEY)).toBe("new");
+    expect(fetchMock.mock.calls.map(([u]) => u)).not.toContain("/api/rooster/conversations/c1/messages");
   });
 
   it("mount_result_ignored_after_send_created_conversation", async () => {
-    localStorage.setItem(STORAGE_KEY, "old");
+    localStorage.setItem(KEY, "old");
     let resolveMount!: (r: Response) => void;
     routes({
       "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
@@ -291,25 +413,25 @@ describe("useChat", () => {
         : routed(url, init),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await act(() => result.current.send("hola"));
     await act(async () => {
       resolveMount(new Response("", { status: 404 }));
     });
 
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("new");
+    expect(localStorage.getItem(KEY)).toBe("new");
     expect(result.current.state.conversationId).toBe("new");
     expect(result.current.state.messages).toEqual(storedMessages);
   });
 
   it("concurrent_sends_post_once", async () => {
-    localStorage.setItem(STORAGE_KEY, "c1");
+    localStorage.setItem(KEY, "c1");
     routes({
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () => sse([{ type: "done" }]),
     });
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await act(() => Promise.all([result.current.send("uno"), result.current.send("dos")]));
 

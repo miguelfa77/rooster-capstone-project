@@ -25,6 +25,7 @@ export type ChatState = {
 export type ChatAction =
   | { type: "loaded"; id: string; messages: Message[] }
   | { type: "reset" }
+  | { type: "open"; id: string }
   | { type: "send"; text: string }
   | { type: "event"; event: TurnEvent }
   | { type: "finished"; messages: Message[] }
@@ -71,6 +72,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, conversationId: action.id, messages: action.messages, loading: false };
     case "reset":
       return { ...initialChatState, loading: false };
+    case "open":
+      return { ...initialChatState, conversationId: action.id };
     case "send": {
       // A failed turn is not stored by the server; keep it visible as history.
       const failed = state.live?.status === "done" && state.live.error ? state.live : null;

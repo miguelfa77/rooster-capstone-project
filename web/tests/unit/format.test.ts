@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCell, toNumber } from "@/lib/format";
+import { formatCell, relativeDay, toNumber } from "@/lib/format";
 
 // Same configuration as format.ts: es-ES with grouping forced on (v2 parity, "1.235 €").
 const es = (opts: Intl.NumberFormatOptions, v: number) =>
@@ -58,5 +58,19 @@ describe("toNumber", () => {
     expect(toNumber(null)).toBeNull();
     expect(toNumber(Number.NaN)).toBeNull();
     expect(toNumber("abc")).toBeNull();
+  });
+});
+
+describe("relativeDay", () => {
+  const now = new Date(2026, 10, 13, 9, 0);
+  const at = (y: number, m: number, d: number, h = 12) => new Date(y, m, d, h).toISOString();
+
+  it("relative_day_in_spanish", () => {
+    expect(relativeDay(at(2026, 10, 13, 8), now)).toBe("hoy");
+    expect(relativeDay(at(2026, 10, 12, 23), now)).toBe("ayer");
+    expect(relativeDay(at(2026, 10, 10), now)).toBe("hace 3 días");
+    expect(relativeDay(at(2026, 10, 7), now)).toBe("hace 6 días");
+    expect(relativeDay(at(2026, 10, 6), now)).toBe("6 nov");
+    expect(relativeDay(at(2025, 11, 24), now)).toBe("24 dic 2025");
   });
 });

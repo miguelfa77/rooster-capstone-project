@@ -1,10 +1,13 @@
 // Browser-side API client. Talks only to the Next proxy under /api/rooster.
 // Every call treats 401 as "signed out": it sends the browser to /entrar and throws.
-import type { ConversationOut, Preferences, UserOut } from "./types";
+import type { ConversationOut, ConversationSummary, Preferences, UserOut } from "./types";
 
 const BASE = "/api/rooster";
 
-export const STORAGE_KEY = "rooster.conversationId";
+/** localStorage key of the user's active conversation id. */
+export function storageKey(userId: string): string {
+  return `rooster.conversationId.${userId}`;
+}
 
 export class SignedOutError extends Error {
   constructor() {
@@ -45,6 +48,29 @@ export async function createConversation(): Promise<string> {
   if (!res.ok) throw new Error(`create conversation failed: HTTP ${res.status}`);
   const body = (await res.json()) as { id: string };
   return body.id;
+}
+
+/** The user's conversations, most recently updated first. */
+export async function listConversations(): Promise<ConversationSummary[]> {
+  const res = await call("conversations");
+  if (!res.ok) throw new Error(`list conversations failed: HTTP ${res.status}`);
+  return (await res.json()) as ConversationSummary[];
+}
+
+export async function renameConversation(id: string, title: string): Promise<ConversationSummary> {
+  const res = await call(`conversations/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`rename conversation failed: HTTP ${res.status}`);
+  return (await res.json()) as ConversationSummary;
+}
+
+/** A conversation that is already gone (404) counts as deleted. */
+export async function deleteConversation(id: string): Promise<void> {
+  const res = await call(`conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 404) throw new Error(`delete conversation failed: HTTP ${res.status}`);
 }
 
 /** Returns null when the conversation does not exist (404). */

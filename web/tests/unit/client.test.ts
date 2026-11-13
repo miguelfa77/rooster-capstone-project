@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createConversation,
+  deleteConversation,
   getConversation,
   getIntel,
   getMe,
+  listConversations,
   patchPreferences,
+  renameConversation,
   sendMessage,
   SignedOutError,
-  STORAGE_KEY,
+  storageKey,
 } from "@/lib/client";
 
 const fetchMock = vi.fn();
@@ -19,8 +22,46 @@ afterEach(() => {
 });
 
 describe("client", () => {
-  it("storage_key", () => {
-    expect(STORAGE_KEY).toBe("rooster.conversationId");
+  it("storage_key_is_per_user", () => {
+    expect(storageKey("u1")).toBe("rooster.conversationId.u1");
+    expect(storageKey("u2")).toBe("rooster.conversationId.u2");
+  });
+
+  it("list_conversations_returns_summaries", async () => {
+    const items = [{ id: "c1", title: null, updated_at: "2026-11-13T10:00:00Z" }];
+    fetchMock.mockResolvedValue(Response.json(items));
+    await expect(listConversations()).resolves.toEqual(items);
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooster/conversations");
+
+    fetchMock.mockResolvedValue(new Response("", { status: 500 }));
+    await expect(listConversations()).rejects.toThrow();
+  });
+
+  it("rename_conversation_patches_title", async () => {
+    const summary = { id: "c1", title: "Ruzafa", updated_at: "2026-11-13T10:00:00Z" };
+    fetchMock.mockResolvedValue(Response.json(summary));
+    await expect(renameConversation("c1", "Ruzafa")).resolves.toEqual(summary);
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooster/conversations/c1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Ruzafa" }),
+    });
+
+    fetchMock.mockResolvedValue(Response.json({ detail: "too long" }, { status: 422 }));
+    await expect(renameConversation("c1", "x")).rejects.toThrow();
+  });
+
+  it("delete_conversation_sends_delete", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(deleteConversation("c1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooster/conversations/c1", { method: "DELETE" });
+
+    // Already gone counts as deleted.
+    fetchMock.mockResolvedValue(new Response("", { status: 404 }));
+    await expect(deleteConversation("c1")).resolves.toBeUndefined();
+
+    fetchMock.mockResolvedValue(new Response("", { status: 500 }));
+    await expect(deleteConversation("c1")).rejects.toThrow();
   });
 
   it("create_conversation_posts_and_returns_id", async () => {
@@ -70,6 +111,9 @@ describe("client signed out", () => {
       ["patchPreferences", () => patchPreferences({ theme: "dark" })],
       ["createConversation", () => createConversation()],
       ["getConversation", () => getConversation("c1")],
+      ["listConversations", () => listConversations()],
+      ["renameConversation", () => renameConversation("c1", "t")],
+      ["deleteConversation", () => deleteConversation("c1")],
       ["sendMessage", () => sendMessage("c1", "hola")],
       ["getIntel", () => getIntel("framing")],
     ];
