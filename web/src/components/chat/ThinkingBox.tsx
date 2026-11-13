@@ -1,8 +1,8 @@
 "use client";
 
+import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 import { COPY } from "@/lib/copy";
-import styles from "./ThinkingBox.module.css";
 
 /** Live-turn reasoning: open while thinking, collapses once prose starts streaming. */
 export default function ThinkingBox({ thoughts, hasText }: { thoughts: string[]; hasText: boolean }) {
@@ -17,13 +17,19 @@ export default function ThinkingBox({ thoughts, hasText }: { thoughts: string[];
   const latest = thoughts.at(-1);
 
   return (
-    <div className={styles.box}>
-      <button type="button" className={styles.toggle} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span className={styles.label}>{COPY.statusThinking}</span>
-        {latest ? <span className={styles.latest}>{latest}</span> : null}
+    <div className="text-muted-foreground text-xs">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="hover:text-foreground focus-visible:ring-ring/50 -mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-[3px]"
+      >
+        <ChevronRightIcon aria-hidden className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+        <span className="text-foreground shrink-0 font-medium">{COPY.statusThinking}</span>
+        {latest ? <span className="min-w-0 truncate">{latest}</span> : null}
       </button>
       {open && thoughts.length > 0 ? (
-        <ol className={styles.list}>
+        <ol className="mt-1 list-decimal space-y-0.5 pl-9 [overflow-wrap:anywhere]">
           {thoughts.map((t, i) => (
             <li key={i}>{t}</li>
           ))}

@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { COPY } from "@/lib/copy";
 
-/** Below 1024 px the left nav lives in a sheet opened from the top bar; following a link closes it. */
+/**
+ * Below 1024 px the left nav lives in a sheet opened from the top bar; following a link or picking
+ * a conversation (which opens the chat sheet) closes it.
+ */
 export function MobileNav({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
@@ -27,7 +30,7 @@ export function MobileNav({ children }: { children: ReactNode }) {
           (e.currentTarget as HTMLElement).focus();
         }}
         onClick={(e) => {
-          if ((e.target as Element).closest("a[href]")) setOpen(false);
+          if ((e.target as Element).closest("a[href], button")) setOpen(false);
         }}
       >
         <SheetTitle className="sr-only">{COPY.navLabel}</SheetTitle>

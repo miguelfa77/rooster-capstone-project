@@ -9,7 +9,7 @@ import { TopBarV4 } from "./TopBarV4";
 type Props = {
   user: UserOut;
   children: ReactNode;
-  /** Right-hand chat column (Task 6). */
+  /** Right-hand chat column (380 px, from 1024 px); rendered as the grid's third column. */
   chat?: ReactNode;
   /** Content of the nav's "Conversaciones" section (Task 5). */
   conversations?: ReactNode;
@@ -17,14 +17,17 @@ type Props = {
   chatOpen?: boolean;
 };
 
-/** Signed-in layout: 220 px nav (a sheet below 1024 px), main column, optional chat column. */
+/**
+ * Signed-in layout: 220 px nav (a sheet below 1024 px), main column, optional 380 px chat column.
+ * The main column is `minmax(0, 1fr)` so the chat never pushes the page into horizontal scroll.
+ */
 export function AppShell({ user, children, chat, conversations, onToggleChat, chatOpen }: Props) {
   const nav = <LeftNav conversations={conversations} />;
   return (
     <div
       className={cn(
         "min-h-svh lg:grid",
-        chat ? "lg:grid-cols-[220px_minmax(0,1fr)_340px]" : "lg:grid-cols-[220px_minmax(0,1fr)]",
+        chat ? "lg:grid-cols-[220px_minmax(0,1fr)_380px]" : "lg:grid-cols-[220px_minmax(0,1fr)]",
       )}
     >
       <aside className="bg-card sticky top-0 hidden h-svh overflow-y-auto border-r lg:block">{nav}</aside>
@@ -32,7 +35,7 @@ export function AppShell({ user, children, chat, conversations, onToggleChat, ch
         <TopBarV4 user={user} nav={nav} onToggleChat={onToggleChat} chatOpen={chatOpen} />
         <main className="min-w-0 flex-1">{children}</main>
       </div>
-      {chat && <div className="min-w-0">{chat}</div>}
+      {chat}
     </div>
   );
 }

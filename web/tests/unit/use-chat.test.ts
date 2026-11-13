@@ -293,7 +293,7 @@ describe("useChat", () => {
     });
     await waitFor(() => expect(result.current.state.live?.status).toBe("streaming"));
 
-    act(() => result.current.open("c2"));
+    act(() => void result.current.open("c2"));
     act(() => result.current.reset());
     await act(() => result.current.startChat("otra"));
     expect(result.current.state.conversationId).toBe("c1");
@@ -328,7 +328,7 @@ describe("useChat", () => {
 
     const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    act(() => result.current.open("c2"));
+    act(() => void result.current.open("c2"));
     // Marked active (and remembered) right away; messages arrive with the load.
     expect(result.current.state.conversationId).toBe("c2");
     expect(result.current.state.loading).toBe(true);
@@ -341,7 +341,7 @@ describe("useChat", () => {
 
     // Re-opening the active conversation does not refetch it.
     const calls = fetchMock.mock.calls.length;
-    act(() => result.current.open("c2"));
+    act(() => void result.current.open("c2"));
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
@@ -351,7 +351,11 @@ describe("useChat", () => {
 
     const { result } = renderHook(() => useChat({ userId: "u1", onConversationsChanged }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    await act(async () => result.current.open("gone"));
+    let found: boolean | undefined;
+    await act(async () => {
+      found = await result.current.open("gone");
+    });
+    expect(found).toBe(false);
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     expect(result.current.state.conversationId).toBeNull();
@@ -484,7 +488,7 @@ describe("useChat", () => {
     await waitFor(() => expect(gets).toBe(2));
     expect(result.current.state.live?.status).toBe("done");
     expect(result.current.busy).toBe(true);
-    act(() => result.current.open("c2"));
+    act(() => void result.current.open("c2"));
     expect(result.current.state.conversationId).toBe("c1");
 
     await act(async () => {

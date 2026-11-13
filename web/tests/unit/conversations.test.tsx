@@ -2,13 +2,35 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationList } from "@/components/chat/ConversationList";
 import { ExamplePrompts } from "@/components/chat/ExamplePrompts";
-import { ChatProvider, useChatContext } from "@/lib/chat-context";
+import { ChatProvider as RealChatProvider, useChatContext } from "@/lib/chat-context";
+import { ChatSurfaceProvider, useChatSurface } from "@/lib/chat-surface";
 import { storageKey } from "@/lib/client";
 import { ConversationsProvider, useConversations } from "@/lib/use-conversations";
-import type { ConversationSummary } from "@/lib/types";
+import { PreferencesProvider } from "@/lib/use-preferences";
+import type { ConversationSummary, Preferences } from "@/lib/types";
+
+/** The chat plus where it is shown (sidebar/sheet), as in the (app) layout. */
+const prefsHolder: { initial: Preferences } = { initial: {} };
+function ChatProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
+  return (
+    <PreferencesProvider initial={prefsHolder.initial}>
+      <RealChatProvider userId={userId}>
+        <ChatSurfaceProvider>
+          {children}
+          <SurfaceProbe />
+        </ChatSurfaceProvider>
+      </RealChatProvider>
+    </PreferencesProvider>
+  );
+}
+
+function SurfaceProbe() {
+  const { sidebarVisible } = useChatSurface();
+  return <p data-testid="sidebar">{sidebarVisible ? "open" : "closed"}</p>;
+}
 
 const router = vi.hoisted(() => ({ push: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/" }));
 const toast = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 
@@ -71,6 +93,7 @@ function renderList(variant: "nav" | "recent" | "page") {
 }
 
 beforeEach(() => {
+  prefsHolder.initial = {};
   localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -112,17 +135,21 @@ describe("ConversationList nav", () => {
     expect(await screen.findByText("Tus conversaciones aparecerán aquí.")).toBeInTheDocument();
   });
 
-  it("recent_click_opens_and_navigates", async () => {
+  it("recent_click_opens_in_sidebar_without_navigating", async () => {
+    prefsHolder.initial = { chat_open: false };
     routes({
       "GET /api/rooster/conversations": () => Response.json(summaries(10)),
       "GET /api/rooster/conversations/c2": () => Response.json({ id: "c2", title: "Conversación 2", messages: [] }),
+      "PATCH /api/rooster/me/preferences": () => Response.json({ chat_open: true }),
     });
     renderList("recent");
     const items = await screen.findAllByRole("button", { name: /^Conversación \d+$/ });
     expect(items).toHaveLength(8);
+    expect(screen.getByTestId("sidebar")).toHaveTextContent("closed");
     fireEvent.click(screen.getByRole("button", { name: "Conversación 2" }));
     await waitFor(() => expect(screen.getByTestId("active")).toHaveTextContent("c2"));
-    expect(router.push).toHaveBeenCalledWith("/chat/c2");
+    expect(screen.getByTestId("sidebar")).toHaveTextContent("open");
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it("nav_click_opens_and_marks_active", async () => {
@@ -362,7 +389,8 @@ describe("ConversationList page", () => {
 });
 
 describe("ExamplePrompts", () => {
-  it("pill_starts_chat_and_shows_it_once_created", async () => {
+  it("pill_starts_chat_and_shows_it_in_the_sidebar", async () => {
+    prefsHolder.initial = { chat_open: false };
     localStorage.setItem(KEY, "c1");
     let resolveCreate!: (r: Response) => void;
     routes({
@@ -370,6 +398,7 @@ describe("ExamplePrompts", () => {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: "x", messages: [] }),
       "POST /api/rooster/conversations": () => new Promise<Response>((r) => (resolveCreate = r)),
       "POST /api/rooster/conversations/new/messages": sseStream().response,
+      "PATCH /api/rooster/me/preferences": () => Response.json({ chat_open: true }),
     });
     render(
       <ConversationsProvider>
@@ -382,13 +411,13 @@ describe("ExamplePrompts", () => {
     await waitFor(() => expect(screen.getByTestId("active")).toHaveTextContent("c1"));
 
     fireEvent.click(screen.getByRole("button", { name: "¿Dónde invertir?" }));
-    // Reset first; no navigation until the new conversation exists.
+    // A new conversation starts and the sidebar opens at once; the page stays where it is.
     expect(screen.getByTestId("active")).toHaveTextContent("none");
-    expect(router.push).not.toHaveBeenCalled();
+    expect(screen.getByTestId("sidebar")).toHaveTextContent("open");
 
     await act(async () => resolveCreate(Response.json({ id: "new" }, { status: 201 })));
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/chat/new"));
-    expect(router.push).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId("active")).toHaveTextContent("new"));
+    expect(router.push).not.toHaveBeenCalled();
     const post = fetchMock.mock.calls.find(([u]) => u === "/api/rooster/conversations/new/messages");
     expect(JSON.parse(post![1].body)).toEqual({ text: "¿Dónde invertir?" });
 

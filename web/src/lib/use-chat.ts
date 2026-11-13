@@ -24,8 +24,11 @@ export type Chat = {
   send: (text: string) => Promise<void>;
   /** Start a new, empty conversation. Ignored while a turn is streaming. */
   reset: () => void;
-  /** Show another stored conversation. Ignored while a turn is streaming. */
-  open: (id: string) => void;
+  /**
+   * Show another stored conversation. Ignored while a turn is streaming. Resolves to false only
+   * when the conversation does not exist (404), true otherwise.
+   */
+  open: (id: string) => Promise<boolean>;
   /** reset + send. Ignored while a turn is streaming. */
   startChat: (text: string) => Promise<void>;
 };
@@ -202,31 +205,32 @@ export function useChat({ userId, onConversationsChanged }: UseChatOptions): Cha
   }, [key, stopPoll]);
 
   const open = useCallback(
-    (id: string) => {
-      if (streamingRef.current || idRef.current === id) return;
+    async (id: string): Promise<boolean> => {
+      if (streamingRef.current || idRef.current === id) return true;
       stopPoll();
       idRef.current = id;
       storedCountRef.current = 0;
       localStorage.setItem(key, id);
       dispatch({ type: "open", id });
-      getConversation(id)
-        .then((conv) => {
-          // Another conversation was opened (or started) meanwhile.
-          if (idRef.current !== id) return;
-          if (conv) {
-            storedCountRef.current = conv.messages.length;
-            dispatch({ type: "loaded", id, messages: conv.messages });
-          } else {
-            idRef.current = null;
-            localStorage.removeItem(key);
-            dispatch({ type: "reset" });
-            notifyChanged();
-          }
-        })
-        .catch(() => {
-          // Network/server error: stay on it so the next send still targets it.
-          if (idRef.current === id) dispatch({ type: "loaded", id, messages: [] });
-        });
+      try {
+        const conv = await getConversation(id);
+        // Another conversation was opened (or started) meanwhile.
+        if (idRef.current !== id) return true;
+        if (conv) {
+          storedCountRef.current = conv.messages.length;
+          dispatch({ type: "loaded", id, messages: conv.messages });
+          return true;
+        }
+        idRef.current = null;
+        localStorage.removeItem(key);
+        dispatch({ type: "reset" });
+        notifyChanged();
+        return false;
+      } catch {
+        // Network/server error: stay on it so the next send still targets it.
+        if (idRef.current === id) dispatch({ type: "loaded", id, messages: [] });
+        return true;
+      }
     },
     [key, notifyChanged, stopPoll],
   );

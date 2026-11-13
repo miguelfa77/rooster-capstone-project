@@ -17,7 +17,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isStreaming, useChatContext } from "@/lib/chat-context";
-import { showConversation } from "@/lib/chat-navigation";
+import { conversationHref } from "@/lib/chat-navigation";
+import { useChatSurface } from "@/lib/chat-surface";
 import { COPY } from "@/lib/copy";
 import { relativeDay } from "@/lib/format";
 import type { ConversationSummary } from "@/lib/types";
@@ -33,14 +34,16 @@ function titleOf(c: ConversationSummary): string {
 }
 
 /**
- * `nav`: the 8 most recent conversations (sidebar). `recent`: the same list on Inicio, where a
- * click also shows the conversation. `page`: all of them, with date, rename and delete (/chat).
+ * `nav`: the 8 most recent conversations (left nav). `recent`: the same list on Inicio. A click on
+ * either opens it in the chat sidebar (sheet on phones). `page`: all of them, with date, rename and
+ * delete (/chat); a click goes to the full-screen chat.
  * Switching is disabled while the chat is busy with a turn.
  */
 export function ConversationList({ variant }: { variant: "nav" | "recent" | "page" }) {
   const { items, loading, rename, remove } = useConversations();
   const chat = useChatContext();
   const router = useRouter();
+  const surface = useChatSurface();
   const activeId = chat.state.conversationId;
   const streaming = isStreaming(chat);
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
@@ -64,9 +67,11 @@ export function ConversationList({ variant }: { variant: "nav" | "recent" | "pag
     );
   }
 
+  // Inicio and the nav show it beside the page; the list page goes to the full-screen route.
   const select = (id: string) => {
-    chat.open(id);
-    if (variant !== "nav") showConversation(router, id);
+    void chat.open(id);
+    if (variant === "page") router.push(conversationHref(id));
+    else surface.show();
   };
 
   const itemButton = (c: ConversationSummary, className: string) => (

@@ -1,8 +1,9 @@
 "use client";
 
+import { ArrowUpIcon } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
+import { Button } from "@/components/ui/button";
 import { COPY } from "@/lib/copy";
-import styles from "./Composer.module.css";
 
 const MAX_CHARS = 2000;
 const COUNTER_FROM = 1800;
@@ -12,12 +13,10 @@ export default function Composer({
   disabled,
   draft = null,
   onSend,
-  onReset,
 }: {
   disabled: boolean;
   draft?: { text: string } | null;
   onSend: (text: string) => void;
-  onReset: () => void;
 }) {
   const [text, setText] = useState(draft?.text ?? "");
   const [seenDraft, setSeenDraft] = useState(draft);
@@ -41,36 +40,31 @@ export default function Composer({
 
   return (
     <form
-      className={styles.composer}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
+      className="bg-card border-input focus-within:border-ring focus-within:ring-ring/50 has-[textarea:disabled]:opacity-60 flex items-end gap-2 rounded-lg border p-1.5 pl-3 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px] dark:bg-input/30"
     >
       <textarea
-        className={styles.input}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={COPY.chatInputPlaceholder}
         aria-label={COPY.chatInputPlaceholder}
         maxLength={MAX_CHARS}
-        rows={2}
+        rows={1}
         disabled={disabled}
+        className="placeholder:text-placeholder field-sizing-content max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-base outline-none disabled:cursor-not-allowed md:text-sm"
       />
-      <div className={styles.row}>
-        <button type="button" className={styles.secondary} onClick={onReset}>
-          {COPY.newConversation}
-        </button>
-        {text.length > COUNTER_FROM ? (
-          <span className={styles.counter}>
-            {text.length}/{MAX_CHARS}
-          </span>
-        ) : null}
-        <button type="submit" className={styles.send} disabled={!canSend}>
-          {COPY.chatSend}
-        </button>
-      </div>
+      {text.length > COUNTER_FROM ? (
+        <span className="num text-muted-foreground shrink-0 self-center text-xs">
+          {text.length}/{MAX_CHARS}
+        </span>
+      ) : null}
+      <Button type="submit" size="icon-sm" aria-label={COPY.chatSend} disabled={!canSend} className="shrink-0">
+        <ArrowUpIcon aria-hidden />
+      </Button>
     </form>
   );
 }

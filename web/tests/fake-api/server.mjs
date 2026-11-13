@@ -36,6 +36,10 @@ const INTEL = {
 /** conversation id -> stored messages */
 const conversations = new Map();
 
+// The signed-in user (any X-Rooster-User id is accepted) and their stored preferences.
+let preferences = {};
+const me = (id) => ({ id, email: "e2e@example.es", name: "Prueba Rooster", image: null, preferences });
+
 const FOLLOW_UPS = ["¿Y en Russafa?", "Compara Benimaclet con Arrancapins"];
 
 function sleep(ms) {
@@ -126,6 +130,16 @@ const server = createServer(async (req, res) => {
 
   try {
     if (req.method === "GET" && path in INTEL) return send(res, 200, INTEL[path]);
+    if (req.method === "GET" && path === "/me") return send(res, 200, me(req.headers["x-rooster-user"] ?? "u1"));
+    if (req.method === "PATCH" && path === "/me/preferences") {
+      const patch = await readBody(req);
+      preferences = { ...preferences, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== null)) };
+      return send(res, 200, preferences);
+    }
+    if (req.method === "GET" && path === "/conversations") {
+      const now = new Date().toISOString();
+      return send(res, 200, [...conversations.keys()].reverse().map((id) => ({ id, title: null, updated_at: now })));
+    }
     if (req.method === "POST" && path === "/conversations") {
       const id = randomUUID();
       conversations.set(id, []);

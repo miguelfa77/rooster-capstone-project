@@ -11,7 +11,7 @@ import styles from "./DataTable.module.css";
 type Row = Record<string, unknown>;
 type Sort = { field: string; dir: "asc" | "desc" } | null;
 
-function parseRows(json: string): Row[] {
+export function parseRows(json: string): Row[] {
   try {
     const parsed: unknown = JSON.parse(json);
     return Array.isArray(parsed) ? parsed.filter((r): r is Row => typeof r === "object" && r !== null) : [];
