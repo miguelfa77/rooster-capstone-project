@@ -26,19 +26,23 @@ function googleUser(email: string | null): User {
   return { id: "google-sub-1", email, name: "Ana", image: "https://img.test/a.png" };
 }
 
+const verified = { email_verified: true };
+
+function okUpsert() {
+  fetchMock.mockResolvedValue(Response.json({ id: UID, email: "ana@fund.com", name: "Ana", image: null, preferences: {} }));
+}
+
 describe("auth callbacks", () => {
   it("disallowed_email_redirects_to_invitacion", async () => {
-    expect(await signInCallback({ user: googleUser("intruso@x.es") })).toBe("/entrar/invitacion");
-    expect(await signInCallback({ user: googleUser(null) })).toBe("/entrar/invitacion");
+    expect(await signInCallback({ user: googleUser("intruso@x.es"), profile: verified })).toBe("/entrar/invitacion");
+    expect(await signInCallback({ user: googleUser(null), profile: verified })).toBe("/entrar/invitacion");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("allowed_email_upserts_user_and_stores_uid", async () => {
-    fetchMock.mockResolvedValue(
-      Response.json({ id: UID, email: "ana@fund.com", name: "Ana", image: null, preferences: {} }),
-    );
+    okUpsert();
     const user = googleUser("Ana@Fund.com");
-    expect(await signInCallback({ user })).toBe(true);
+    expect(await signInCallback({ user, profile: verified })).toBe(true);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
@@ -50,17 +54,17 @@ describe("auth callbacks", () => {
     expect(JSON.parse(init.body)).toEqual({ email: "Ana@Fund.com", name: "Ana", image: "https://img.test/a.png" });
 
     // Auth.js passes the same user object to the jwt callback on first token creation.
-    const token = await jwtCallback({ token: { sub: "google-sub-1" } as JWT, user });
-    expect(token.uid).toBe(UID);
+    const token = await jwtCallback({ token: { sub: "google-sub-1", email: "Ana@Fund.com" } as JWT, user });
+    expect(token?.uid).toBe(UID);
 
     // Later session reads carry the uid forward without calling the API again.
-    const again = await jwtCallback({ token });
-    expect(again.uid).toBe(UID);
+    const again = await jwtCallback({ token: token! });
+    expect(again?.uid).toBe(UID);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const session = await sessionCallback({
       session: { user: { email: "ana@fund.com" }, expires: "2099-01-01T00:00:00.000Z" } as never,
-      token,
+      token: token!,
     });
     expect(session.user.id).toBe(UID);
   });
@@ -75,9 +79,9 @@ describe("auth callbacks", () => {
     for (const fail of failures) {
       fetchMock.mockImplementationOnce(fail);
       const user = googleUser("ana@fund.com");
-      expect(await signInCallback({ user })).toBe("/entrar?error=servicio");
-      const token = await jwtCallback({ token: {} as JWT, user });
-      expect(token.uid).toBeUndefined();
+      expect(await signInCallback({ user, profile: verified })).toBe("/entrar?error=servicio");
+      const token = await jwtCallback({ token: { email: "ana@fund.com" } as JWT, user });
+      expect(token?.uid).toBeUndefined();
     }
     expect(log).toHaveBeenCalled();
   });
@@ -85,8 +89,27 @@ describe("auth callbacks", () => {
   it("missing_api_config_blocks_sign_in", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubEnv("ROOSTER_API_KEY", "");
-    expect(await signInCallback({ user: googleUser("ana@fund.com") })).toBe("/entrar?error=servicio");
+    expect(await signInCallback({ user: googleUser("ana@fund.com"), profile: verified })).toBe("/entrar?error=servicio");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("unverified_google_email_rejected", async () => {
+    okUpsert();
+    for (const profile of [undefined, {}, { email_verified: false }, { email_verified: "true" }]) {
+      expect(await signInCallback({ user: googleUser("ana@fund.com"), profile: profile as never })).toBe(
+        "/entrar/invitacion",
+      );
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allowlist_removal_invalidates_existing_token", async () => {
+    const token = { sub: "google-sub-1", email: "ana@fund.com", uid: UID } as JWT;
+    expect(await jwtCallback({ token })).toEqual(token);
+    vi.stubEnv("ROOSTER_ALLOWED_EMAILS", "otra@fund.com");
+    expect(await jwtCallback({ token })).toBeNull();
+    vi.stubEnv("ROOSTER_ALLOWED_EMAILS", "");
+    expect(await jwtCallback({ token })).toBeNull();
   });
 
   it("session_without_uid_has_no_user_id", async () => {

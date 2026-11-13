@@ -7,7 +7,7 @@ import { jwtCallback, sessionCallback, signInCallback } from "@/lib/auth-callbac
 export const { auth, handlers, signIn, signOut } = NextAuth({
   providers: [Google],
   session: { strategy: "jwt" },
-  pages: { signIn: "/entrar" },
+  pages: { signIn: "/entrar", error: "/entrar" },
   callbacks: {
     signIn: signInCallback,
     jwt: jwtCallback,

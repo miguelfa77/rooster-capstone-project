@@ -52,7 +52,7 @@ services:
     environment:
       ROOSTER_API_URL: http://api:8000
       ROOSTER_API_KEY: ${ROOSTER_API_KEY:?set ROOSTER_API_KEY in .env}
-      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
       AUTH_TRUST_HOST: "true"

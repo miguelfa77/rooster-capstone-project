@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import EntrarPage from "@/app/entrar/page";
 import InvitacionPage from "@/app/entrar/invitacion/page";
 import { COPY } from "@/lib/copy";
@@ -8,7 +8,7 @@ vi.mock("@/auth", () => ({ signIn: vi.fn() }));
 
 afterEach(() => vi.clearAllMocks());
 
-async function renderEntrar(params: { next?: string; error?: string }) {
+async function renderEntrar(params: { next?: string; error?: string; callbackUrl?: string }) {
   render(await EntrarPage({ searchParams: Promise.resolve(params) }));
 }
 
@@ -43,5 +43,30 @@ describe("/entrar/invitacion", () => {
     expect(screen.getByRole("heading", { name: "Rooster es solo por invitación" })).toBeInTheDocument();
     expect(screen.getByText(COPY.inviteHowToRequest)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Probar con otra cuenta" })).toBeInTheDocument();
+  });
+});
+
+describe("/entrar errors and callbackUrl", () => {
+  function nextValue() {
+    return screen.getByRole("button", { name: "Continuar con Google" }).closest("form")?.querySelector('input[name="next"]');
+  }
+
+  it("any_error_value_shows_service_error", async () => {
+    for (const error of ["Configuration", "AccessDenied", "servicio"]) {
+      await renderEntrar({ error });
+      expect(screen.getByRole("alert")).toHaveTextContent(COPY.signInServiceError);
+      cleanup();
+    }
+  });
+
+  it("safe_callback_url_is_fallback_for_next", async () => {
+    await renderEntrar({ callbackUrl: "/conversaciones/1" });
+    expect(nextValue()).toHaveValue("/conversaciones/1");
+    cleanup();
+    await renderEntrar({ callbackUrl: "https://evil.test/" });
+    expect(nextValue()).toHaveValue("/");
+    cleanup();
+    await renderEntrar({ next: "/inteligencia", callbackUrl: "/conversaciones/1" });
+    expect(nextValue()).toHaveValue("/inteligencia");
   });
 });

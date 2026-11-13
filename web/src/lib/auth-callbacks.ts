@@ -1,5 +1,5 @@
 // Auth.js callbacks as plain functions so they can be unit-tested without Auth.js.
-import type { DefaultSession, Session, User } from "next-auth";
+import type { DefaultSession, Profile, Session, User } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import { isAllowed } from "@/lib/allowlist";
 
@@ -53,20 +53,22 @@ async function upsertUser(user: User): Promise<string | null> {
 }
 
 /**
- * Allowlist gate plus user upsert. The upsert runs here rather than in the jwt callback
- * because only signIn can turn a failure into a redirect of our choosing. Auth.js (JWT
- * sessions, no adapter) hands this same `user` object to the jwt callback that creates
- * the first token, which is how `roosterId` reaches it.
+ * Allowlist gate (verified Google emails only) plus user upsert. The upsert runs here rather
+ * than in the jwt callback because only signIn can turn a failure into a redirect of our choosing.
  */
-export async function signInCallback({ user }: { user: User }): Promise<true | string> {
-  if (!isAllowed(user.email)) return INVITE_ONLY_PATH;
+export async function signInCallback({ user, profile }: { user: User; profile?: Profile }): Promise<true | string> {
+  if (profile?.email_verified !== true || !isAllowed(user.email)) return INVITE_ONLY_PATH;
   const id = await upsertUser(user);
   if (!id) return SERVICE_ERROR_PATH;
+  // Relies on next-auth 5.0.0-beta.32 (@auth/core 0.41.3): with JWT sessions and no adapter, the
+  // same `user` object reaches the jwt callback that creates the first token.
   user.roosterId = id;
   return true;
 }
 
-export async function jwtCallback({ token, user }: { token: JWT; user?: User }): Promise<JWT> {
+/** Returning null clears the session, so removing an email from the allowlist signs it out on the next request. */
+export async function jwtCallback({ token, user }: { token: JWT; user?: User }): Promise<JWT | null> {
+  if (!isAllowed(token.email)) return null;
   if (user?.roosterId) token.uid = user.roosterId;
   return token;
 }
