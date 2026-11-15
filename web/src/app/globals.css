@@ -28,6 +28,8 @@
   --primary-foreground: #ffffff;
   /* Filled buttons/badges with white text (#e5484d is under 4.5:1 with white). */
   --primary-solid: #cd2b31;
+  /* Rooster red as text on its own 10-15% tint over the page or card (>= 4.5:1; #cd2b31 is 4.35:1 there); lighter in dark mode. */
+  --primary-text: #b8262b;
   --secondary: #f1f2f4;
   --secondary-foreground: #16181d;
   --muted-surface: #f1f2f4;
@@ -72,6 +74,7 @@
   --primary: #e5484d;
   --primary-foreground: #ffffff;
   --primary-solid: #cd2b31;
+  --primary-text: #ff8589;
   --secondary: #1a1f26;
   --secondary-foreground: #e6e8eb;
   --muted-surface: #1a1f26;
@@ -120,6 +123,7 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-solid: var(--primary-solid);
+  --color-primary-text: var(--primary-text);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted-surface);

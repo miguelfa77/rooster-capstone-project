@@ -130,7 +130,7 @@ describe("UserMenu", () => {
     fetchMock.mockResolvedValue(Response.json({ theme: "dark" }));
     withProviders(<UserMenu user={USER} />);
     const menu = openMenu();
-    expect(within(menu).getByRole("menuitemradio", { name: "Sistema" })).toHaveAttribute("aria-checked", "true");
+    expect(within(menu).getByRole("menuitemradio", { name: "Claro" })).toHaveAttribute("aria-checked", "true");
     await act(async () => within(menu).getByRole("menuitemradio", { name: "Oscuro" }).click());
     expect(fetchMock).toHaveBeenCalledWith("/api/rooster/me/preferences", {
       method: "PATCH",

@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import * as chartTheme from "@/components/primitives/chartTheme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import FollowUps from "@/components/chat/FollowUps";
 
 const CSS = readFileSync(path.resolve(__dirname, "../../src/app/globals.css"), "utf8");
 
@@ -77,6 +78,7 @@ function Probe() {
     <>
       <span data-testid="theme">{theme}</span>
       <button onClick={() => setTheme("dark")}>dark</button>
+      <button onClick={() => setTheme("system")}>system</button>
     </>
   );
 }
@@ -84,7 +86,8 @@ function Probe() {
 beforeAll(() => {
   // jsdom has no matchMedia; next-themes reads it to resolve "system".
   window.matchMedia = ((query: string) => ({
-    matches: false,
+    // The operating system is set to dark.
+    matches: query.includes("prefers-color-scheme: dark"),
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -101,14 +104,25 @@ beforeEach(() => {
 });
 
 describe("theme", () => {
-  it("defaults_to_system_theme", () => {
+  it("defaults_to_light_even_when_the_system_is_dark", () => {
     render(
       <ThemeProvider>
         <Probe />
       </ThemeProvider>,
     );
-    expect(screen.getByTestId("theme")).toHaveTextContent("system");
+    expect(screen.getByTestId("theme")).toHaveTextContent("light");
     expect(document.documentElement).not.toHaveClass("dark");
+  });
+
+  it("system_choice_follows_the_operating_system", () => {
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    act(() => screen.getByRole("button", { name: "system" }).click());
+    expect(screen.getByTestId("theme")).toHaveTextContent("system");
+    expect(document.documentElement).toHaveClass("dark");
   });
 
   it("toggle_sets_dark_class_on_html", () => {
@@ -157,6 +171,28 @@ describe("theme", () => {
     for (const mode of MODES) {
       for (const bg of ["--background", "--card"]) {
         expect(contrast(color(mode, "--accent"), color(mode, bg)), `${mode} --accent on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it("follow_up_chip_text_uses_primary_text_token_at_least_4_5_on_its_tint", () => {
+    render(<FollowUps items={["¿Y en Russafa?"]} interactive onPick={() => {}} />);
+    const cls = screen.getByRole("button").className;
+    expect(cls).toContain("text-primary-text");
+    expect(cls).not.toMatch(/#[0-9a-f]{6}/i);
+    expect(color(":root", "--primary-text")).toBe("#b8262b");
+    expect(color(".dark", "--primary-text")).toBe("#ff8589");
+    // Chip tint: primary at 10% (light) / 15% (dark), 15% / 20% on hover, over the page or the card.
+    const tints: [Mode, number][] = [
+      [":root", 0.1],
+      [":root", 0.15],
+      [".dark", 0.15],
+      [".dark", 0.2],
+    ];
+    for (const [mode, alpha] of tints) {
+      for (const surface of ["--background", "--card"]) {
+        const chip = over(color(mode, "--primary"), alpha, color(mode, surface));
+        expect(contrast(color(mode, "--primary-text"), chip), `${mode} ${alpha} on ${surface}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

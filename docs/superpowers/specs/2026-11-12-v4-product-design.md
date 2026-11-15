@@ -71,7 +71,7 @@ Visual direction: the owner picked the dark "pro tool" direction with Rooster re
 
 ### 5.2 Look
 
-- Light default, dark toggle (user menu; follows system setting until chosen; remembered per user).
+- Light default; dark toggle; 'Sistema' available in the user menu; remembered per user.
 - Rooster red (`#e5484d` family) only for primary actions and highlights; green/red for up/down; amber for warnings. Monospaced tabular figures for numbers (JetBrains Mono or similar); Inter (or similar) for text.
 - shadcn/ui components themed through CSS variables for both modes. Charts (Recharts) and maps (MapLibre; CARTO light/dark basemaps per mode) restyled to match.
 - PDF exports always render in light mode.

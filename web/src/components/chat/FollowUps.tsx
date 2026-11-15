@@ -25,8 +25,8 @@ export default function FollowUps({
           key={i}
           type="button"
           onClick={() => onPick(item)}
-          // Tinted Rooster red (mockup .chip): dark red text in light mode, light red in dark mode.
-          className="bg-primary/10 hover:bg-primary/15 focus-visible:ring-ring/50 max-w-full rounded-2xl px-3 py-1.5 text-left text-xs font-semibold text-[#cd2b31] outline-none [overflow-wrap:anywhere] focus-visible:ring-[3px] dark:bg-primary/15 dark:text-[#ff8589] dark:hover:bg-primary/20"
+          // Tinted Rooster red (mockup .chip); `text-primary-text` is dark red in light mode, light red in dark mode.
+          className="bg-primary/10 hover:bg-primary/15 focus-visible:ring-ring/50 text-primary-text dark:bg-primary/15 dark:hover:bg-primary/20 max-w-full rounded-2xl px-3 py-1.5 text-left text-xs font-semibold outline-none [overflow-wrap:anywhere] focus-visible:ring-[3px]"
         >
           {item}
         </button>
