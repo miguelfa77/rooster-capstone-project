@@ -255,14 +255,14 @@ def test_list_conversations_newest_first_only_mine_max_100(store, uid, engine):
     assert set(listed[0]) == {"id", "title", "updated_at"} and listed[0]["title"] is None
 
 
-def test_rename_sets_title_bumps_updated_at_and_checks_owner(store, uid):
+def test_rename_sets_title_keeps_updated_at_and_checks_owner(store, uid):
     other = store.upsert_user("luis@example.com", None, None)["id"]
     cid = store.create(uid)
     before = store.summary(cid, uid)["updated_at"]
     assert store.rename(cid, other, "no") is None
     row = store.rename(cid, uid, "Ruzafa")
     assert row == store.summary(cid, uid)
-    assert row["id"] == cid and row["title"] == "Ruzafa" and row["updated_at"] > before
+    assert row["id"] == cid and row["title"] == "Ruzafa" and row["updated_at"] == before
     assert store.rename(uuid.uuid4(), uid, "x") is None
 
 

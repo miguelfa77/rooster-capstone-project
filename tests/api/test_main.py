@@ -93,7 +93,7 @@ class FakeStore:
     def rename(self, cid, user_id, title):
         if not self._owned(cid, user_id):
             return None
-        self.meta[cid].update(title=title, updated_at=self._now())
+        self.meta[cid]["title"] = title
         return self.summary(cid, user_id)
 
     def delete(self, cid, user_id):

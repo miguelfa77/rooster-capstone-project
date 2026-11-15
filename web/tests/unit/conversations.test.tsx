@@ -8,6 +8,7 @@ import { storageKey } from "@/lib/client";
 import { ConversationsProvider, useConversations } from "@/lib/use-conversations";
 import { PreferencesProvider } from "@/lib/use-preferences";
 import type { ConversationSummary, Preferences } from "@/lib/types";
+import { routes } from "./support/fetch-routes";
 
 /** The chat plus where it is shown (sidebar/sheet), as in the (app) layout. */
 const prefsHolder: { initial: Preferences } = { initial: {} };
@@ -65,17 +66,6 @@ function Sender() {
   );
 }
 
-type Route = (url: string, init?: RequestInit) => Response | Promise<Response>;
-
-function routes(handlers: Record<string, Route>) {
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    const key = `${init?.method ?? "GET"} ${url}`;
-    const handler = handlers[key];
-    if (!handler) throw new Error(`unexpected fetch ${key}`);
-    return handler(url, init);
-  });
-}
-
 function ActiveProbe() {
   const { state } = useChatContext();
   return <p data-testid="active">{state.conversationId ?? "none"}</p>;
@@ -114,20 +104,20 @@ afterEach(() => {
 
 describe("ConversationList nav", () => {
   it("lists_recent_in_nav_max_8", async () => {
-    routes({ "GET /api/rooster/conversations": () => Response.json(summaries(10)) });
+    routes(fetchMock, { "GET /api/rooster/conversations": () => Response.json(summaries(10)) });
     renderList("nav");
     const items = await screen.findAllByRole("button", { name: /^Conversación \d+$/ });
     expect(items.map((b) => b.textContent)).toEqual(summaries(8).map((c) => c.title));
   });
 
   it("untitled_shows_placeholder", async () => {
-    routes({ "GET /api/rooster/conversations": () => Response.json([{ id: "c1", title: null, updated_at: NOW }]) });
+    routes(fetchMock, { "GET /api/rooster/conversations": () => Response.json([{ id: "c1", title: null, updated_at: NOW }]) });
     renderList("nav");
     expect(await screen.findByRole("button", { name: "Nueva conversación" })).toBeInTheDocument();
   });
 
   it("empty_list_shows_hint", async () => {
-    routes({ "GET /api/rooster/conversations": () => Response.json([]) });
+    routes(fetchMock, { "GET /api/rooster/conversations": () => Response.json([]) });
     const { unmount } = renderList("nav");
     expect(await screen.findByText("Sin conversaciones todavía")).toBeInTheDocument();
     unmount();
@@ -137,7 +127,7 @@ describe("ConversationList nav", () => {
 
   it("recent_click_opens_in_sidebar_without_navigating", async () => {
     prefsHolder.initial = { chat_open: false };
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(10)),
       "GET /api/rooster/conversations/c2": () => Response.json({ id: "c2", title: "Conversación 2", messages: [] }),
       "PATCH /api/rooster/me/preferences": () => Response.json({ chat_open: true }),
@@ -153,7 +143,7 @@ describe("ConversationList nav", () => {
   });
 
   it("nav_click_opens_and_marks_active", async () => {
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(2)),
       "GET /api/rooster/conversations/c2": () => Response.json({ id: "c2", title: "Conversación 2", messages: [] }),
     });
@@ -169,7 +159,7 @@ describe("ConversationList nav", () => {
 
   it("items_disabled_while_streaming", async () => {
     const stream = sseStream();
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(2)),
       "POST /api/rooster/conversations": () => Response.json({ id: "c9" }, { status: 201 }),
       "POST /api/rooster/conversations/c9/messages": stream.response,
@@ -192,7 +182,7 @@ describe("ConversationList nav", () => {
 describe("ConversationList page", () => {
   it("rename_commits_on_blur", async () => {
     let patched: unknown = null;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(1)),
       "PATCH /api/rooster/conversations/c1": (_u, init) => {
         patched = JSON.parse(String(init!.body));
@@ -212,7 +202,7 @@ describe("ConversationList page", () => {
     const stream = sseStream();
     let gets = 0;
     let resolveRefetch!: (r: Response) => void;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(2)),
       "GET /api/rooster/conversations/c1": () =>
         gets++ === 0
@@ -255,14 +245,15 @@ describe("ConversationList page", () => {
     expect(renameActive).toBeEnabled();
   });
 
-  it("rename_resorts_by_updated_at", async () => {
+  it("rename_keeps_the_conversation_in_place", async () => {
     const older = new Date(Date.now() - 3_600_000).toISOString();
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () =>
         Response.json([
           { id: "c1", title: "Primera", updated_at: NOW },
           { id: "c2", title: "Segunda", updated_at: older },
         ]),
+      // Renaming is not activity: whatever updated_at comes back, the row stays where it was.
       "PATCH /api/rooster/conversations/c2": () =>
         Response.json({ id: "c2", title: "Renombrada", updated_at: new Date(Date.now() + 1000).toISOString() }),
     });
@@ -270,17 +261,16 @@ describe("ConversationList page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Renombrar «Segunda»" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Renombrada" } });
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
-    await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: /^(Primera|Renombrada)$/ }).map((b) => b.textContent)).toEqual([
-        "Renombrada",
-        "Primera",
-      ]),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Renombrada" })).toBeInTheDocument());
+    expect(screen.getAllByRole("button", { name: /^(Primera|Renombrada)$/ }).map((b) => b.textContent)).toEqual([
+      "Primera",
+      "Renombrada",
+    ]);
   });
 
   it("page_shows_all_with_relative_date_and_navigates", async () => {
     const old = { id: "c11", title: "Antigua", updated_at: new Date(Date.now() - 86_400_000).toISOString() };
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json([...summaries(10), old]),
       "GET /api/rooster/conversations/c11": () => Response.json({ id: "c11", title: "Antigua", messages: [] }),
     });
@@ -296,7 +286,7 @@ describe("ConversationList page", () => {
 
   it("rename_inline_enter_saves_esc_cancels", async () => {
     let patched: unknown = null;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(1)),
       "PATCH /api/rooster/conversations/c1": (_u, init) => {
         patched = JSON.parse(String(init!.body));
@@ -323,7 +313,7 @@ describe("ConversationList page", () => {
 
   it("rename_optimistic_and_rollback", async () => {
     let fail!: () => void;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(1)),
       "PATCH /api/rooster/conversations/c1": () =>
         new Promise<Response>((r) => (fail = () => r(new Response("", { status: 500 })))),
@@ -345,7 +335,7 @@ describe("ConversationList page", () => {
   it("delete_active_resets_chat", async () => {
     localStorage.setItem(KEY, "c1");
     let deleted = false;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(2)),
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: "Conversación 1", messages: [] }),
       "DELETE /api/rooster/conversations/c1": () => {
@@ -368,7 +358,7 @@ describe("ConversationList page", () => {
   });
 
   it("delete_cancel_keeps_item_and_failure_rolls_back", async () => {
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(2)),
       "DELETE /api/rooster/conversations/c2": () => new Response("", { status: 500 }),
     });
@@ -393,7 +383,7 @@ describe("ExamplePrompts", () => {
     prefsHolder.initial = { chat_open: false };
     localStorage.setItem(KEY, "c1");
     let resolveCreate!: (r: Response) => void;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () => Response.json(summaries(1)),
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: "x", messages: [] }),
       "POST /api/rooster/conversations": () => new Promise<Response>((r) => (resolveCreate = r)),
@@ -432,7 +422,7 @@ describe("useConversations", () => {
   it("slow_initial_load_does_not_overwrite_newer_refresh", async () => {
     let resolveFirst!: (r: Response) => void;
     let lists = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations": () =>
         lists++ === 0 ? new Promise<Response>((r) => (resolveFirst = r)) : Response.json(summaries(2)),
     });

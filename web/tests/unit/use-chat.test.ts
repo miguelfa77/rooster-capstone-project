@@ -4,6 +4,7 @@ import { storageKey } from "@/lib/client";
 import { COPY } from "@/lib/copy";
 import { useChat } from "@/lib/use-chat";
 import type { ConversationOut, Message } from "@/lib/types";
+import { routes } from "./support/fetch-routes";
 
 const fetchMock = vi.fn();
 
@@ -16,17 +17,6 @@ const storedMessages: Message[] = [
   { role: "user", content: "hola" },
   { role: "assistant", blocks: [], summary: "respuesta", primitive_payloads: [], follow_ups: [] },
 ];
-
-type Route = (url: string, init?: RequestInit) => Response | Promise<Response>;
-
-function routes(handlers: Record<string, Route>) {
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    const key = `${init?.method ?? "GET"} ${url}`;
-    const handler = handlers[key];
-    if (!handler) throw new Error(`unexpected fetch ${key}`);
-    return handler(url, init);
-  });
-}
 
 const KEY = storageKey("u1");
 
@@ -65,7 +55,7 @@ describe("useChat", () => {
   it("restores_history_from_storage", async () => {
     localStorage.setItem(KEY, "c1");
     const conv: ConversationOut = { id: "c1", title: null, messages: storedMessages };
-    routes({ "GET /api/rooster/conversations/c1": () => Response.json(conv) });
+    routes(fetchMock, { "GET /api/rooster/conversations/c1": () => Response.json(conv) });
 
     const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -75,7 +65,7 @@ describe("useChat", () => {
 
   it("stale_id_404_cleared", async () => {
     localStorage.setItem(KEY, "gone");
-    routes({ "GET /api/rooster/conversations/gone": () => new Response("", { status: 404 }) });
+    routes(fetchMock, { "GET /api/rooster/conversations/gone": () => new Response("", { status: 404 }) });
 
     const { result } = renderHook(() => useChat({ userId: "u1" }));
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -85,7 +75,7 @@ describe("useChat", () => {
   });
 
   it("first_send_creates_and_persists_conversation", async () => {
-    routes({
+    routes(fetchMock, {
       "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
       "POST /api/rooster/conversations/new/messages": () => sse([{ type: "done" }]),
       "GET /api/rooster/conversations/new": () => Response.json({ id: "new", messages: storedMessages }),
@@ -103,7 +93,7 @@ describe("useChat", () => {
 
   it("stream_without_done_fails", async () => {
     localStorage.setItem(KEY, "c1");
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () => sse([{ type: "text_delta", text: "a medias" }]),
     });
@@ -124,7 +114,7 @@ describe("useChat", () => {
   it("refetches_after_done", async () => {
     localStorage.setItem(KEY, "c1");
     let gets = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () =>
         Response.json({ id: "c1", messages: gets++ === 0 ? [] : storedMessages }),
       "POST /api/rooster/conversations/c1/messages": () =>
@@ -148,7 +138,7 @@ describe("useChat", () => {
     localStorage.setItem(KEY, "c1");
     const grown: Message[] = [...storedMessages, { role: "user", content: "x" }, storedMessages[1]];
     let gets = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () =>
         Response.json({ id: "c1", messages: gets++ < 3 ? storedMessages : grown }),
       "POST /api/rooster/conversations/c1/messages": () => Response.json({ detail: "busy" }, { status: 409 }),
@@ -188,7 +178,7 @@ describe("useChat", () => {
   it("409_poll_gives_up_after_two_minutes", async () => {
     localStorage.setItem(KEY, "c1");
     let gets = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => {
         gets++;
         return Response.json({ id: "c1", messages: storedMessages });
@@ -211,7 +201,7 @@ describe("useChat", () => {
   it("429_sets_rate_limited_keeps_text_and_does_not_poll", async () => {
     localStorage.setItem(KEY, "c1");
     let gets = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => {
         gets++;
         return Response.json({ id: "c1", messages: storedMessages });
@@ -239,7 +229,7 @@ describe("useChat", () => {
 
   it("error_event_skips_refetch_and_keeps_turn", async () => {
     localStorage.setItem(KEY, "c1");
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () =>
         sse([{ type: "error", reason: "boom", suggestion: "otra vez" }, { type: "done" }]),
@@ -257,7 +247,7 @@ describe("useChat", () => {
   it("refetch_failure_keeps_done_turn_without_error", async () => {
     localStorage.setItem(KEY, "c1");
     let gets = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => {
         if (gets++ === 0) return Response.json({ id: "c1", messages: [] });
         throw new Error("network");
@@ -279,7 +269,7 @@ describe("useChat", () => {
   it("open_and_reset_ignored_while_streaming", async () => {
     localStorage.setItem(KEY, "c1");
     const stream = openStream();
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
       "POST /api/rooster/conversations/c1/messages": () =>
         new Response(stream.body, { status: 200, headers: { "content-type": "text/event-stream" } }),
@@ -316,7 +306,7 @@ describe("useChat", () => {
     localStorage.setItem(KEY, "c1");
     const other: Message[] = [{ role: "user", content: "otra" }];
     let resolveOpen!: (r: Response) => void;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
     });
     const routed = fetchMock.getMockImplementation()!;
@@ -346,7 +336,7 @@ describe("useChat", () => {
   });
 
   it("open_404_clears_stored_id", async () => {
-    routes({ "GET /api/rooster/conversations/gone": () => new Response("", { status: 404 }) });
+    routes(fetchMock, { "GET /api/rooster/conversations/gone": () => new Response("", { status: 404 }) });
     const onConversationsChanged = vi.fn();
 
     const { result } = renderHook(() => useChat({ userId: "u1", onConversationsChanged }));
@@ -365,7 +355,7 @@ describe("useChat", () => {
 
   it("storage_key_is_per_user", async () => {
     localStorage.setItem(KEY, "c1");
-    routes({
+    routes(fetchMock, {
       "POST /api/rooster/conversations": () => Response.json({ id: "mine" }, { status: 201 }),
       "POST /api/rooster/conversations/mine/messages": () => sse([{ type: "done" }]),
       "GET /api/rooster/conversations/mine": () => Response.json({ id: "mine", messages: storedMessages }),
@@ -385,7 +375,7 @@ describe("useChat", () => {
   it("refresh_after_turn_finishes", async () => {
     let onCreatedCalls = -1;
     const onConversationsChanged = vi.fn();
-    routes({
+    routes(fetchMock, {
       "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
       "POST /api/rooster/conversations/new/messages": () => {
         onCreatedCalls = onConversationsChanged.mock.calls.length;
@@ -405,7 +395,7 @@ describe("useChat", () => {
 
   it("start_chat_resets_then_sends", async () => {
     localStorage.setItem(KEY, "c1");
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: storedMessages }),
       "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
       "POST /api/rooster/conversations/new/messages": () => sse([{ type: "done" }]),
@@ -426,7 +416,7 @@ describe("useChat", () => {
   it("mount_result_ignored_after_send_created_conversation", async () => {
     localStorage.setItem(KEY, "old");
     let resolveMount!: (r: Response) => void;
-    routes({
+    routes(fetchMock, {
       "POST /api/rooster/conversations": () => Response.json({ id: "new" }, { status: 201 }),
       "POST /api/rooster/conversations/new/messages": () => sse([{ type: "done" }]),
       "GET /api/rooster/conversations/new": () => Response.json({ id: "new", messages: storedMessages }),
@@ -451,7 +441,7 @@ describe("useChat", () => {
 
   it("concurrent_sends_post_once", async () => {
     localStorage.setItem(KEY, "c1");
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () => sse([{ type: "done" }]),
     });
@@ -469,7 +459,7 @@ describe("useChat", () => {
     localStorage.setItem(KEY, "c1");
     let gets = 0;
     let resolveRefetch!: (r: Response) => void;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () =>
         gets++ === 0
           ? Response.json({ id: "c1", messages: [] })
@@ -502,7 +492,7 @@ describe("useChat", () => {
     localStorage.setItem(KEY, "c1");
     const stream = openStream();
     const onConversationsChanged = vi.fn();
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", messages: [] }),
       "POST /api/rooster/conversations/c1/messages": () =>
         new Response(stream.body, { status: 200, headers: { "content-type": "text/event-stream" } }),
@@ -535,7 +525,7 @@ describe("useChat", () => {
     localStorage.setItem(KEY, "c1");
     let resolvePost!: (r: Response) => void;
     let gets = 0;
-    routes({
+    routes(fetchMock, {
       "GET /api/rooster/conversations/c1": () => {
         gets++;
         return Response.json({ id: "c1", messages: [] });

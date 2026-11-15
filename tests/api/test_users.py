@@ -122,6 +122,16 @@ def test_rename_trims_and_validates_length(client):
     assert client.patch(f"/conversations/{cid}", json={"title": "x" * 120}, headers=AUTH).status_code == 200
 
 
+def test_rename_does_not_move_the_conversation_up_the_recent_list(client):
+    first, second = _create(client), _create(client)
+    before = client.get("/conversations", headers=AUTH).json()
+    assert [c["id"] for c in before] == [second, first]
+    renamed = client.patch(f"/conversations/{first}", json={"title": "Renombrada"}, headers=AUTH).json()
+    after = client.get("/conversations", headers=AUTH).json()
+    assert [c["id"] for c in after] == [second, first]
+    assert renamed["updated_at"] == next(c for c in before if c["id"] == first)["updated_at"]
+
+
 def test_delete_then_404(client):
     cid = _create(client)
     assert client.delete(f"/conversations/{cid}", headers=AUTH).status_code == 204

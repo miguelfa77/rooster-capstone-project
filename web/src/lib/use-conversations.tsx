@@ -19,11 +19,6 @@ export type Conversations = {
 
 const ConversationsContext = createContext<Conversations | null>(null);
 
-/** Most recently updated first, as the API lists them. */
-function byUpdatedDesc(items: ConversationSummary[]): ConversationSummary[] {
-  return [...items].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-}
-
 export function ConversationsProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +57,8 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
       update(current.current.map((c) => (c.id === id ? { ...c, title } : c)));
       try {
         const saved = await renameConversation(id, title);
-        update(byUpdatedDesc(current.current.map((c) => (c.id === id ? saved : c))));
+        // Renaming keeps the row's position: it is not activity.
+        update(current.current.map((c) => (c.id === id ? saved : c)));
       } catch (err) {
         if (err instanceof SignedOutError) return;
         // Roll back only if no later rename has replaced this one.

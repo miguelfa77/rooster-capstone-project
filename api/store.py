@@ -133,11 +133,11 @@ class ConversationStore:
         return [dict(r._mapping) for r in rows]
 
     def rename(self, conversation_id: uuid.UUID, user_id: uuid.UUID, title: str) -> dict | None:
-        """Set the title; returns {id, title, updated_at}, or None when not found or not owned."""
+        """Set the title (`updated_at` stays: renaming is not activity); returns {id, title, updated_at}, or None."""
         with self.engine.begin() as conn:
             row = conn.execute(
                 text(
-                    "UPDATE app.conversations SET title = :title, updated_at = now() "
+                    "UPDATE app.conversations SET title = :title "
                     "WHERE id = :id AND user_id = :uid RETURNING id, title, updated_at"
                 ),
                 {"id": conversation_id, "uid": user_id, "title": title},
