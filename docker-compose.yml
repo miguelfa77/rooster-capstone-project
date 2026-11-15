@@ -1,5 +1,5 @@
 # Whole Rooster stack for local runs: PostGIS, sandbox, API and web.
-#   cp .env.example .env   # fill in OPENAI_API_KEY and ROOSTER_API_KEY
+#   cp .env.example .env   # fill in OPENAI_API_KEY, ROOSTER_API_KEY, AUTH_SECRET, AUTH_GOOGLE_ID/SECRET, ROOSTER_ALLOWED_EMAILS
 #   docker compose up --build
 # Web: http://localhost:3000 · API: http://localhost:8000 · Postgres: localhost:5432
 # The database starts empty: see README "First run: data" for migrations, loaders and dbt.
@@ -53,10 +53,10 @@ services:
       ROOSTER_API_URL: http://api:8000
       ROOSTER_API_KEY: ${ROOSTER_API_KEY:?set ROOSTER_API_KEY in .env}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
-      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
-      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
-      AUTH_TRUST_HOST: "true"
-      ROOSTER_ALLOWED_EMAILS: ${ROOSTER_ALLOWED_EMAILS:-}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:?set AUTH_GOOGLE_ID in .env}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:?set AUTH_GOOGLE_SECRET in .env}
+      ROOSTER_ALLOWED_EMAILS: ${ROOSTER_ALLOWED_EMAILS:?set ROOSTER_ALLOWED_EMAILS in .env}
     ports:
       - "3000:3000"
     depends_on:

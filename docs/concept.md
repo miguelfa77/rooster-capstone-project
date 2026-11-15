@@ -9,7 +9,7 @@ Rooster helps people who invest in residential property in Valencia (Spain) answ
 - **Ask Rooster** — a chat where you ask, in Spanish and in your own words, things like "¿qué barrios tienen mejor rentabilidad?", "enséñame pisos en venta en Ruzafa por debajo de 250.000 €" or "de estos, quédate con los que rinden más del 6 %". Rooster answers with a short explanation plus whatever form fits: key figures, a table, a chart, a map of neighborhoods or a map of individual listings.
 - **Intelligence** — a fixed dashboard of the city: three headline market figures, a city map you can color by a metric and overlay with transit stops, tourist apartments, listings and land parcels, a ranking of neighborhoods by investment appeal, and a yield-versus-liquidity chart.
 
-It covers one city and one domain on purpose. It is a public demo with no user accounts.
+It covers one city and one domain on purpose. Access is by invitation: people sign in with Google, and only invited emails get in.
 
 ## The shape: one front door, thin clients
 
@@ -60,7 +60,7 @@ The catalogue is written by hand because it holds what the metric layer doesn't:
 ## Trust, abuse and cost
 
 - **Secret key.** The API accepts only callers holding its secret key: the web app's server and, later, the phone line. Browsers never talk to the API or see the key.
-- **Conversation IDs.** Without accounts, a conversation's random, unguessable ID is its only key. Anyone holding it can read the conversation, which is acceptable for a demo.
+- **Accounts.** Sign-in is Google only and invite-only: the web server checks each person against an allowlist of emails, on every request. Every conversation belongs to the user who started it, and nobody else can read, rename or delete it. The API does not sign anyone in; it trusts the web server's statement of who the user is, which is safe only because the secret key stops anyone else from calling it.
 - **Data stays data.** Scraped listing data reaches the model only as tool results, never as instructions. Model-written code runs only in the sandbox.
 - **Cost is bounded per turn and in total.**
   - Per turn: a message is at most 2,000 characters, the tool loop is a few steps at most, and a failed custom chart is retried at most once.
@@ -91,6 +91,6 @@ The catalogue is written by hand because it holds what the metric layer doesn't:
 
 ## Deliberately out of scope (for now)
 
-User accounts and private conversations, other cities, new data sources, and the phone line itself. The phone line is designed for but not built. Beyond the spoken mode and stopping a turn, it will need a fast first word, speaking the prose as it streams, and one conversation per call.
+Open sign-up, teams or shared workspaces, other cities, new data sources, and the phone line itself. The phone line is designed for but not built. Beyond the spoken mode and stopping a turn, it will need a fast first word, speaking the prose as it streams, and one conversation per call.
 
 **Spoken mode.** For the phone line, each message will say whether it wants a *visual* answer (today's only kind) or a *spoken* one. A spoken answer adds no new vocabulary. It is just prose blocks: a few short sentences with rounded numbers, written by the same step from the same data and streamed as they are written. The caller hears the progress notes while data is fetched, then the first sentence as soon as it exists.

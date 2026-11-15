@@ -2,7 +2,7 @@
 
 **What it is:** Spanish-language AI real estate analytics chatbot for Valencia. Investors ask natural language questions; the agent queries a PostGIS database and returns dynamic visualizations and prose. Single city, single domain.
 
-**Stack:** Python · PostgreSQL + PostGIS · dbt · OpenAI Responses API (GPT-5.5) · FastAPI · Next.js + TypeScript (Recharts, MapLibre, Plotly for `code` output) · Docker
+**Stack:** Python · PostgreSQL + PostGIS · dbt · OpenAI Responses API (GPT-5.5) · FastAPI · Next.js 16 + TypeScript + Tailwind with shadcn-style UI on Radix (Recharts, MapLibre, Plotly for `code` output) · Auth.js v5 (Google sign-in) · Docker
 
 ---
 
@@ -98,8 +98,8 @@ tourist_density_pct  median_venta_eur_per_sqm  data_confidence
 
 Three services, each with its own Dockerfile, plus one PostGIS 17 database (stock `postgis/postgis` image); `docker-compose.yml` runs the whole stack locally. No hosting config is checked in.
 
-- **api** — `api/` FastAPI app (`api/Dockerfile`, build from repo root), runs `agent/turn.py` and `agent/intel_data.py`; conversations stored in the `app` schema (`sql/migrate_app_conversations.sql`). Publishes `api/openapi.json`; `web/src/lib/api-types.ts` is generated from it.
+- **api** — `api/` FastAPI app (`api/Dockerfile`, build from repo root), runs `agent/turn.py` and `agent/intel_data.py`; users and user-owned conversations stored in the `app` schema (`sql/migrate_app_conversations.sql`, then `sql/migrate_app_users.sql`, which deletes ownerless v3 conversations). User-scoped routes need `X-Rooster-User` next to `X-Rooster-Key`; the API trusts the web server's user id because only it holds the key. Publishes `api/openapi.json`; `web/src/lib/api-types.ts` is generated from it.
 - **sandbox** — `sandbox/` FastAPI service (own Dockerfile, port 8080), executes `code` primitives. The API reaches it via `ROOSTER_SANDBOX_URL` (must include `http://` scheme).
-- **web** — `web/` Next.js app (`web/Dockerfile`, port 3000). Its server-side proxy `/api/rooster/*` forwards to `ROOSTER_API_URL` with `X-Rooster-Key`; the browser never sees the key or calls FastAPI directly.
+- **web** — `web/` Next.js app (`web/Dockerfile`, port 3000). Invite-only Google sign-in via Auth.js (JWT session; the allowlist is re-checked on every request). Its server-side proxy `/api/rooster/*` forwards to `ROOSTER_API_URL` with `X-Rooster-Key` and the session's `X-Rooster-User`; the browser never sees the key or calls FastAPI directly. Everything requires sign-in except `/entrar`, `/compartir/*` and Auth.js routes. e2e tests mint a session cookie with the test `AUTH_SECRET` (no test mode in the app).
 
-**Key env vars:** api: `DATABASE_URL` · `OPENAI_API_KEY` · `ROOSTER_SANDBOX_URL` · `ROOSTER_API_KEY` — web (server-only): `ROOSTER_API_URL` · `ROOSTER_API_KEY`
+**Key env vars:** api: `DATABASE_URL` · `OPENAI_API_KEY` · `ROOSTER_SANDBOX_URL` · `ROOSTER_API_KEY` — web (server-only): `ROOSTER_API_URL` · `ROOSTER_API_KEY` · `AUTH_SECRET` · `AUTH_URL` · `AUTH_GOOGLE_ID` · `AUTH_GOOGLE_SECRET` · `ROOSTER_ALLOWED_EMAILS` (comma-separated; empty = nobody can sign in)

@@ -32,10 +32,10 @@ export async function newSignedInPage(browser: Browser, user: TestUser) {
 
 /** Signed in as Ana by default; the fake API starts every spec with no conversations or preferences. */
 export const test = base.extend({
-  context: async ({ context }, use) => {
+  context: async ({ context }, provide) => {
     await fetch(`${FAKE_API}/__reset`, { method: "POST" });
     await signInAs(context, ANA);
-    await use(context);
+    await provide(context);
   },
 });
 export { expect };
