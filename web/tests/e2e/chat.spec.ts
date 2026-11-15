@@ -1,61 +1,61 @@
-import { expect, test } from "@playwright/test";
-import { blocks, conversation, expectEveryKind, preparePage, sendMessage, waitForTurnEnd } from "./helpers";
+import { blocks, conversation, expect, preparePage, sendMessage, test, waitForTurnEnd } from "./helpers";
 
 let errors: string[] = [];
 
 test.beforeEach(async ({ page }) => {
   errors = await preparePage(page);
   await page.goto("/");
-  await expect(page.getByTestId("chat-empty")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Chat con Rooster" }).getByTestId("chat-empty")).toBeVisible();
 });
 
 test.afterEach(() => {
   expect(errors).toEqual([]);
 });
 
-test("full_turn_renders_every_kind", async ({ page }) => {
+test("sidebar_turn_renders_compact_then_full_dialog", async ({ page }) => {
   await sendMessage(page, "todo");
   const conv = conversation(page);
   await expect(conv.getByText("todo", { exact: true })).toBeVisible();
-  // The thinking box shows while the turn streams, then prose arrives.
-  await expect(page.getByRole("button", { name: /Pensando…/ })).toBeVisible();
   await expect(conv.getByText(/Benimaclet lidera la rentabilidad/)).toBeVisible();
-
   await waitForTurnEnd(page);
-  await expectEveryKind(page);
-  await expect(conv.getByText("Rentabilidad media en Valencia").first()).toBeVisible();
-  // Stored blocks: 11 top-level primitives, text included (composite children are not wrapped).
+  // Stored blocks: 11 top-level primitives, text included.
   await expect(blocks(page)).toHaveCount(11);
+  // Big blocks are compact cards in the sidebar: nothing heavy is rendered until one is opened.
+  await expect(conv.locator("canvas.maplibregl-canvas")).toHaveCount(0);
+  await expect(conv.locator(".js-plotly-plot")).toHaveCount(0);
+  await expect(conv.getByRole("button", { name: "¿Y en Russafa?" })).toBeVisible();
+
+  await conv.getByRole("button", { name: /Mapa de barrios/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator("canvas.maplibregl-canvas")).toBeVisible();
+  await expect(dialog.getByText("No se pudo cargar el mapa.")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
 });
 
-test("follow_up_pill_sends", async ({ page }) => {
+test("expand_to_full_screen_keeps_conversation", async ({ page }) => {
   await sendMessage(page, "todo");
   await waitForTurnEnd(page);
-  await page.getByRole("button", { name: "¿Y en Russafa?" }).click();
+  await page.getByRole("button", { name: "Abrir a pantalla completa" }).click();
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
   const conv = conversation(page);
-  await expect(conv.getByText("¿Y en Russafa?", { exact: true })).toBeVisible();
-  await expect(conv.getByText("Respuesta breve sobre: ¿Y en Russafa?.")).toBeVisible();
-  await waitForTurnEnd(page);
-  // Only the latest message keeps clickable pills; the earlier one shows them as plain text.
-  await expect(page.getByRole("button", { name: "¿Y en Russafa?" })).toHaveCount(1);
-});
+  await expect(conv.getByText("todo", { exact: true })).toBeVisible();
+  await expect(blocks(page)).toHaveCount(11);
+  // Full density renders the blocks themselves.
+  await expect(conv.locator("table").first()).toBeVisible();
+  await expect(conv.locator("canvas.maplibregl-canvas")).toHaveCount(2);
+  await expect(conv.locator(".js-plotly-plot")).toHaveCount(1);
+  await expect(conv.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(1);
+  await expect(conv.getByRole("heading", { level: 3, name: "Informe: Benimaclet" })).toBeVisible();
 
-test("reload_restores_identical_history", async ({ page }) => {
-  await sendMessage(page, "todo");
-  await waitForTurnEnd(page);
-  await expectEveryKind(page);
-  await sendMessage(page, "hola");
-  await waitForTurnEnd(page);
-  await expect(conversation(page).getByText("Respuesta breve sobre: hola.")).toBeVisible();
-  const before = await blocks(page).count();
-  const textBefore = await conversation(page).innerText();
-
+  // The same conversation after a reload, and back to the page the user came from.
   await page.reload();
-  await expect(conversation(page).getByText("Respuesta breve sobre: hola.")).toBeVisible();
-  await expectEveryKind(page);
-  await expect(blocks(page)).toHaveCount(before);
-  expect(before).toBe(12);
-  expect(await conversation(page).innerText()).toBe(textBefore);
+  await expect(conversation(page).getByText("todo", { exact: true })).toBeVisible();
+  await expect(blocks(page)).toHaveCount(11);
+  await page.getByRole("button", { name: "Volver" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("complementary", { name: "Chat con Rooster" })).toBeVisible();
+  await expect(conversation(page).getByText("todo", { exact: true })).toBeVisible();
 });
 
 test("error_turn_shows_fallback", async ({ page }) => {
@@ -66,20 +66,8 @@ test("error_turn_shows_fallback", async ({ page }) => {
   await expect(page.getByRole("textbox")).toBeEnabled();
 });
 
-test("new_conversation_clears", async ({ page }) => {
-  await sendMessage(page, "hola");
-  await waitForTurnEnd(page);
-  await expect(conversation(page).getByText("Respuesta breve sobre: hola.")).toBeVisible();
-  await page.getByRole("button", { name: "Nueva conversación" }).click();
-  await expect(page.getByTestId("chat-empty")).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("rooster.conversationId"))).toBeNull();
-  // A reload stays empty: the old conversation is not restored.
-  await page.reload();
-  await expect(page.getByTestId("chat-empty")).toBeVisible();
-});
-
 test("leaving_mid_turn_keeps_the_answer", async ({ page }) => {
-  // Hold the turn's response until the reader has left the chat, so it finishes while ChatView is unmounted.
+  // Hold the turn's response until the reader has navigated away, so it finishes after the page changed.
   let release!: () => void;
   const released = new Promise<void>((r) => (release = r));
   await page.route(/\/api\/rooster\/conversations\/[^/]+\/messages$/, async (route) => {
@@ -93,17 +81,25 @@ test("leaving_mid_turn_keeps_the_answer", async ({ page }) => {
 
   await sendMessage(page, "todo");
   await expect(page.getByRole("button", { name: /Pensando…/ })).toBeVisible();
-  await page.getByRole("link", { name: "Inteligencia" }).click();
-  await expect(page).toHaveURL(/\/intel$/);
-  await expect(conversation(page)).toHaveCount(0);
+  await page.getByRole("link", { name: "Ver todas" }).first().click();
+  await expect(page).toHaveURL(/\/chat$/);
   release();
-  await expect(page.getByRole("region", { name: /Ranking de oportunidades/ }).locator("tbody tr")).toHaveCount(3);
-
-  await page.getByRole("link", { name: "Pregunta a Rooster" }).click();
-  await expect(page).toHaveURL(/\/$/);
   await waitForTurnEnd(page);
-  await expectEveryKind(page);
   await expect(blocks(page)).toHaveCount(11);
   await expect(page.getByRole("status")).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __sameDoc?: boolean }).__sameDoc)).toBe(true);
+});
+
+test("theme_toggle_persists_after_reload", async ({ page }) => {
+  const html = page.locator("html");
+  await page.getByRole("button", { name: "Menú de usuario" }).click();
+  // The preference is saved in the background; wait until the API has it before reloading.
+  const saved = page.waitForResponse((r) => r.url().endsWith("/preferences") && r.request().method() === "PATCH");
+  await page.getByRole("menuitemradio", { name: "Oscuro" }).click();
+  await expect(html).toHaveClass(/dark/);
+  expect((await saved).ok()).toBe(true);
+  await page.reload();
+  await expect(html).toHaveClass(/dark/);
+  await page.getByRole("button", { name: "Menú de usuario" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Oscuro" })).toBeChecked();
 });

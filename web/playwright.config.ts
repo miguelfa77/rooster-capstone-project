@@ -1,7 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const WEB_PORT = 3100;
-const API_PORT = 8787;
+// Ports can be overridden (E2E_WEB_PORT / E2E_API_PORT) when 3100/8787 are taken by another run.
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3100);
+const API_PORT = Number(process.env.E2E_API_PORT ?? 8787);
+const AUTH_SECRET = "test-secret";
 
 // Optional: point at an existing Chrome/Chromium when `npx playwright install chromium` is not possible.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
@@ -47,6 +49,12 @@ export default defineConfig({
         HOSTNAME: "127.0.0.1",
         ROOSTER_API_URL: `http://localhost:${API_PORT}`,
         ROOSTER_API_KEY: "test",
+        // Sign-in is never exercised against Google: specs mint a session cookie with this secret.
+        AUTH_SECRET: AUTH_SECRET,
+        AUTH_URL: `http://127.0.0.1:${WEB_PORT}`,
+        AUTH_GOOGLE_ID: "e2e-google-id",
+        AUTH_GOOGLE_SECRET: "e2e-google-secret",
+        ROOSTER_ALLOWED_EMAILS: "ana@fund.com,luis@fund.com",
       },
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
