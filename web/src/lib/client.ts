@@ -1,5 +1,6 @@
 // Browser-side API client. Talks only to the Next proxy under /api/rooster.
-// Every call treats 401 as "signed out": it sends the browser to /entrar and throws.
+// A 401 whose detail says the session or user is gone ("signed_out" from the proxy, "user_required"
+// from the API) sends the browser to /entrar and throws; any other 401 fails like any other status.
 import type { ConversationOut, ConversationSummary, Preferences, StoredPreferences, UserOut } from "./types";
 
 const BASE = "/api/rooster";
@@ -9,6 +10,8 @@ export function storageKey(userId: string): string {
   return `rooster.conversationId.${userId}`;
 }
 
+const SIGNED_OUT_DETAILS: unknown[] = ["signed_out", "user_required"];
+
 export class SignedOutError extends Error {
   constructor() {
     super("signed out");
@@ -16,9 +19,18 @@ export class SignedOutError extends Error {
   }
 }
 
+/** The `detail` of a JSON error body, or null when there is none. */
+async function errorDetail(res: Response): Promise<unknown> {
+  try {
+    return ((await res.clone().json()) as { detail?: unknown } | null)?.detail ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function call(path: string, init?: RequestInit): Promise<Response> {
   const res = await (init === undefined ? fetch(`${BASE}/${path}`) : fetch(`${BASE}/${path}`, init));
-  if (res.status === 401) {
+  if (res.status === 401 && SIGNED_OUT_DETAILS.includes(await errorDetail(res))) {
     // A full load on purpose: it drops all client state of the ended session.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign("/entrar");

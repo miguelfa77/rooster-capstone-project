@@ -125,6 +125,23 @@ describe("client signed out", () => {
     }
   });
 
+  it("client_401_with_user_required_also_redirects", async () => {
+    fetchMock.mockResolvedValue(Response.json({ detail: "user_required" }, { status: 401 }));
+    await expect(getMe()).rejects.toThrow(SignedOutError);
+    expect(assign).toHaveBeenCalledWith("/entrar");
+  });
+
+  it.each([
+    ["another detail", () => Response.json({ detail: "bad_key" }, { status: 401 })],
+    ["a body that is not JSON", () => new Response("Unauthorized", { status: 401 })],
+  ])("client_401_with_%s_is_an_ordinary_failure", async (_name, respond) => {
+    fetchMock.mockResolvedValue(respond());
+    const failure = await getMe().catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(SignedOutError);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
   it("get_me_and_patch_preferences", async () => {
     fetchMock.mockResolvedValueOnce(Response.json({ id: "u1", email: "a@b.es", name: null, image: null, preferences: {} }));
     await expect(getMe()).resolves.toMatchObject({ id: "u1" });
