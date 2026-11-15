@@ -1,44 +1,39 @@
-import { expect, test } from "@playwright/test";
-import { blocks, expectEveryKind, pageScrollWidth, preparePage, sendMessage, waitForTurnEnd } from "./helpers";
+import { conversation, expect, pageScrollWidth, sendMessage, test, waitForTurnEnd } from "./helpers";
 
 const WIDTH = 390;
 
 test.use({ viewport: { width: WIDTH, height: 844 }, isMobile: true, hasTouch: true });
 
-let errors: string[] = [];
-
-test.beforeEach(async ({ page }) => {
-  errors = await preparePage(page);
-});
-
-test.afterEach(() => {
-  expect(errors).toEqual([]);
-});
-
-test("no_horizontal_page_scroll on / after a full turn", async ({ page }) => {
+test("no_horizontal_scroll_on_inicio_and_chat", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "Abrir chat" })).toBeVisible();
   expect(await pageScrollWidth(page)).toBeLessThanOrEqual(WIDTH);
+
+  const sheet = page.getByRole("dialog", { name: "Chat con Rooster" });
+  await page.getByRole("button", { name: "Abrir chat" }).click();
   await sendMessage(page, "todo");
   await waitForTurnEnd(page);
-  await expectEveryKind(page);
+  await expect(sheet.getByRole("button", { name: "¿Y en Russafa?" })).toBeVisible();
   expect(await pageScrollWidth(page)).toBeLessThanOrEqual(WIDTH);
-  // The composer stays on screen, and the reader still follows the bottom once maps and plots have laid out.
+
+  // Full-screen chat with every block rendered.
+  await sheet.getByRole("button", { name: "Abrir a pantalla completa" }).click();
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
+  await expect(conversation(page).locator("canvas.maplibregl-canvas")).toHaveCount(2);
+  await expect(conversation(page).locator(".js-plotly-plot")).toHaveCount(1);
+  expect(await pageScrollWidth(page)).toBeLessThanOrEqual(WIDTH);
   await expect(page.getByRole("textbox")).toBeInViewport();
-  await expect(page.getByRole("button", { name: "Enviar" })).toBeInViewport();
-  const lastBlockBottom = () => blocks(page).last().evaluate((el) => el.getBoundingClientRect().bottom);
-  const composerTop = () => page.locator("form").evaluate((el) => el.getBoundingClientRect().top);
-  await expect.poll(async () => (await lastBlockBottom()) <= (await composerTop())).toBe(true);
-  await expect.poll(async () => (await lastBlockBottom()) > 0).toBe(true);
 });
 
-test("no_horizontal_page_scroll on /intel with layers on", async ({ page }) => {
-  await page.goto("/intel");
-  const map = page.getByRole("region", { name: "Mapa de Valencia" });
-  await expect(page.getByRole("region", { name: /Ranking de oportunidades/ }).locator("tbody tr")).toHaveCount(3);
-  for (const name of ["Barrios", "Transporte", "VUT", "Anuncios", "Parcelas"]) {
-    await map.getByRole("checkbox", { name }).check();
-  }
-  await expect(map.getByText("Cargando…")).toHaveCount(0);
-  await expect(map.getByRole("combobox")).toBeVisible();
-  expect(await pageScrollWidth(page)).toBeLessThanOrEqual(WIDTH);
+test("chat_opens_as_sheet_and_sends", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("complementary", { name: "Chat con Rooster" })).toBeHidden();
+  await page.getByRole("button", { name: "Abrir chat" }).click();
+  const sheet = page.getByRole("dialog", { name: "Chat con Rooster" });
+  await expect(sheet).toBeVisible();
+  await sendMessage(page, "hola");
+  await expect(sheet.getByText("Respuesta breve sobre: hola.")).toBeVisible();
+  await waitForTurnEnd(page);
+  await sheet.getByRole("button", { name: "Cerrar chat" }).click();
+  await expect(sheet).toHaveCount(0);
 });

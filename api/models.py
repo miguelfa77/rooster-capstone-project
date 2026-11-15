@@ -5,14 +5,17 @@ them self-contained: descriptors carry their `data` rows, `code` carries the san
 output. Message and payload models ignore unknown keys, so stored
 messages can keep internal fields (execution results, SQL) that the API does not send.
 Runtime behaviour does not depend on these models except GET /conversations/{id},
-which filters stored messages through ConversationOut.
+which filters stored messages through ConversationOut, and the user, preference and
+rename request bodies, which validate input.
 """
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.synthesizer import (
     BarDescriptor,
@@ -144,7 +147,66 @@ Message = Annotated[Union[UserMessage, AssistantMessage], Field(discriminator="r
 
 class ConversationOut(BaseModel):
     id: str
+    title: str | None
     messages: list[Message]
+
+
+class ConversationSummary(BaseModel):
+    id: uuid.UUID
+    title: str | None
+    updated_at: datetime
+
+
+class ConversationRename(BaseModel):
+    title: str
+
+    @field_validator("title")
+    @classmethod
+    def _trimmed_1_to_120(cls, v: str) -> str:
+        v = v.strip()
+        if not 1 <= len(v) <= 120:
+            raise ValueError("title must be 1-120 characters after trimming")
+        return v
+
+
+# ── Users ─────────────────────────────────────────────────────────────────
+
+
+class Preferences(BaseModel):
+    """PATCH /me/preferences body. Unknown keys are rejected; null or missing keys are left unchanged."""
+
+    model_config = ConfigDict(extra="forbid")
+    theme: Literal["light", "dark", "system"] | None = None
+    chat_open: bool | None = None
+    ticker_visible: bool | None = None
+
+
+class StoredPreferences(Preferences):
+    """Preferences as returned: stray stored keys are dropped instead of failing the response."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class UserIn(BaseModel):
+    email: str
+    name: str | None = None
+    image: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _looks_like_email(cls, v: str) -> str:
+        v = v.strip()
+        if "@" not in v:
+            raise ValueError("email must contain @")
+        return v
+
+
+class UserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    name: str | None
+    image: str | None
+    preferences: StoredPreferences
 
 
 # ── Intel ─────────────────────────────────────────────────────────────────

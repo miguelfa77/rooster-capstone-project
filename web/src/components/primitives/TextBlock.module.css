@@ -11,6 +11,46 @@
   margin-bottom: 0;
 }
 
+/* Tailwind's preflight resets these; restore readable markdown spacing. */
+.text p,
+.text ul,
+.text ol {
+  margin: 0.5em 0;
+}
+
+.text ul,
+.text ol {
+  padding-left: 1.4em;
+}
+
+.text ul {
+  list-style: disc;
+}
+
+.text ol {
+  list-style: decimal;
+}
+
+.text h1,
+.text h2,
+.text h3 {
+  margin: 0.8em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.text h1 {
+  font-size: 1.3rem;
+}
+
+.text h2 {
+  font-size: 1.15rem;
+}
+
+.text h3 {
+  font-size: 1.05rem;
+}
+
 .text a {
   color: var(--accent);
 }

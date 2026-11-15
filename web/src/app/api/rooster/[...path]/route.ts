@@ -1,9 +1,12 @@
-// Server-side proxy: /api/rooster/{conversations,intel}/... -> ${ROOSTER_API_URL}/...
-// Adds the shared API key; the browser never sees it or talks to FastAPI directly.
+// Server-side proxy: /api/rooster/{conversations,intel,me}/... -> ${ROOSTER_API_URL}/...
+// Adds the shared API key and the signed-in user's id (from the session, never from the
+// request); the browser never sees the key or talks to FastAPI directly.
+import { currentUserId } from "@/auth";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_PREFIXES = new Set(["conversations", "intel"]);
+const ALLOWED_PREFIXES = new Set(["conversations", "intel", "me"]);
 const FORWARD_REQUEST_HEADERS = ["content-type", "accept", "accept-language"];
 // fetch() already decoded the body, so length/encoding headers no longer apply.
 const DROP_RESPONSE_HEADERS = ["content-encoding", "content-length", "transfer-encoding", "connection"];
@@ -17,6 +20,9 @@ function json(status: number, detail: string): Response {
 }
 
 async function proxy(request: Request, { params }: Context): Promise<Response> {
+  const userId = await currentUserId();
+  if (!userId) return json(401, "signed_out");
+
   const { path } = await params;
   const valid =
     path.length > 0 && ALLOWED_PREFIXES.has(path[0]) && path.every((s) => s !== "" && s !== "." && s !== "..");
@@ -38,6 +44,7 @@ async function proxy(request: Request, { params }: Context): Promise<Response> {
     if (value !== null) headers.set(name, value);
   }
   headers.set("x-rooster-key", key);
+  headers.set("x-rooster-user", userId);
 
   let upstream: Response;
   try {
@@ -62,3 +69,5 @@ async function proxy(request: Request, { params }: Context): Promise<Response> {
 
 export const GET = proxy;
 export const POST = proxy;
+export const PATCH = proxy;
+export const DELETE = proxy;

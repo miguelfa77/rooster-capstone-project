@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createConversation, getConversation, sendMessage, STORAGE_KEY } from "@/lib/client";
+import {
+  createConversation,
+  deleteConversation,
+  getConversation,
+  getIntel,
+  getMe,
+  listConversations,
+  patchPreferences,
+  renameConversation,
+  sendMessage,
+  SignedOutError,
+  storageKey,
+} from "@/lib/client";
 
 const fetchMock = vi.fn();
 
@@ -10,8 +22,46 @@ afterEach(() => {
 });
 
 describe("client", () => {
-  it("storage_key", () => {
-    expect(STORAGE_KEY).toBe("rooster.conversationId");
+  it("storage_key_is_per_user", () => {
+    expect(storageKey("u1")).toBe("rooster.conversationId.u1");
+    expect(storageKey("u2")).toBe("rooster.conversationId.u2");
+  });
+
+  it("list_conversations_returns_summaries", async () => {
+    const items = [{ id: "c1", title: null, updated_at: "2026-11-13T10:00:00Z" }];
+    fetchMock.mockResolvedValue(Response.json(items));
+    await expect(listConversations()).resolves.toEqual(items);
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooster/conversations");
+
+    fetchMock.mockResolvedValue(new Response("", { status: 500 }));
+    await expect(listConversations()).rejects.toThrow();
+  });
+
+  it("rename_conversation_patches_title", async () => {
+    const summary = { id: "c1", title: "Ruzafa", updated_at: "2026-11-13T10:00:00Z" };
+    fetchMock.mockResolvedValue(Response.json(summary));
+    await expect(renameConversation("c1", "Ruzafa")).resolves.toEqual(summary);
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooster/conversations/c1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Ruzafa" }),
+    });
+
+    fetchMock.mockResolvedValue(Response.json({ detail: "too long" }, { status: 422 }));
+    await expect(renameConversation("c1", "x")).rejects.toThrow();
+  });
+
+  it("delete_conversation_sends_delete", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(deleteConversation("c1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooster/conversations/c1", { method: "DELETE" });
+
+    // Already gone counts as deleted.
+    fetchMock.mockResolvedValue(new Response("", { status: 404 }));
+    await expect(deleteConversation("c1")).resolves.toBeUndefined();
+
+    fetchMock.mockResolvedValue(new Response("", { status: 500 }));
+    await expect(deleteConversation("c1")).rejects.toThrow();
   });
 
   it("create_conversation_posts_and_returns_id", async () => {
@@ -47,5 +97,66 @@ describe("client", () => {
       body: JSON.stringify({ text: "hola" }),
       signal,
     });
+  });
+});
+
+describe("client signed out", () => {
+  const assign = vi.fn();
+  beforeEach(() => vi.stubGlobal("location", { ...window.location, assign }));
+  afterEach(() => assign.mockReset());
+
+  it("client_401_redirects_to_entrar", async () => {
+    const calls: [string, () => Promise<unknown>][] = [
+      ["getMe", () => getMe()],
+      ["patchPreferences", () => patchPreferences({ theme: "dark" })],
+      ["createConversation", () => createConversation()],
+      ["getConversation", () => getConversation("c1")],
+      ["listConversations", () => listConversations()],
+      ["renameConversation", () => renameConversation("c1", "t")],
+      ["deleteConversation", () => deleteConversation("c1")],
+      ["sendMessage", () => sendMessage("c1", "hola")],
+      ["getIntel", () => getIntel("framing")],
+    ];
+    for (const [name, call] of calls) {
+      assign.mockReset();
+      fetchMock.mockResolvedValue(Response.json({ detail: "signed_out" }, { status: 401 }));
+      await expect(call(), name).rejects.toThrow(SignedOutError);
+      expect(assign, name).toHaveBeenCalledWith("/entrar");
+    }
+  });
+
+  it("client_401_with_user_required_also_redirects", async () => {
+    fetchMock.mockResolvedValue(Response.json({ detail: "user_required" }, { status: 401 }));
+    await expect(getMe()).rejects.toThrow(SignedOutError);
+    expect(assign).toHaveBeenCalledWith("/entrar");
+  });
+
+  it.each([
+    ["another detail", () => Response.json({ detail: "bad_key" }, { status: 401 })],
+    ["a body that is not JSON", () => new Response("Unauthorized", { status: 401 })],
+  ])("client_401_with_%s_is_an_ordinary_failure", async (_name, respond) => {
+    fetchMock.mockResolvedValue(respond());
+    const failure = await getMe().catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(SignedOutError);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("get_me_and_patch_preferences", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ id: "u1", email: "a@b.es", name: null, image: null, preferences: {} }));
+    await expect(getMe()).resolves.toMatchObject({ id: "u1" });
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/rooster/me");
+
+    fetchMock.mockResolvedValueOnce(Response.json({ theme: "dark" }));
+    await expect(patchPreferences({ theme: "dark" })).resolves.toEqual({ theme: "dark" });
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/rooster/me/preferences", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ theme: "dark" }),
+    });
+
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 500 }));
+    await expect(patchPreferences({ theme: "dark" })).rejects.toThrow();
+    expect(assign).not.toHaveBeenCalled();
   });
 });

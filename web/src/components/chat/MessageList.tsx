@@ -1,80 +1,94 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import TextBlock from "@/components/primitives/TextBlock";
 import type { LiveTurn } from "@/lib/chat-state";
 import { COPY } from "@/lib/copy";
 import type { Message } from "@/lib/types";
-import AssistantMessage, { Blocks } from "./AssistantMessage";
+import { cn } from "@/lib/utils";
+import AssistantMessage, { ASSISTANT, Blocks, type Density } from "./AssistantMessage";
+import { OpenBlockProvider } from "./BlockDialog";
 import FallbackCard from "./FallbackCard";
 import FollowUps from "./FollowUps";
 import ThinkingBox from "./ThinkingBox";
-import styles from "./AssistantMessage.module.css";
-import listStyles from "./MessageList.module.css";
 
 /** Within this many px of the bottom counts as "following" the conversation. */
 const STICK_PX = 80;
 
-/** The page bottom, so the sticky composer sits below the last message instead of covering it. */
-function scrollToBottom() {
-  window.scrollTo({ top: document.documentElement.scrollHeight });
-}
-
 function UserBubble({ text }: { text: string }) {
-  return <div className={listStyles.user}>{text}</div>;
+  return (
+    <div className="bg-foreground text-background dark:bg-input dark:text-foreground max-w-[85%] self-end rounded-xl rounded-br-sm px-3 py-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
+      {text}
+    </div>
+  );
 }
 
-function LiveTurnView({ live, onFollowUp }: { live: LiveTurn; onFollowUp: (text: string) => void }) {
+function LiveTurnView({
+  live,
+  onFollowUp,
+  density,
+  pos,
+}: {
+  live: LiveTurn;
+  onFollowUp: (text: string) => void;
+  density: Density;
+  pos: number;
+}) {
   const streaming = live.status === "streaming";
+  const blocks = [
+    ...(live.text ? [{ kind: "text" as const, content: live.text, role: "analysis" as const }] : []),
+    ...live.primitives,
+  ];
   return (
-    <div className={styles.assistant}>
+    <div className={ASSISTANT}>
       {streaming || live.thoughts.length > 0 ? <ThinkingBox thoughts={live.thoughts} hasText={live.text !== ""} /> : null}
-      {live.text ? (
-        <div className={styles.block} data-testid="message-block">
-          <TextBlock p={{ kind: "text", content: live.text, role: "analysis" }} />
-        </div>
-      ) : null}
-      <Blocks items={live.primitives} />
+      <Blocks items={blocks} density={density} pos={pos} />
       {live.error ? <FallbackCard reason={live.error.reason} suggestion={live.error.suggestion} /> : null}
       <FollowUps items={live.followUps} interactive={!streaming} onPick={onFollowUp} />
     </div>
   );
 }
 
+/** History plus the live turn, in its own scroll container that follows the bottom unless the reader scrolled up. */
 export default function MessageList({
   messages,
   live,
   onFollowUp,
+  density,
 }: {
   messages: Message[];
   live: LiveTurn | null;
   onFollowUp: (text: string) => void;
+  density: Density;
 }) {
-  const listRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
   const followRef = useRef(true);
 
   // Reaching the bottom resumes auto-scroll; only scrolling up stops it. Our own scroll can land
   // short of a bottom that grew meanwhile (maps, plots), which must not count as leaving it.
   useEffect(() => {
-    let lastY = window.scrollY;
+    const el = scrollRef.current;
+    if (!el) return;
+    let lastTop = el.scrollTop;
     const onScroll = () => {
-      const y = window.scrollY;
-      if (window.innerHeight + y >= document.documentElement.scrollHeight - STICK_PX) followRef.current = true;
-      else if (y < lastY) followRef.current = false;
-      lastY = y;
+      const top = el.scrollTop;
+      if (top + el.clientHeight >= el.scrollHeight - STICK_PX) followRef.current = true;
+      else if (top < lastTop) followRef.current = false;
+      lastTop = top;
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
   // Maps, plots and the stored turn lay out after render; keep a reader at the bottom there as the list grows.
   useEffect(() => {
-    const list = listRef.current;
-    if (!list || typeof ResizeObserver === "undefined") return;
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (followRef.current) scrollToBottom();
+      const el = scrollRef.current;
+      if (el && followRef.current) el.scrollTop = el.scrollHeight;
     });
-    observer.observe(list);
+    observer.observe(content);
     return () => observer.disconnect();
   }, []);
 
@@ -84,7 +98,8 @@ export default function MessageList({
     prevLiveRef.current = live;
     // A newly started turn always brings the reader back to the bottom.
     if (live?.status === "streaming" && prev?.status !== "streaming") followRef.current = true;
-    if (followRef.current) scrollToBottom();
+    const el = scrollRef.current;
+    if (el && followRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, live]);
 
   // Only the latest assistant message gets clickable pills; a live turn is always the latest.
@@ -99,20 +114,39 @@ export default function MessageList({
   }
 
   return (
-    <section ref={listRef} className={listStyles.list} aria-label={COPY.chatMessagesLabel}>
-      {messages.map((m, i) =>
-        m.role === "user" ? (
-          <UserBubble key={i} text={m.content} />
-        ) : (
-          <AssistantMessage key={i} message={m} interactive={i === latestAssistant} onFollowUp={onFollowUp} />
-        ),
-      )}
-      {live ? (
-        <>
-          {live.userText ? <UserBubble text={live.userText} /> : null}
-          <LiveTurnView live={live} onFollowUp={onFollowUp} />
-        </>
-      ) : null}
-    </section>
+    <div ref={scrollRef} data-testid="chat-scroll" className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <section
+        ref={contentRef}
+        aria-label={COPY.chatMessagesLabel}
+        className={cn(
+          "flex min-w-0 flex-col",
+          density === "full" ? "mx-auto w-full max-w-3xl gap-5 px-4 py-6 sm:px-6" : "gap-4 px-3.5 py-4 text-sm",
+        )}
+      >
+        <OpenBlockProvider>
+          {messages.map((m, i) =>
+            m.role === "user" ? (
+              <UserBubble key={i} text={m.content} />
+            ) : (
+              <AssistantMessage
+                key={i}
+                message={m}
+                interactive={i === latestAssistant}
+                onFollowUp={onFollowUp}
+                density={density}
+                pos={i}
+              />
+            ),
+          )}
+          {live ? (
+            <>
+              {live.userText ? <UserBubble text={live.userText} /> : null}
+              {/* The stored messages will be [user, assistant] right after the history. */}
+              <LiveTurnView live={live} onFollowUp={onFollowUp} density={density} pos={messages.length + 1} />
+            </>
+          ) : null}
+        </OpenBlockProvider>
+      </section>
+    </div>
   );
 }

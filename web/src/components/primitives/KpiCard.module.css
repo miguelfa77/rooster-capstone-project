@@ -30,8 +30,16 @@
 }
 
 .delta {
-  color: var(--accent);
+  color: var(--muted);
   font-size: 0.85rem;
+}
+
+.delta[data-trend="up"] {
+  color: var(--up);
+}
+
+.delta[data-trend="down"] {
+  color: var(--down);
 }
 
 .sub {

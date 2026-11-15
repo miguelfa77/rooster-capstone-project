@@ -1,3 +1,4 @@
+// Parked for the Phase 2 Mapa page; not mounted anywhere.
 import { useId, type ReactNode } from "react";
 import styles from "./Intel.module.css";
 

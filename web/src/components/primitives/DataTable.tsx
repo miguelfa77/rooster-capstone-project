@@ -11,7 +11,7 @@ import styles from "./DataTable.module.css";
 type Row = Record<string, unknown>;
 type Sort = { field: string; dir: "asc" | "desc" } | null;
 
-function parseRows(json: string): Row[] {
+export function parseRows(json: string): Row[] {
   try {
     const parsed: unknown = JSON.parse(json);
     return Array.isArray(parsed) ? parsed.filter((r): r is Row => typeof r === "object" && r !== null) : [];
@@ -43,7 +43,7 @@ function sortRows(rows: Row[], sort: Sort): Row[] {
   });
 }
 
-export default function DataTable({ p }: { p: TablePayload }) {
+export default function DataTable({ p, compact = false }: { p: TablePayload; compact?: boolean }) {
   const rows = useMemo(() => parseRows(p.rows_json), [p.rows_json]);
   const columns: TableColumn[] = useMemo(
     () =>
@@ -68,7 +68,7 @@ export default function DataTable({ p }: { p: TablePayload }) {
 
   return (
     <div className={styles.scroll}>
-      <table className={styles.table}>
+      <table className={compact ? `${styles.table} ${styles.compact}` : styles.table}>
         <thead>
           <tr>
             {columns.map((c) => {

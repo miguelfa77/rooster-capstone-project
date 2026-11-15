@@ -1,4 +1,52 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, test as base, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { encode } from "next-auth/jwt";
+import { AUTH_SECRET, BASE_URL, FAKE_API, SESSION_COOKIE } from "./env";
+
+export type TestUser = { uid: string; email: string; name: string };
+// uid / email match the profiles in tests/fake-api/server.mjs; both emails are on ROOSTER_ALLOWED_EMAILS.
+export const ANA: TestUser = { uid: "u-ana", email: "ana@fund.com", name: "Ana Prueba" };
+export const LUIS: TestUser = { uid: "u-luis", email: "luis@fund.com", name: "Luis Prueba" };
+
+/** Adds a valid Auth.js session cookie for `user`, minted with the test secret (no test mode in the app). */
+export async function signInAs(context: BrowserContext, user: TestUser) {
+  const value = await encode({
+    token: { sub: user.uid, uid: user.uid, email: user.email, name: user.name },
+    secret: AUTH_SECRET,
+    salt: SESSION_COOKIE,
+  });
+  await context.addCookies([{ name: SESSION_COOKIE, value, url: BASE_URL }]);
+}
+
+/** A second browser context, signed in as `user`, with the same stubs as `preparePage`. */
+export async function newSignedInPage(browser: Browser, user: TestUser) {
+  const context = await browser.newContext({ baseURL: BASE_URL });
+  await signInAs(context, user);
+  const page = await context.newPage();
+  const errors = await preparePage(page);
+  return { context, page, errors };
+}
+
+/**
+ * Signed in as Ana by default; the fake API starts every spec with no conversations or preferences.
+ * Every test also fails on an uncaught page error (the auto fixture `pageErrors`).
+ */
+export const test = base.extend<{ pageErrors: string[] }>({
+  pageErrors: [
+    async ({ page }, provide) => {
+      const errors = await preparePage(page);
+      await provide(errors);
+      expect(errors).toEqual([]);
+    },
+    { auto: true },
+  ],
+  context: async ({ context }, provide) => {
+    await fetch(`${FAKE_API}/__reset`, { method: "POST" });
+    await signInAs(context, ANA);
+    await provide(context);
+  },
+});
+export { expect };
+
 
 // 1×1 transparent PNG served for basemap tiles, so tests never depend on the CARTO CDN.
 const EMPTY_TILE = Buffer.from(

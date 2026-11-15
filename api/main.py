@@ -2,6 +2,8 @@
 
 Called only by trusted servers (the web app's server routes and the voice service),
 never directly by a browser, so every route except /health requires X-Rooster-Key.
+User routes also require X-Rooster-User (a user id from PUT /users); a conversation
+owned by another user is reported as not found.
 """
 
 from __future__ import annotations
@@ -28,12 +30,18 @@ from agent.llm_sql import get_pg_engine, get_schema_context
 from agent.turn import DoneEvent, ErrorEvent, TurnContext, run_turn
 from api.models import (
     ConversationOut,
+    ConversationRename,
+    ConversationSummary,
     ListingRow,
     MarketFraming,
     NeighborhoodsOut,
+    Preferences,
     RankingRow,
+    StoredPreferences,
     TourismRow,
     TransitRow,
+    UserIn,
+    UserOut,
     YieldLiquidityRow,
 )
 from api.sse import stream_turn, to_json
@@ -60,6 +68,21 @@ def require_key(x_rooster_key: str | None = Header(default=None)) -> None:
 @lru_cache(maxsize=1)
 def get_store() -> ConversationStore:
     return ConversationStore(get_pg_engine())
+
+
+def require_user(
+    _: None = Depends(require_key),
+    x_rooster_user: str | None = Header(default=None),
+    store: ConversationStore = Depends(get_store),
+) -> uuid.UUID:
+    """The calling user's id from X-Rooster-User; 401 when missing, malformed or unknown."""
+    try:
+        user_id = uuid.UUID(x_rooster_user or "")
+    except ValueError:
+        raise HTTPException(status_code=401, detail="user_required") from None
+    if store.get_user(user_id) is None:
+        raise HTTPException(status_code=401, detail="user_required")
+    return user_id
 
 
 @lru_cache(maxsize=1)
@@ -133,29 +156,80 @@ def health() -> dict:
     return {"ok": True}
 
 
-@app.post("/conversations", status_code=201, dependencies=[Depends(require_key)])
-def create_conversation(store: ConversationStore = Depends(get_store)) -> dict:
-    return {"id": str(store.create())}
+@app.put("/users", response_model=UserOut, response_model_exclude_unset=True, dependencies=[Depends(require_key)])
+def put_user(body: UserIn, store: ConversationStore = Depends(get_store)) -> dict:
+    return store.upsert_user(body.email, body.name, body.image)
 
 
-@app.get("/conversations/{conversation_id}", response_model=ConversationOut, dependencies=[Depends(require_key)])
-def get_conversation(conversation_id: str, store: ConversationStore = Depends(get_store)) -> dict:
+@app.get("/me", response_model=UserOut, response_model_exclude_unset=True)
+def get_me(user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)) -> dict:
+    return store.get_user(user_id)
+
+
+@app.patch("/me/preferences", response_model=StoredPreferences, response_model_exclude_unset=True)
+def patch_preferences(
+    body: Preferences, user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)
+) -> dict:
+    return store.update_preferences(user_id, body.model_dump(exclude_none=True))
+
+
+@app.get("/conversations", response_model=list[ConversationSummary])
+def list_conversations(
+    user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)
+) -> list[dict]:
+    return store.list_conversations(user_id)
+
+
+@app.post("/conversations", status_code=201)
+def create_conversation(
+    user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)
+) -> dict:
+    return {"id": str(store.create(user_id))}
+
+
+@app.get("/conversations/{conversation_id}", response_model=ConversationOut)
+def get_conversation(
+    conversation_id: str, user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)
+) -> dict:
     cid = _parse_id(conversation_id)
-    state = store.load(cid)
-    if state is None:
+    summary, state = store.summary(cid, user_id), store.load(cid, user_id)
+    if summary is None or state is None:
         raise HTTPException(status_code=404, detail="not found")
-    return {"id": str(cid), "messages": state.messages}
+    return {"id": str(cid), "title": summary["title"], "messages": state.messages}
 
 
-@app.post("/conversations/{conversation_id}/messages", dependencies=[Depends(require_key)])
+@app.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
+def rename_conversation(
+    conversation_id: str,
+    body: ConversationRename,
+    user_id: uuid.UUID = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+) -> dict:
+    renamed = store.rename(_parse_id(conversation_id), user_id, body.title)
+    if renamed is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return renamed
+
+
+@app.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(
+    conversation_id: str, user_id: uuid.UUID = Depends(require_user), store: ConversationStore = Depends(get_store)
+) -> Response:
+    if not store.delete(_parse_id(conversation_id), user_id):
+        raise HTTPException(status_code=404, detail="not found")
+    return Response(status_code=204)
+
+
+@app.post("/conversations/{conversation_id}/messages")
 def post_message(
     conversation_id: str,
     body: MessageIn,
+    user_id: uuid.UUID = Depends(require_user),
     store: ConversationStore = Depends(get_store),
     ctx: TurnContext = Depends(get_turn_context),
 ) -> StreamingResponse:
     cid = _parse_id(conversation_id)
-    if store.load(cid) is None:
+    if store.load(cid, user_id) is None:
         raise HTTPException(status_code=404, detail="not found")
     cap = _max_turns_per_minute()
     if cap and not store.try_start_turn(cap):
@@ -183,7 +257,7 @@ def post_message(
         emit(DoneEvent())
 
     try:  # anything failing before the stream starts must not leave the lock held
-        state = store.load(cid)
+        state = store.load(cid, user_id)
         return StreamingResponse(
             stream_turn(run),
             media_type="text/event-stream",

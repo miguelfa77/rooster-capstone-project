@@ -28,7 +28,11 @@ export default function CodeOutput({ p }: { p: CodePayload }) {
   );
 
   if (p.output_type === "folium_html") {
-    return <iframe className={styles.iframe} sandbox="allow-scripts" srcDoc={p.output} title={COPY.codeMapTitle} />;
+    return (
+      <div className={styles.frame}>
+        <iframe className={styles.iframe} sandbox="allow-scripts" srcDoc={p.output} title={COPY.codeMapTitle} />
+      </div>
+    );
   }
   if (!figure) return <EmptyState message={COPY.codeChartError} />;
   return <PlotlyFigure data={figure.data} layout={figure.layout} />;

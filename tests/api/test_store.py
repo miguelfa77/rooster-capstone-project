@@ -11,7 +11,9 @@ from agent.turn import TurnState
 TEST_DB = os.getenv("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not TEST_DB, reason="TEST_DATABASE_URL not set")
 
-DDL = Path(__file__).resolve().parents[2] / "sql" / "migrate_app_conversations.sql"
+SQL_DIR = Path(__file__).resolve().parents[2] / "sql"
+DDL = SQL_DIR / "migrate_app_conversations.sql"
+USERS_DDL = SQL_DIR / "migrate_app_users.sql"
 
 
 @pytest.fixture
@@ -20,6 +22,7 @@ def engine():
     with eng.begin() as conn:
         conn.execute(text("DROP SCHEMA IF EXISTS app CASCADE"))
         conn.execute(text(DDL.read_text()))
+        conn.execute(text(USERS_DDL.read_text()))
     yield eng
     eng.dispose()
 
@@ -31,6 +34,11 @@ def store(engine):
     return ConversationStore(engine)
 
 
+@pytest.fixture
+def uid(store):
+    return store.upsert_user("ana@example.com", "Ana", None)["id"]
+
+
 def _state(n_messages: int) -> TurnState:
     state = TurnState(prompt_cache_key="rooster_abc")
     state.messages = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"} for i in range(n_messages)]
@@ -39,24 +47,24 @@ def _state(n_messages: int) -> TurnState:
     return state
 
 
-def test_create_then_load_returns_empty_state(store):
-    cid = store.create()
-    state = store.load(cid)
+def test_create_then_load_returns_empty_state(store, uid):
+    cid = store.create(uid)
+    state = store.load(cid, uid)
     assert state.messages == [] and state.session_memory == {} and state.previous_execution_results == []
     assert state.prompt_cache_key.startswith("rooster_")
 
 
-def test_save_appends_messages_and_round_trips(store):
-    cid = store.create()
+def test_save_appends_messages_and_round_trips(store, uid):
+    cid = store.create(uid)
     store.save(cid, _state(2))
-    loaded, expected = store.load(cid), _state(2)
+    loaded, expected = store.load(cid, uid), _state(2)
     assert (loaded.messages, loaded.session_memory, loaded.previous_execution_results) == (
         expected.messages, expected.session_memory, expected.previous_execution_results
     )
 
 
-def test_save_is_append_only(store, engine):
-    cid = store.create()
+def test_save_is_append_only(store, engine, uid):
+    cid = store.create(uid)
     store.save(cid, _state(2))
     store.save(cid, _state(4))
     with engine.connect() as conn:
@@ -64,17 +72,17 @@ def test_save_is_append_only(store, engine):
             text("SELECT position FROM app.messages WHERE conversation_id = :c ORDER BY position"), {"c": cid}
         ).scalars().all()
     assert positions == [0, 1, 2, 3]
-    assert store.load(cid).messages == _state(4).messages
+    assert store.load(cid, uid).messages == _state(4).messages
 
 
-def test_load_unknown_returns_none(store):
-    assert store.load(uuid.uuid4()) is None
+def test_load_unknown_returns_none(store, uid):
+    assert store.load(uuid.uuid4(), uid) is None
 
 
-def test_lock_is_exclusive(store):
+def test_lock_is_exclusive(store, uid):
     from api.store import ConversationBusy
 
-    cid = store.create()
+    cid = store.create(uid)
     with store.lock(cid):
         with pytest.raises(ConversationBusy):
             with store.lock(cid):
@@ -122,14 +130,14 @@ def test_lock_released_when_holder_connection_dies(store, engine):
         pass
 
 
-def test_non_json_values_are_stored(store):
+def test_non_json_values_are_stored(store, uid):
     from decimal import Decimal
 
-    cid = store.create()
+    cid = store.create(uid)
     state = _state(0)
     state.previous_execution_results = [{"v": Decimal("6.2"), "missing": float("nan")}]
     store.save(cid, state)
-    assert store.load(cid).previous_execution_results[0] == {"v": 6.2, "missing": None}
+    assert store.load(cid, uid).previous_execution_results[0] == {"v": 6.2, "missing": None}
 
 
 T0 = datetime(2026, 11, 12, 10, 0, 5, tzinfo=timezone.utc)
@@ -166,3 +174,134 @@ def test_turn_starts_older_than_an_hour_are_deleted(store, engine):
 def test_migration_is_idempotent(engine):
     with engine.begin() as conn:
         conn.execute(text(DDL.read_text()))
+        conn.execute(text(USERS_DDL.read_text()))
+
+
+def test_migration_deletes_ownerless_conversations_and_is_idempotent(engine):
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA app CASCADE"))
+        conn.execute(text(DDL.read_text()))
+        old = uuid.uuid4()
+        conn.execute(text("INSERT INTO app.conversations (id, prompt_cache_key) VALUES (:id, 'k')"), {"id": old})
+        conn.execute(text("INSERT INTO app.messages (conversation_id, position, body) VALUES (:id, 0, '{}')"), {"id": old})
+    for _ in range(2):
+        with engine.begin() as conn:
+            conn.execute(text(USERS_DDL.read_text()))
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app.conversations")).scalar_one() == 0
+        assert conn.execute(text("SELECT count(*) FROM app.messages")).scalar_one() == 0
+        nullable = conn.execute(text(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'app' AND table_name = 'conversations' AND column_name = 'user_id'"
+        )).scalar_one()
+        indexes = conn.execute(text(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'app' AND tablename = 'conversations'"
+        )).scalars().all()
+    assert nullable == "NO"
+    assert any("(user_id, updated_at DESC)" in d for d in indexes)
+
+
+# ── Users ─────────────────────────────────────────────────────────────────
+
+
+def test_upsert_user_creates_then_updates_and_lowercases(store, engine):
+    first = store.upsert_user("  Ana@Example.COM ", "Ana", None)
+    assert set(first) == {"id", "email", "name", "image", "preferences"}
+    assert first["email"] == "ana@example.com" and first["preferences"] == {}
+    with engine.connect() as conn:
+        seen_before = conn.execute(text("SELECT last_seen_at FROM app.users")).scalar_one()
+    again = store.upsert_user("ana@example.com", "Ana M", "https://x/p.png")
+    assert again["id"] == first["id"]
+    assert (again["name"], again["image"]) == ("Ana M", "https://x/p.png")
+    with engine.connect() as conn:
+        n, seen_after = conn.execute(text("SELECT count(*), max(last_seen_at) FROM app.users")).one()
+    assert n == 1 and seen_after > seen_before
+
+
+def test_get_user(store, uid):
+    assert store.get_user(uid)["email"] == "ana@example.com"
+    assert store.get_user(uuid.uuid4()) is None
+
+
+def test_update_preferences_is_a_shallow_merge(store, uid):
+    assert store.update_preferences(uid, {"theme": "dark"}) == {"theme": "dark"}
+    assert store.update_preferences(uid, {"chat_open": True}) == {"theme": "dark", "chat_open": True}
+    assert store.update_preferences(uid, {"theme": "light"}) == {"theme": "light", "chat_open": True}
+    assert store.get_user(uid)["preferences"] == {"theme": "light", "chat_open": True}
+
+
+# ── Ownership ─────────────────────────────────────────────────────────────
+
+
+def test_load_of_another_users_conversation_is_none(store, uid):
+    other = store.upsert_user("luis@example.com", None, None)["id"]
+    cid = store.create(uid)
+    assert store.load(cid, other) is None
+    assert store.summary(cid, other) is None
+    assert store.load(cid, uid) is not None
+
+
+def test_list_conversations_newest_first_only_mine_max_100(store, uid, engine):
+    other = store.upsert_user("luis@example.com", None, None)["id"]
+    ids = [store.create(uid) for _ in range(102)]
+    store.create(other)
+    with engine.begin() as conn:  # deterministic order: later index = newer
+        for i, cid in enumerate(ids):
+            conn.execute(text("UPDATE app.conversations SET updated_at = :t WHERE id = :id"),
+                         {"t": T0 + timedelta(minutes=i), "id": cid})
+    listed = store.list_conversations(uid)
+    assert len(listed) == 100
+    assert [c["id"] for c in listed] == list(reversed(ids))[:100]
+    assert set(listed[0]) == {"id", "title", "updated_at"} and listed[0]["title"] is None
+
+
+def test_rename_sets_title_keeps_updated_at_and_checks_owner(store, uid):
+    other = store.upsert_user("luis@example.com", None, None)["id"]
+    cid = store.create(uid)
+    before = store.summary(cid, uid)["updated_at"]
+    assert store.rename(cid, other, "no") is None
+    row = store.rename(cid, uid, "Ruzafa")
+    assert row == store.summary(cid, uid)
+    assert row["id"] == cid and row["title"] == "Ruzafa" and row["updated_at"] == before
+    assert store.rename(uuid.uuid4(), uid, "x") is None
+
+
+def test_delete_checks_owner_and_removes_messages(store, uid, engine):
+    other = store.upsert_user("luis@example.com", None, None)["id"]
+    cid = store.create(uid)
+    store.save(cid, _state(2))
+    assert store.delete(cid, other) is False
+    assert store.delete(cid, uid) is True
+    assert store.load(cid, uid) is None
+    assert store.delete(cid, uid) is False
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app.messages")).scalar_one() == 0
+
+
+def test_deleting_a_user_deletes_their_conversations(store, uid, engine):
+    store.create(uid)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM app.users WHERE id = :id"), {"id": uid})
+        assert conn.execute(text("SELECT count(*) FROM app.conversations")).scalar_one() == 0
+
+
+def test_save_sets_title_once_from_first_user_message(store, uid):
+    cid = store.create(uid)
+    before = store.summary(cid, uid)["updated_at"]
+    state = TurnState(prompt_cache_key="k")
+    question = "  ¿Cuál es   el barrio\ncon mejor rentabilidad bruta de Valencia, para invertir hoy?"
+    state.messages = [{"role": "user", "content": question}, {"role": "assistant", "summary": "Benimaclet"}]
+    store.save(cid, state)
+    first = store.summary(cid, uid)
+    assert first["title"] == "¿Cuál es el barrio con mejor rentabilidad bruta de Valencia,"
+    assert len(first["title"]) == 60 and first["updated_at"] > before
+    state.messages = [{"role": "user", "content": "otra"}] + state.messages
+    store.save(cid, state)
+    assert store.summary(cid, uid)["title"] == first["title"]
+
+
+def test_save_keeps_a_renamed_title(store, uid):
+    cid = store.create(uid)
+    store.rename(cid, uid, "Mi título")
+    store.save(cid, _state(2))
+    assert store.summary(cid, uid)["title"] == "Mi título"

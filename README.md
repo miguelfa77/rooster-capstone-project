@@ -1,6 +1,6 @@
 # Rooster
 
-**Rooster** is a Valencia-focused real estate intelligence app: a Spanish chat copilot (OpenAI function calling + PostgreSQL/PostGIS) and an **Inteligencia** page with maps and market metrics.
+**Rooster** is a Valencia-focused real estate intelligence app: a Spanish chat copilot (OpenAI function calling + PostgreSQL/PostGIS) for investors, with maps and market metrics. Access is invite-only: people sign in with Google and only emails on an allowlist get in.
 
 It runs as three services: a **Next.js** web app (`web/`) that talks only to a **FastAPI** service (`api/`), which runs the Python agent (`agent/`) and calls a **sandbox** service (`sandbox/`) for free-form chart code. All data lives in one PostGIS database.
 
@@ -10,8 +10,8 @@ It runs as three services: a **Next.js** web app (`web/`) that talks only to a *
 
 | Path | Purpose |
 |------|---------|
-| **`web/`** | Next.js (App Router) + TypeScript web app: chat at `/`, Intel at `/intel`. A same-origin proxy (`/api/rooster/*`) adds the API key server-side; the browser never calls FastAPI directly. |
-| **`api/`** | FastAPI service: conversations, streamed turns (SSE), Intel data. Publishes `api/openapi.json`. |
+| **`web/`** | Next.js (App Router) + TypeScript + Tailwind web app: Google sign-in (Auth.js), the signed-in shell, conversation history and the chat (sidebar, full screen at `/chat/<id>`, phone sheet). A same-origin proxy (`/api/rooster/*`) adds the API key and the signed-in user's id server-side; the browser never calls FastAPI directly. |
+| **`api/`** | FastAPI service: users, user-owned conversations, streamed turns (SSE), Intel data. Publishes `api/openapi.json`. |
 | **`agent/`** | The Python agent: planner/executor loop (`agent_pipeline.py`), synthesizer, one chat turn (`turn.py`), self-contained primitive payloads for clients (`primitive_payload.py`), Intel queries (`intel_data.py`), semantic layer, Spanish strings (`ui_es.py`). |
 | **`sandbox/`** | FastAPI service that executes `code` primitives (Plotly / Folium) in pre-warmed worker processes. |
 | **`pipeline/`** | Data loaders and scrapers: `raw/` (CSV → Postgres), `core/` (listings, streets, neighborhoods, parcels, enrichment), `idealista/`, `open_data/` (transit, tourist apartments). |
@@ -33,7 +33,7 @@ Environment variables per service (copy **`.env.example`** to **`.env`**; it is 
 | **db** (compose) | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
 | **api** | `DATABASE_URL` (or `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`), `OPENAI_API_KEY` (or `OPENAI_KEY`), `ROOSTER_API_KEY` (shared secret, `X-Rooster-Key` header; if unset the API rejects every request), `ROOSTER_SANDBOX_URL` (must include `http://`; default `http://localhost:8001`), `ROOSTER_MAX_TURNS_PER_MINUTE` (turns that may start per UTC minute across all conversations and API instances, counted in `app.turn_starts`; default `30`, `0` or negative disables, an invalid value falls back to `30` with a warning; over the cap → `429`) |
 | **sandbox** | `PORT` (default `8080` in its Docker image) |
-| **web** | `ROOSTER_API_URL` (e.g. `http://localhost:8000`), `ROOSTER_API_KEY` (same value as the API). Both are server-only: never prefix them with `NEXT_PUBLIC_`. |
+| **web** | All server-only: never prefix them with `NEXT_PUBLIC_`. `ROOSTER_API_URL` (e.g. `http://localhost:8000`), `ROOSTER_API_KEY` (same value as the API), `AUTH_SECRET` (signs the session cookie; generate with `openssl rand -base64 33`), `AUTH_URL` (the public origin of the web app, e.g. `http://localhost:3000`; Auth.js builds the Google callback URL from it, so it must match the redirect URI you registered. Compose defaults it to `http://localhost:3000`; outside docker-compose it must be set to a non-empty value), `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` (the Google OAuth client, see **Google sign-in**), `ROOSTER_ALLOWED_EMAILS` (comma-separated Google emails allowed in, case-insensitive; empty means nobody can sign in). |
 | **pipeline / dbt** | Same database as the API (`DATABASE_URL` or `PG*`). `agent/llm_sql.py` also loads **`agent/.env`**; pipeline CLIs load **`pipeline/.env`** and merge unset keys; dbt reads **`dbt/.env`** (see below). |
 
 The turn limit is counted in the database (fixed one-minute windows), so it holds across any number of API instances; across a minute boundary up to twice the cap can start.
@@ -49,7 +49,7 @@ Optional open-data (transit + tourist apartments): set **`TOURIST_APT_CSV_URL`**
 ### With Docker Compose
 
 ```bash
-cp .env.example .env          # set OPENAI_API_KEY and ROOSTER_API_KEY
+cp .env.example .env          # set OPENAI_API_KEY, ROOSTER_API_KEY, AUTH_SECRET, AUTH_GOOGLE_ID/SECRET, ROOSTER_ALLOWED_EMAILS
 docker compose up --build
 ```
 
@@ -70,21 +70,33 @@ pip install -r sandbox/requirements.txt
 # API
 uvicorn api.main:app --port 8000
 
-# web (web/.env.local holds ROOSTER_API_URL and ROOSTER_API_KEY; see web/.env.example)
+# web (web/.env.local holds ROOSTER_API_URL, ROOSTER_API_KEY and the AUTH_* / allowlist variables; see web/.env.example)
 cd web && npm ci && npm run dev     # http://localhost:3000
 ```
 
 Run each long-running command in its own terminal.
 
+### Google sign-in
+
+Sign-in is Google only and invite-only. Create the OAuth client once:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type **Web application** (configure the consent screen first if asked).
+2. Add the authorized redirect URI **`<AUTH_URL>/api/auth/callback/google`**, e.g. `http://localhost:3000/api/auth/callback/google` locally and `https://<your-domain>/api/auth/callback/google` when deployed (add one per origin you use).
+3. Put the client id and secret in `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`, set `AUTH_SECRET`, and list the people you invite in `ROOSTER_ALLOWED_EMAILS`.
+
+The allowlist is checked at sign-in and again on every request, so removing an email signs that person out on their next request. Someone not on the list lands on an "invitation only" page. The automated tests mint session cookies instead of talking to Google, so **the real Google round trip (consent screen, callback, allowlist, first-time user creation) must be tested once by hand with real credentials** before relying on it.
+
 ### First run: data
 
-The app reads `analytics.*` views and the API stores conversations in the `app` schema. On a fresh database:
+The app reads `analytics.*` views and the API stores users and conversations in the `app` schema. On a fresh database:
 
-1. Apply the SQL in **SQL apply order** below (includes `sql/migrate_app_conversations.sql` for the API).
+1. Apply the SQL in **SQL apply order** below (includes `sql/migrate_app_conversations.sql` then `sql/migrate_app_users.sql` for the API).
 2. Load data: `python -m pipeline.raw.load_barrios_raw`, `python -m pipeline.core.run_all`, then the open-data loaders in `pipeline/open_data/` (transit, tourist apartments) — or restore an existing dump.
 3. Build the analytics views: `cd dbt && dbt run` (see **dbt** below).
 
 With compose, run these from the host against `localhost:5432` using the `DATABASE_URL` in `.env`.
+
+**Upgrading from v3.** `sql/migrate_app_users.sql` adds users and makes every conversation belong to one. v3 conversations have no owner, so the migration **deletes them** (it is idempotent; run it once after `migrate_app_conversations.sql`). Back up `app.conversations` first if you need them.
 
 **Conversations from earlier test runs.** Conversations stored by Phase 1 API test runs, before assistant messages carried the ordered `blocks` list, may fail to load in the web app. They hold no real data; clear them with `TRUNCATE app.conversations CASCADE;` (this also empties `app.messages`).
 
@@ -96,7 +108,7 @@ Run scripts against your `rooster` (or equivalent) database in dependency order,
 
 1. `sql/bootstrap_rooster.sql`
 2. `sql/core_tables.sql`
-3. Migrations as needed (`sql/migrate_*.sql`; the API needs `sql/migrate_app_conversations.sql`, which creates the `app` schema)
+3. Migrations as needed (`sql/migrate_*.sql`; the API needs `sql/migrate_app_conversations.sql`, which creates the `app` schema, then `sql/migrate_app_users.sql`, which adds users and makes conversations user-owned — it deletes existing conversations that have no owner)
 4. Spatial / enrichment SQL as needed (e.g. `sql/match_listings_neighborhood_spatial.sql`, `sql/enrich_listings_refresh.sql`)
 5. `sql/open_data_tables.sql` (transit + tourist apartments DDL and `nearest_stop_m` refresh)
 6. **`dbt run`** from `dbt/` — builds all **`analytics.*`** views (see the **dbt** section below). Run `dbt test` optionally.
@@ -141,14 +153,20 @@ The agent runs behind a FastAPI service (`api/`); the web app is its client. Tur
 
 **Docker** (build from the repo root): `docker build -f api/Dockerfile -t rooster-api .`
 
-**Endpoints** — all except `/health` need the `X-Rooster-Key` header; the API is meant to be called by trusted servers (the web app's proxy), never directly from a browser.
+**Endpoints** — all except `/health` need the `X-Rooster-Key` header, and everything user-scoped (`/me`, `/conversations…`) also needs `X-Rooster-User: <user id>`. The API trusts the web server about who the user is because only the web server knows the key; it is meant to be called by trusted servers (the web app's proxy), never directly from a browser. Another user's conversation answers `404`.
 
 | Method | Path | Returns |
 |--------|------|---------|
 | `GET` | `/health` | `{"ok": true}` |
+| `PUT` | `/users` | Body `{"email", "name", "image"}`. Creates or updates the user (called by the web server at sign-in); returns the user with its `id`. Needs only the key. |
+| `GET` | `/me` | The user: `id`, `email`, `name`, `image`, `preferences` |
+| `PATCH` | `/me/preferences` | Partial update of the user's stored preferences (theme, chat sidebar open) |
+| `GET` | `/conversations` | The user's conversations, newest first: `id`, `title`, `updated_at` |
 | `POST` | `/conversations` | `201 {"id"}` |
+| `PATCH` | `/conversations/{id}` | Body `{"title"}` (1–120 chars). Renames. |
+| `DELETE` | `/conversations/{id}` | `204` |
 | `POST` | `/conversations/{id}/messages` | Body `{"text"}` (1–2000 chars). Streams Server-Sent Events. `404` unknown id, `409` a turn is already running, `429` the turn limit was reached. |
-| `GET` | `/conversations/{id}` | `{"id", "messages"}`; assistant messages carry the ordered `blocks` the web renders |
+| `GET` | `/conversations/{id}` | `{"id", "title", "messages"}`; assistant messages carry the ordered `blocks` the web renders |
 | `GET` | `/intel/framing`, `/intel/neighborhoods?metric=…`, `/intel/overlays/transit`, `/intel/overlays/tourism`, `/intel/listings?operation=All\|venta\|alquiler`, `/intel/parcels`, `/intel/ranking`, `/intel/yield-liquidity` | Intel page data (cached 5–10 min) |
 
 **SSE events** for one turn, in order: `thought` (progress text), `text_delta` (answer text), `primitive` (one chart/table/KPI with its own `data`), `follow_ups`, then `done`. A failure sends `error` (`reason`, `suggestion`) then `done`. `done` is sent only after the turn is saved.
@@ -163,6 +181,14 @@ python3 -m api.export_openapi && cd web && npm run gen:types
 
 ---
 
+## What v4 Phase 1 includes, and what's next
+
+**Included:** invite-only Google sign-in, users and per-user conversations in the API, a rebuilt web app (light/dark theme remembered per user, left navigation, conversation history with rename and delete, the chat as a sidebar, a full-screen page and a phone sheet, compact answer cards that open full-size), and end-to-end tests. The agent itself did not change.
+
+**Not yet:** the other navigation sections (Mapa, Barrios, Anuncios, Comparar, Calculadora, Seguimiento) show as "Pronto", the old Inteligencia page is no longer in the app (its API endpoints remain), and there is no shared-conversation link yet. See `docs/superpowers/specs/2026-11-12-v4-product-design.md` for the plan.
+
+---
+
 ## Tests
 
 ```bash
@@ -172,8 +198,10 @@ TEST_DATABASE_URL=postgresql+psycopg2://... python3 -m pytest tests/api/test_sto
 cd web
 npm test                                 # Vitest unit tests
 npm run typecheck && npm run check:types
-npm run e2e                              # Playwright against a fake API (web/tests/fake-api); builds and starts Next on :3100
+npm run e2e                              # Playwright against a fake API (web/tests/fake-api); builds and starts Next on :3100, signed in with a minted session cookie
 ```
+
+`npm run e2e` always starts its own servers on :3100 and :8787 and fails if something already listens there, so a stale build is never tested by mistake. To reuse servers you started yourself, set `E2E_REUSE_SERVERS=1`.
 
 The end-to-end tests need a Chromium for Playwright (`npx playwright install chromium`). If that download is not possible, point them at an installed Chrome/Chromium with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome npm run e2e`.
 

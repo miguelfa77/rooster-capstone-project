@@ -1,4 +1,4 @@
-"""Postgres persistence for API conversations (schema `app`)."""
+"""Postgres persistence for API users and their conversations (schema `app`)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,20 @@ from agent.turn import TurnState
 from api.sse import to_json as _dumps
 
 
+_USER_COLS = "id, email, name, image, preferences"
+TITLE_MAX_CHARS = 60
+
+
 class ConversationBusy(Exception):
     """Another turn is already running for this conversation."""
+
+
+def conversation_title(messages: list[dict]) -> str | None:
+    """The first user message's text, whitespace collapsed, cut to 60 characters, right-trimmed."""
+    for m in messages:
+        if m.get("role") == "user":
+            return " ".join(str(m.get("content", "")).split())[:TITLE_MAX_CHARS].rstrip() or None
+    return None
 
 
 class ConversationStore:
@@ -28,23 +40,61 @@ class ConversationStore:
             engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
         )
 
-    def create(self) -> uuid.UUID:
+    # ── Users ─────────────────────────────────────────────────────────────
+
+    def upsert_user(self, email: str, name: str | None, image: str | None) -> dict:
+        """Create the user for this email (trimmed, lowercased) or update name, image and last_seen_at."""
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "INSERT INTO app.users (id, email, name, image) VALUES (:id, :email, :name, :image) "
+                    "ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, image = EXCLUDED.image, "
+                    "last_seen_at = now() RETURNING " + _USER_COLS
+                ),
+                {"id": uuid.uuid4(), "email": email.strip().lower(), "name": name, "image": image},
+            ).one()
+        return dict(row._mapping)
+
+    def get_user(self, user_id: uuid.UUID) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text(f"SELECT {_USER_COLS} FROM app.users WHERE id = :id"), {"id": user_id}
+            ).first()
+        return dict(row._mapping) if row else None
+
+    def update_preferences(self, user_id: uuid.UUID, patch: dict) -> dict:
+        """Shallow-merge patch into the user's preferences; returns the merged preferences."""
+        with self.engine.begin() as conn:
+            return conn.execute(
+                text(
+                    "UPDATE app.users SET preferences = preferences || CAST(:patch AS jsonb) "
+                    "WHERE id = :id RETURNING preferences"
+                ),
+                {"id": user_id, "patch": _dumps(patch)},
+            ).scalar_one()
+
+    # ── Conversations (every read and write checks the owner) ─────────────
+
+    def create(self, user_id: uuid.UUID) -> uuid.UUID:
         cid = uuid.uuid4()
         with self.engine.begin() as conn:
             conn.execute(
-                text("INSERT INTO app.conversations (id, prompt_cache_key) VALUES (:id, :key)"),
-                {"id": cid, "key": TurnState.new().prompt_cache_key},
+                text(
+                    "INSERT INTO app.conversations (id, user_id, prompt_cache_key) VALUES (:id, :uid, :key)"
+                ),
+                {"id": cid, "uid": user_id, "key": TurnState.new().prompt_cache_key},
             )
         return cid
 
-    def load(self, conversation_id: uuid.UUID) -> TurnState | None:
+    def load(self, conversation_id: uuid.UUID, user_id: uuid.UUID) -> TurnState | None:
+        """The conversation's state, or None when it does not exist or belongs to someone else."""
         with self.engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT prompt_cache_key, session_memory, previous_execution_results "
-                    "FROM app.conversations WHERE id = :id"
+                    "FROM app.conversations WHERE id = :id AND user_id = :uid"
                 ),
-                {"id": conversation_id},
+                {"id": conversation_id, "uid": user_id},
             ).first()
             if row is None:
                 return None
@@ -58,6 +108,49 @@ class ConversationStore:
             previous_execution_results=row.previous_execution_results,
             prompt_cache_key=row.prompt_cache_key,
         )
+
+    def summary(self, conversation_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
+        """{id, title, updated_at}, or None when not found or not owned."""
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT id, title, updated_at FROM app.conversations WHERE id = :id AND user_id = :uid"
+                ),
+                {"id": conversation_id, "uid": user_id},
+            ).first()
+        return dict(row._mapping) if row else None
+
+    def list_conversations(self, user_id: uuid.UUID) -> list[dict]:
+        """The user's 100 most recently updated conversations, newest first."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT id, title, updated_at FROM app.conversations WHERE user_id = :uid "
+                    "ORDER BY updated_at DESC LIMIT 100"
+                ),
+                {"uid": user_id},
+            ).all()
+        return [dict(r._mapping) for r in rows]
+
+    def rename(self, conversation_id: uuid.UUID, user_id: uuid.UUID, title: str) -> dict | None:
+        """Set the title (`updated_at` stays: renaming is not activity); returns {id, title, updated_at}, or None."""
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "UPDATE app.conversations SET title = :title "
+                    "WHERE id = :id AND user_id = :uid RETURNING id, title, updated_at"
+                ),
+                {"id": conversation_id, "uid": user_id, "title": title},
+            ).first()
+        return dict(row._mapping) if row else None
+
+    def delete(self, conversation_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM app.conversations WHERE id = :id AND user_id = :uid"),
+                {"id": conversation_id, "uid": user_id},
+            )
+        return result.rowcount > 0
 
     def save(self, conversation_id: uuid.UUID, state: TurnState) -> None:
         with self.engine.begin() as conn:
@@ -76,11 +169,13 @@ class ConversationStore:
             conn.execute(
                 text(
                     "UPDATE app.conversations SET updated_at = now(), "
+                    "title = COALESCE(title, :title), "
                     "session_memory = CAST(:mem AS jsonb), "
                     "previous_execution_results = CAST(:res AS jsonb) WHERE id = :id"
                 ),
                 {
                     "id": conversation_id,
+                    "title": conversation_title(state.messages),
                     "mem": _dumps(state.session_memory),
                     "res": _dumps(state.previous_execution_results),
                 },

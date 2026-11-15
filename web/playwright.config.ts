@@ -1,7 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const WEB_PORT = 3100;
-const API_PORT = 8787;
+import { ALLOWED_EMAILS, API_PORT, AUTH_SECRET, BASE_URL, FAKE_API, WEB_PORT } from "./tests/e2e/env";
+
+// A server already on these ports is a failure, never a shortcut: a stale build would be tested
+// instead of the tree. Set E2E_REUSE_SERVERS=1 to reuse servers you started yourself.
+const reuseExistingServer = process.env.E2E_REUSE_SERVERS === "1";
 
 // Optional: point at an existing Chrome/Chromium when `npx playwright install chromium` is not possible.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
@@ -15,7 +18,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 },
   use: {
-    baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    baseURL: BASE_URL,
     trace: "retain-on-failure",
     launchOptions: {
       executablePath,
@@ -27,9 +30,9 @@ export default defineConfig({
   webServer: [
     {
       command: "node tests/fake-api/server.mjs",
-      url: `http://localhost:${API_PORT}/health`,
+      url: `${FAKE_API}/health`,
       env: { FAKE_API_PORT: String(API_PORT) },
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer,
       timeout: 30_000,
     },
     {
@@ -41,14 +44,19 @@ export default defineConfig({
         "if [ -d public ]; then cp -r public .next/standalone/public; fi",
         "node .next/standalone/server.js",
       ].join(" && "),
-      url: `http://127.0.0.1:${WEB_PORT}`,
+      url: BASE_URL,
       env: {
         PORT: String(WEB_PORT),
         HOSTNAME: "127.0.0.1",
-        ROOSTER_API_URL: `http://localhost:${API_PORT}`,
+        ROOSTER_API_URL: FAKE_API,
         ROOSTER_API_KEY: "test",
+        AUTH_SECRET,
+        AUTH_URL: BASE_URL,
+        AUTH_GOOGLE_ID: "e2e-google-id",
+        AUTH_GOOGLE_SECRET: "e2e-google-secret",
+        ROOSTER_ALLOWED_EMAILS: ALLOWED_EMAILS,
       },
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer,
       timeout: 300_000,
     },
   ],

@@ -96,6 +96,9 @@ const fake = vi.hoisted(() => {
   return { state, FakeMap, FakePopup, FakeControl };
 });
 
+// BaseMap waits for a resolved theme before creating the map.
+vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }));
+
 vi.mock("maplibre-gl", () => ({
   Map: fake.FakeMap,
   Popup: fake.FakePopup,
