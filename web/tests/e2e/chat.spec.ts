@@ -1,15 +1,8 @@
-import { blocks, conversation, expect, preparePage, sendMessage, test, waitForTurnEnd } from "./helpers";
-
-let errors: string[] = [];
+import { blocks, conversation, expect, sendMessage, test, waitForTurnEnd } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
-  errors = await preparePage(page);
   await page.goto("/");
   await expect(page.getByRole("complementary", { name: "Chat con Rooster" }).getByTestId("chat-empty")).toBeVisible();
-});
-
-test.afterEach(() => {
-  expect(errors).toEqual([]);
 });
 
 test("sidebar_turn_renders_compact_then_full_dialog", async ({ page }) => {
@@ -56,6 +49,21 @@ test("expand_to_full_screen_keeps_conversation", async ({ page }) => {
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("complementary", { name: "Chat con Rooster" })).toBeVisible();
   await expect(conversation(page).getByText("todo", { exact: true })).toBeVisible();
+});
+
+test("expand_without_conversation_opens_empty_full_chat_and_first_send_takes_over_url", async ({ page }) => {
+  await page.getByRole("button", { name: "Abrir a pantalla completa" }).click();
+  await expect(page).toHaveURL(/\/chat\/nueva$/);
+  await expect(page.getByTestId("chat-empty")).toBeVisible();
+  await sendMessage(page, "hola");
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
+  await waitForTurnEnd(page);
+  await expect(conversation(page).getByText("Respuesta breve sobre: hola.")).toBeVisible();
+
+  // "Nueva conversación" on a conversation goes back to the empty full-screen chat.
+  await page.getByRole("button", { name: "Nueva conversación" }).first().click();
+  await expect(page).toHaveURL(/\/chat\/nueva$/);
+  await expect(page.getByTestId("chat-empty")).toBeVisible();
 });
 
 test("error_turn_shows_fallback", async ({ page }) => {

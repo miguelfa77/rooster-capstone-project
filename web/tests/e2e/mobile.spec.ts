@@ -1,18 +1,8 @@
-import { conversation, expect, pageScrollWidth, preparePage, sendMessage, test, waitForTurnEnd } from "./helpers";
+import { conversation, expect, pageScrollWidth, sendMessage, test, waitForTurnEnd } from "./helpers";
 
 const WIDTH = 390;
 
 test.use({ viewport: { width: WIDTH, height: 844 }, isMobile: true, hasTouch: true });
-
-let errors: string[] = [];
-
-test.beforeEach(async ({ page }) => {
-  errors = await preparePage(page);
-});
-
-test.afterEach(() => {
-  expect(errors).toEqual([]);
-});
 
 test("no_horizontal_scroll_on_inicio_and_chat", async ({ page }) => {
   await page.goto("/");

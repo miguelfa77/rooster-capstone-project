@@ -1,10 +1,6 @@
 import { expect, test as base, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { encode } from "next-auth/jwt";
-
-const BASE_URL = `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3100}`; // same ports as playwright.config.ts
-const FAKE_API = `http://localhost:${process.env.E2E_API_PORT ?? 8787}`;
-const AUTH_SECRET = "test-secret"; // same as playwright.config.ts
-const SESSION_COOKIE = "authjs.session-token"; // Auth.js on http; the cookie name is also its JWT salt
+import { AUTH_SECRET, BASE_URL, FAKE_API, SESSION_COOKIE } from "./env";
 
 export type TestUser = { uid: string; email: string; name: string };
 // uid / email match the profiles in tests/fake-api/server.mjs; both emails are on ROOSTER_ALLOWED_EMAILS.
@@ -30,8 +26,19 @@ export async function newSignedInPage(browser: Browser, user: TestUser) {
   return { context, page, errors };
 }
 
-/** Signed in as Ana by default; the fake API starts every spec with no conversations or preferences. */
-export const test = base.extend({
+/**
+ * Signed in as Ana by default; the fake API starts every spec with no conversations or preferences.
+ * Every test also fails on an uncaught page error (the auto fixture `pageErrors`).
+ */
+export const test = base.extend<{ pageErrors: string[] }>({
+  pageErrors: [
+    async ({ page }, provide) => {
+      const errors = await preparePage(page);
+      await provide(errors);
+      expect(errors).toEqual([]);
+    },
+    { auto: true },
+  ],
   context: async ({ context }, provide) => {
     await fetch(`${FAKE_API}/__reset`, { method: "POST" });
     await signInAs(context, ANA);

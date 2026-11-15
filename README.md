@@ -33,7 +33,7 @@ Environment variables per service (copy **`.env.example`** to **`.env`**; it is 
 | **db** (compose) | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
 | **api** | `DATABASE_URL` (or `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`), `OPENAI_API_KEY` (or `OPENAI_KEY`), `ROOSTER_API_KEY` (shared secret, `X-Rooster-Key` header; if unset the API rejects every request), `ROOSTER_SANDBOX_URL` (must include `http://`; default `http://localhost:8001`), `ROOSTER_MAX_TURNS_PER_MINUTE` (turns that may start per UTC minute across all conversations and API instances, counted in `app.turn_starts`; default `30`, `0` or negative disables, an invalid value falls back to `30` with a warning; over the cap → `429`) |
 | **sandbox** | `PORT` (default `8080` in its Docker image) |
-| **web** | All server-only: never prefix them with `NEXT_PUBLIC_`. `ROOSTER_API_URL` (e.g. `http://localhost:8000`), `ROOSTER_API_KEY` (same value as the API), `AUTH_SECRET` (signs the session cookie; generate with `openssl rand -base64 33`), `AUTH_URL` (the public origin of the web app, e.g. `http://localhost:3000`; Auth.js builds the Google callback URL from it, so it must match the redirect URI you registered. Compose defaults it to `http://localhost:3000`), `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` (the Google OAuth client, see **Google sign-in**), `ROOSTER_ALLOWED_EMAILS` (comma-separated Google emails allowed in, case-insensitive; empty means nobody can sign in). |
+| **web** | All server-only: never prefix them with `NEXT_PUBLIC_`. `ROOSTER_API_URL` (e.g. `http://localhost:8000`), `ROOSTER_API_KEY` (same value as the API), `AUTH_SECRET` (signs the session cookie; generate with `openssl rand -base64 33`), `AUTH_URL` (the public origin of the web app, e.g. `http://localhost:3000`; Auth.js builds the Google callback URL from it, so it must match the redirect URI you registered. Compose defaults it to `http://localhost:3000`; outside docker-compose it must be set to a non-empty value), `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` (the Google OAuth client, see **Google sign-in**), `ROOSTER_ALLOWED_EMAILS` (comma-separated Google emails allowed in, case-insensitive; empty means nobody can sign in). |
 | **pipeline / dbt** | Same database as the API (`DATABASE_URL` or `PG*`). `agent/llm_sql.py` also loads **`agent/.env`**; pipeline CLIs load **`pipeline/.env`** and merge unset keys; dbt reads **`dbt/.env`** (see below). |
 
 The turn limit is counted in the database (fixed one-minute windows), so it holds across any number of API instances; across a minute boundary up to twice the cap can start.
@@ -200,6 +200,8 @@ npm test                                 # Vitest unit tests
 npm run typecheck && npm run check:types
 npm run e2e                              # Playwright against a fake API (web/tests/fake-api); builds and starts Next on :3100, signed in with a minted session cookie
 ```
+
+`npm run e2e` always starts its own servers on :3100 and :8787 and fails if something already listens there, so a stale build is never tested by mistake. To reuse servers you started yourself, set `E2E_REUSE_SERVERS=1`.
 
 The end-to-end tests need a Chromium for Playwright (`npx playwright install chromium`). If that download is not possible, point them at an installed Chrome/Chromium with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome npm run e2e`.
 

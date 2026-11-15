@@ -1,19 +1,12 @@
-import { ANA, LUIS, blocks, conversation, expect, newSignedInPage, preparePage, sendMessage, test, waitForTurnEnd } from "./helpers";
-
-let errors: string[] = [];
+import { LUIS, blocks, conversation, expect, newSignedInPage, sendMessage, test, waitForTurnEnd } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
-  errors = await preparePage(page);
   await page.goto("/");
   await expect(page.getByRole("complementary", { name: "Chat con Rooster" }).getByTestId("chat-empty")).toBeVisible();
 });
 
-test.afterEach(() => {
-  expect(errors).toEqual([]);
-});
-
 test("new_conversation_appears_in_nav_with_title", async ({ page }) => {
-  const nav = page.getByRole("navigation", { name: "Navegación principal" }).locator("xpath=..");
+  const nav = page.getByRole("region", { name: "Conversaciones", exact: true });
   await expect(nav.getByText("Sin conversaciones todavía")).toBeVisible();
   await sendMessage(page, "hola");
   await waitForTurnEnd(page);
@@ -49,8 +42,9 @@ test("rename_and_delete_from_chat_page", async ({ page }) => {
   await row.click();
   await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
   await expect(conversation(page).getByText("Respuesta breve sobre: hola.")).toBeVisible();
+  // "Volver" returns to the page the user came from (the list), not out of the app.
   await page.getByRole("button", { name: "Volver" }).click();
-  await page.goto("/chat");
+  await expect(page).toHaveURL(/\/chat$/);
 
   await list.getByRole("button", { name: "Eliminar «Mi análisis de Russafa»" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Eliminar" }).click();
@@ -83,5 +77,4 @@ test("second_user_cannot_see_first_users_conversation", async ({ page, browser }
   // Ana still has hers.
   await page.goto("/chat");
   await expect(page.getByRole("button", { name: "pregunta privada de Ana" }).first()).toBeVisible();
-  expect(ANA.email).not.toBe(LUIS.email);
 });
