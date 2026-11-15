@@ -4,14 +4,14 @@ import type { ReactNode } from "react";
 import type { UserOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { LeftNav } from "./LeftNav";
-import { TopBarV4 } from "./TopBarV4";
+import { TopBar } from "./TopBar";
 
 type Props = {
   user: UserOut;
   children: ReactNode;
   /** Right-hand chat column (380 px, from 1024 px); rendered as the grid's third column. */
   chat?: ReactNode;
-  /** Content of the nav's "Conversaciones" section (Task 5). */
+  /** Content of the nav's "Conversaciones" section. */
   conversations?: ReactNode;
   onToggleChat?: () => void;
   chatOpen?: boolean;
@@ -34,7 +34,7 @@ export function AppShell({ user, children, chat, conversations, onToggleChat, ch
     >
       <aside className="bg-card sticky top-0 hidden h-svh overflow-y-auto border-r lg:block">{nav}</aside>
       <div className="flex min-w-0 flex-col">
-        <TopBarV4 user={user} nav={nav} onToggleChat={onToggleChat} chatOpen={chatOpen} />
+        <TopBar user={user} nav={nav} onToggleChat={onToggleChat} chatOpen={chatOpen} />
         <main className={cn("min-w-0 flex-1", floatingChat && "pb-20 lg:pb-0")}>{children}</main>
       </div>
       {chat}

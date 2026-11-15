@@ -1,3 +1,4 @@
+// Parked for the Phase 2 Mapa page; not mounted anywhere.
 "use client";
 
 import { COPY } from "@/lib/copy";

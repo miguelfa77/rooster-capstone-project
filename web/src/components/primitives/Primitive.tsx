@@ -28,8 +28,7 @@ const KNOWN_KINDS: ReadonlySet<string> = new Set<PrimitivePayload["kind"]>([
   "composite",
 ]);
 
-/** The single switch from a primitive payload to its component. */
-/** `compact` tightens tables for the narrow chat column. */
+/** The single switch from a primitive payload to its component. `compact` tightens tables for the narrow chat column. */
 export default function Primitive({ p, compact = false }: { p: PrimitivePayload; compact?: boolean }) {
   const kind: unknown = p.kind;
   useEffect(() => {

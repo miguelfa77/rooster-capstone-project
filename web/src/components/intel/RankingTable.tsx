@@ -1,3 +1,4 @@
+// Parked for the Phase 2 Mapa page; not mounted anywhere.
 "use client";
 
 import DataTable from "@/components/primitives/DataTable";

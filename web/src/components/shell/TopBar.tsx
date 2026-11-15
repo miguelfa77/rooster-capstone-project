@@ -13,12 +13,12 @@ type Props = {
   user: UserOut;
   /** Nav content for the mobile sheet. */
   nav: ReactNode;
-  /** Chat toggle; the button stays disabled until a handler is given (Task 6). */
+  /** Chat toggle; the button stays disabled until a handler is given. */
   onToggleChat?: () => void;
   chatOpen?: boolean;
 };
 
-export function TopBarV4({ user, nav, onToggleChat, chatOpen }: Props) {
+export function TopBar({ user, nav, onToggleChat, chatOpen }: Props) {
   return (
     <header className="bg-card sticky top-0 z-40 flex h-14 items-center gap-2 border-b px-3 sm:gap-3 sm:px-6">
       <MobileNav>{nav}</MobileNav>
