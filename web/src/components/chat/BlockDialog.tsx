@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import type { PrimitivePayload } from "@/lib/types";
 
 /**
- * Which block's dialog is open, as `"<message position>:<block index>"`. It lives above the
+ * Which block's dialog is open, as `"<message position>:<index among the non-text blocks>"`. It lives above the
  * live-turn/stored-message boundary (a finished turn is swapped for its stored message, which
  * remounts its blocks), so an open dialog survives that swap.
  */

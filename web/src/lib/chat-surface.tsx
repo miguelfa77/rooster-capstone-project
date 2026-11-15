@@ -1,18 +1,29 @@
 "use client";
 
 // Which chat surface is showing: the right sidebar (from 1024 px, while `prefs.chat_open` is not
-// false), the bottom sheet (below 1024 px) or the full-screen route `/chat/<id>`. All three render
-// the one chat state held by <ChatProvider>.
+// false), the bottom sheet (below 1024 px) or the full-screen route `/chat/<id>` (`/chat/nueva`
+// while there is no conversation yet). All three render the one chat state held by <ChatProvider>.
+// Where the user reads a conversation is decided here and only here: from Inicio and the nav the
+// chat opens beside the page instead of navigating; the "expand" actions go to the full-screen route.
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useChatContext } from "./chat-context";
-import { conversationHref, isFullChatRoute, showConversation } from "./chat-navigation";
 import { useIsDesktop } from "./use-media-query";
 import { usePreferences } from "./use-preferences";
 
+/** The full-screen route of a conversation, or the empty full-screen chat when there is none. */
+export function conversationHref(id: string | null): string {
+  return id ? `/chat/${encodeURIComponent(id)}` : "/chat/nueva";
+}
+
+/** `/chat/<id>` and `/chat/nueva`: the chat is the page, so the sidebar and sheet are not shown. */
+function isFullChatRoute(pathname: string): boolean {
+  return /^\/chat\/[^/]+/.test(pathname);
+}
+
 export type ChatSurface = {
   isDesktop: boolean;
-  /** On `/chat/<id>`: the chat is the page. */
+  /** On `/chat/<id>` or `/chat/nueva`: the chat is the page. */
   onFullRoute: boolean;
   sidebarVisible: boolean;
   sheetOpen: boolean;
@@ -22,7 +33,7 @@ export type ChatSurface = {
   closeSidebar(): void;
   /** Show the chat where the user is (after startChat/open from Inicio or the nav). */
   show(): void;
-  /** Full-screen route of the current conversation (the list when there is none). */
+  /** Full-screen route of the current conversation (the empty full-screen chat when there is none). */
   expand(): void;
   /** From the full-screen route back to the previous page, with the chat open. */
   back(): void;
@@ -54,10 +65,10 @@ export function ChatSurfaceProvider({ children }: { children: ReactNode }) {
   const openSidebar = useCallback(() => {
     if (!chatOpen) set({ chat_open: true });
   }, [chatOpen, set]);
-  const show = useCallback(
-    () => showConversation({ isDesktop, openSidebar, openSheet: () => setSheetOpen(true) }),
-    [isDesktop, openSidebar],
-  );
+  const show = useCallback(() => {
+    if (isDesktop) openSidebar();
+    else setSheetOpen(true);
+  }, [isDesktop, openSidebar]);
   const toggle = useCallback(() => {
     if (isDesktop) set({ chat_open: !chatOpen });
     else setSheetOpen((o) => !o);

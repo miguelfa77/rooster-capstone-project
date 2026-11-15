@@ -16,9 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isStreaming, useChatContext } from "@/lib/chat-context";
-import { conversationHref } from "@/lib/chat-navigation";
-import { useChatSurface } from "@/lib/chat-surface";
+import { useChatContext } from "@/lib/chat-context";
+import { conversationHref, useChatSurface } from "@/lib/chat-surface";
 import { COPY } from "@/lib/copy";
 import { relativeDay } from "@/lib/format";
 import type { ConversationSummary } from "@/lib/types";
@@ -45,7 +44,6 @@ export function ConversationList({ variant }: { variant: "nav" | "recent" | "pag
   const router = useRouter();
   const surface = useChatSurface();
   const activeId = chat.state.conversationId;
-  const streaming = isStreaming(chat);
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
   /** The edit being committed or cancelled, so the blur that follows Enter/Esc is a no-op. */
   const editDone = useRef(false);
@@ -78,7 +76,7 @@ export function ConversationList({ variant }: { variant: "nav" | "recent" | "pag
     <button
       type="button"
       onClick={() => select(c.id)}
-      disabled={streaming}
+      disabled={chat.busy}
       aria-current={c.id === activeId ? "true" : undefined}
       className={cn(
         "focus-visible:ring-ring/50 min-w-0 truncate rounded-md text-left outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60",
@@ -146,7 +144,7 @@ export function ConversationList({ variant }: { variant: "nav" | "recent" | "pag
         {items.map((c) => {
           const title = titleOf(c);
           // The conversation of a running turn cannot be renamed or deleted until the turn ends.
-          const locked = streaming && c.id === activeId;
+          const locked = chat.busy && c.id === activeId;
           return (
             <li key={c.id} className="flex min-w-0 items-center gap-2 px-3 py-2">
               {editing?.id === c.id ? (

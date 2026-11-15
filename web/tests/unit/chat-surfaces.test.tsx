@@ -9,6 +9,7 @@ import { storageKey } from "@/lib/client";
 import type { Preferences, UserOut } from "@/lib/types";
 import { ConversationsProvider } from "@/lib/use-conversations";
 import { PreferencesProvider } from "@/lib/use-preferences";
+import { routes, type Route } from "./support/fetch-routes";
 
 const nav = vi.hoisted(() => ({
   pathname: "/",
@@ -50,16 +51,6 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture ??= () => false;
 });
 
-type Route = (url: string, init?: RequestInit) => Response | Promise<Response>;
-function routes(handlers: Record<string, Route>) {
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    const key = `${init?.method ?? "GET"} ${url}`;
-    const handler = handlers[key];
-    if (!handler) throw new Error(`unexpected fetch ${key}`);
-    return handler(url, init);
-  });
-}
-
 const BASE: Record<string, Route> = {
   "GET /api/rooster/conversations": () => Response.json([]),
   "PATCH /api/rooster/me/preferences": (_u, init) => Response.json(JSON.parse(String(init?.body))),
@@ -71,7 +62,7 @@ beforeEach(() => {
   media.desktop = true;
   localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
-  routes(BASE);
+  routes(fetchMock, BASE);
 });
 afterEach(() => {
   fetchMock.mockReset();
@@ -155,7 +146,7 @@ describe("ChatSidebar", () => {
 
   it("sidebar_hidden_on_full_screen_route", () => {
     nav.pathname = "/chat/c1";
-    routes({ ...BASE, "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }) });
+    routes(fetchMock, { ...BASE, "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }) });
     render(
       <Providers>
         <App page={<FullChat id="c1" />} />
@@ -179,7 +170,7 @@ describe("ChatSidebar", () => {
 
   it("expand_navigates_to_chat_id", async () => {
     localStorage.setItem(storageKey("u1"), "c7");
-    routes({ ...BASE, "GET /api/rooster/conversations/c7": () => Response.json({ id: "c7", title: "x", messages: [] }) });
+    routes(fetchMock, { ...BASE, "GET /api/rooster/conversations/c7": () => Response.json({ id: "c7", title: "x", messages: [] }) });
     render(
       <Providers>
         <App />
@@ -191,14 +182,14 @@ describe("ChatSidebar", () => {
     expect(nav.router.push).toHaveBeenCalledWith("/chat/c7");
   });
 
-  it("expand_without_conversation_goes_to_list", async () => {
+  it("expand_without_conversation_goes_to_empty_full_screen_chat", async () => {
     render(
       <Providers>
         <App />
       </Providers>,
     );
     await act(async () => within(sidebar()!).getByRole("button", { name: "Abrir a pantalla completa" }).click());
-    expect(nav.router.push).toHaveBeenCalledWith("/chat");
+    expect(nav.router.push).toHaveBeenCalledWith("/chat/nueva");
   });
 });
 
@@ -209,7 +200,7 @@ describe("Chat surfaces share one live turn", () => {
     const body = new ReadableStream<Uint8Array>({ start: (c) => void (stream = c) });
     const emit = (e: object) =>
       stream.enqueue(enc.encode(`event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`));
-    routes({
+    routes(fetchMock, {
       ...BASE,
       "POST /api/rooster/conversations": () => Response.json({ id: "c1" }, { status: 201 }),
       "POST /api/rooster/conversations/c1/messages": () =>
@@ -261,7 +252,7 @@ describe("Composer draft", () => {
 
     // Sidebar -> full screen.
     nav.pathname = "/chat/c1";
-    routes({
+    routes(fetchMock, {
       ...BASE,
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
     });
@@ -286,9 +277,9 @@ describe("Composer draft", () => {
 });
 
 describe("Full screen route navigation", () => {
-  it("new_conversation_on_full_route_replaces_url_with_chat", async () => {
+  it("new_conversation_on_full_route_replaces_url_with_chat_nueva", async () => {
     nav.pathname = "/chat/c1";
-    routes({
+    routes(fetchMock, {
       ...BASE,
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
     });
@@ -300,13 +291,44 @@ describe("Full screen route navigation", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Nueva conversación/ })).toBeEnabled());
     nav.router.replace.mockClear();
     await act(async () => screen.getByRole("button", { name: /Nueva conversación/ }).click());
-    expect(nav.router.replace).toHaveBeenCalledWith("/chat");
+    expect(nav.router.replace).toHaveBeenCalledWith("/chat/nueva");
+  });
+
+  it("chat_nueva_shows_empty_full_chat_and_first_send_takes_over_url_without_remount", async () => {
+    nav.pathname = "/chat/nueva";
+    // A conversation remembered from an earlier visit must not show up on "nueva".
+    localStorage.setItem(storageKey("u1"), "old");
+    routes(fetchMock, {
+      ...BASE,
+      "GET /api/rooster/conversations/old": () =>
+        Response.json({ id: "old", title: null, messages: [{ role: "user", content: "vieja pregunta" }] }),
+      "POST /api/rooster/conversations": () => Response.json({ id: "c9" }, { status: 201 }),
+      "POST /api/rooster/conversations/c9/messages": () => new Response("event: done\ndata: {\"type\":\"done\"}\n\n"),
+      "GET /api/rooster/conversations/c9": () => Response.json({ id: "c9", title: null, messages: [] }),
+    });
+    window.history.replaceState(null, "", "/chat/nueva");
+    render(
+      <Providers>
+        <App page={<FullChat id={null} />} />
+      </Providers>,
+    );
+    expect(await screen.findByTestId("chat-empty")).toBeInTheDocument();
+    expect(screen.queryByText("vieja pregunta")).toBeNull();
+    expect(sidebar()).toBeNull();
+    const box = screen.getByRole("textbox");
+
+    await act(async () => screen.getByRole("button", { name: "enviar-prueba" }).click());
+    await waitFor(() => expect(window.location.pathname).toBe("/chat/c9"));
+    // The page stays mounted (same composer node); no router navigation happened.
+    expect(screen.getByRole("textbox")).toBe(box);
+    expect(nav.router.replace).not.toHaveBeenCalled();
+    expect(nav.router.push).not.toHaveBeenCalled();
   });
 
   it("back_keeps_previous_query_string", async () => {
     nav.pathname = "/barrios";
     nav.search = "orden=yield&q=a";
-    routes({
+    routes(fetchMock, {
       ...BASE,
       "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
     });
@@ -370,15 +392,50 @@ describe("ChatSheet", () => {
     await act(async () => screen.getByRole("button", { name: "Abrir chat" }).click());
     const sheet = screen.getByRole("dialog", { name: "Chat con Rooster" });
     await act(async () => within(sheet).getByRole("button", { name: "Abrir a pantalla completa" }).click());
-    expect(nav.router.push).toHaveBeenCalledWith("/chat");
+    expect(nav.router.push).toHaveBeenCalledWith("/chat/nueva");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
 describe("FullChat", () => {
+  it("history_navigation_to_another_chat_while_busy_replaces_url_with_active_conversation", async () => {
+    const enc = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start: (c) => void (stream = c) });
+    routes(fetchMock, {
+      ...BASE,
+      "POST /api/rooster/conversations": () => Response.json({ id: "c1" }, { status: 201 }),
+      "POST /api/rooster/conversations/c1/messages": () =>
+        new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
+      "GET /api/rooster/conversations/c2": () => Response.json({ id: "c2", title: null, messages: [] }),
+    });
+    nav.pathname = "/";
+    const { rerender } = render(
+      <Providers>
+        <App />
+      </Providers>,
+    );
+    await act(async () => screen.getByRole("button", { name: "enviar-prueba" }).click());
+    await waitFor(() => expect(screen.getByText("hola")).toBeInTheDocument());
+
+    // The browser's back button lands on /chat/c2 (a fresh page) while the turn on c1 is still running.
+    nav.pathname = "/chat/c2";
+    rerender(
+      <Providers>
+        <App page={<FullChat id="c2" />} />
+      </Providers>,
+    );
+    await waitFor(() => expect(nav.router.replace).toHaveBeenCalledWith("/chat/c1"));
+    await act(async () => {
+      stream.enqueue(enc.encode('event: done\ndata: {"type":"done"}\n\n'));
+      stream.close();
+    });
+  });
+
   it("full_route_404_redirects_to_chat", async () => {
     nav.pathname = "/chat/gone";
-    routes({ ...BASE, "GET /api/rooster/conversations/gone": () => Response.json({ detail: "x" }, { status: 404 }) });
+    routes(fetchMock, { ...BASE, "GET /api/rooster/conversations/gone": () => Response.json({ detail: "x" }, { status: 404 }) });
     render(
       <Providers>
         <App page={<FullChat id="gone" />} />
@@ -389,7 +446,7 @@ describe("FullChat", () => {
 
   it("full_route_opens_conversation_and_back_returns_with_sidebar_open", async () => {
     nav.pathname = "/";
-    routes({
+    routes(fetchMock, {
       ...BASE,
       "GET /api/rooster/conversations/c3": () =>
         Response.json({ id: "c3", title: "Benimaclet", messages: [{ role: "user", content: "pregunta guardada" }] }),

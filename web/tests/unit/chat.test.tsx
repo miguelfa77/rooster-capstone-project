@@ -459,103 +459,70 @@ describe("ChatPanel (compact density)", () => {
     await waitFor(() => expect(card).toHaveFocus());
   });
 
-  it("compact_cards_sketch_bar_line_scatter_and_plotly", () => {
-    const pick = (kind: string, pred: (p: PrimitivePayload) => boolean = () => true) =>
-      ALL_KINDS.find((p) => p.kind === kind && pred(p))!;
-    const cases: [string, PrimitivePayload][] = [
-      ["bar", pick("bar")],
-      ["line", pick("line")],
-      ["scatter", pick("scatter")],
-      ["plotly bar", pick("code", (p) => p.kind === "code" && p.output_type === "plotly_json")],
-    ];
-    for (const [name, p] of cases) {
-      setState({ messages: [assistant({ blocks: [p] })] });
-      const { container, unmount } = render(<ChatPanel density="compact" />);
-      const card = screen.getByRole("button", { name: /Ampliar/ });
-      expect(card.querySelector("svg[preserveAspectRatio='none']"), name).not.toBeNull();
-      expect(card.querySelector("svg rect, svg polyline, svg line"), name).not.toBeNull();
-      unmount();
-      expect(container).toBeTruthy();
-    }
+  const pick = (kind: string, pred: (p: PrimitivePayload) => boolean = () => true) =>
+    ALL_KINDS.find((p) => p.kind === kind && pred(p))!;
+  it.each([
+    ["bar", pick("bar")],
+    ["line", pick("line")],
+    ["scatter", pick("scatter")],
+    ["plotly bar", pick("code", (p) => p.kind === "code" && p.output_type === "plotly_json")],
+  ])("compact_card_sketches_%s", (_name, p) => {
+    setState({ messages: [assistant({ blocks: [p] })] });
+    render(<ChatPanel density="compact" />);
+    const card = screen.getByRole("button", { name: /Ampliar/ });
+    expect(card.querySelector("svg[preserveAspectRatio='none']")).not.toBeNull();
+    expect(card.querySelector("svg rect, svg polyline, svg line")).not.toBeNull();
   });
 
-  it("plotly_card_sketches_lines_and_scatter_and_falls_back_to_icon", () => {
-    const code = (fig: unknown, raw?: string): PrimitivePayload => ({
-      kind: "code",
-      visualization_type: "plotly",
-      code: "",
-      fallback_kind: "table",
-      output_type: "plotly_json",
-      output: raw ?? JSON.stringify(fig),
-    });
-    const render1 = (p: PrimitivePayload) => {
-      setState({ messages: [assistant({ blocks: [p] })] });
-      const r = render(<ChatPanel density="compact" />);
-      const card = screen.getByRole("button", { name: /Ampliar/ });
-      const out = { svg: card.querySelector("svg[preserveAspectRatio='none']"), card };
-      return { ...out, unmount: r.unmount };
-    };
-    let r = render1(code({ data: [{ type: "scatter", mode: "lines", y: [1, 3, 2] }] }));
-    expect(r.svg?.querySelector("polyline")).not.toBeNull();
-    r.unmount();
-    r = render1(
-      code({
-        data: [{ type: "scatter", mode: "markers", x: [1, 2, 3], y: [3, 1, 2] }],
-      }),
-    );
-    expect(r.svg?.querySelectorAll("line")).toHaveLength(3);
-    r.unmount();
-    r = render1(
-      code({
-        data: [{ type: "bar", orientation: "h", x: [1, 2], y: ["a", "b"] }],
-      }),
-    );
-    expect(r.svg?.querySelectorAll("rect")).toHaveLength(2);
-    r.unmount();
-    // Unsupported trace, junk output: the icon stays.
-    r = render1(code({ data: [{ type: "heatmap", z: [[1]] }] }));
-    expect(r.svg).toBeNull();
-    r.unmount();
-    r = render1(code(null, "no es json"));
-    expect(r.svg).toBeNull();
-    r.unmount();
+  const plotly = (fig: unknown, raw?: string): PrimitivePayload => ({
+    kind: "code",
+    visualization_type: "plotly",
+    code: "",
+    fallback_kind: "table",
+    output_type: "plotly_json",
+    output: raw ?? JSON.stringify(fig),
+  });
+  it.each([
+    ["lines", plotly({ data: [{ type: "scatter", mode: "lines", y: [1, 3, 2] }] }), "polyline", 1],
+    ["markers", plotly({ data: [{ type: "scatter", mode: "markers", x: [1, 2, 3], y: [3, 1, 2] }] }), "line", 3],
+    ["horizontal bars", plotly({ data: [{ type: "bar", orientation: "h", x: [1, 2], y: ["a", "b"] }] }), "rect", 2],
+  ])("plotly_card_sketches_%s", (_name, p, shape, count) => {
+    setState({ messages: [assistant({ blocks: [p] })] });
+    render(<ChatPanel density="compact" />);
+    const svg = screen.getByRole("button", { name: /Ampliar/ }).querySelector("svg[preserveAspectRatio='none']");
+    expect(svg?.querySelectorAll(shape)).toHaveLength(count);
   });
 
-  it("block_dialog_survives_live_turn_finishing", async () => {
-    const map = ALL_KINDS.find((p) => p.kind === "choropleth")!;
-    const prior: Message[] = [
-      { role: "user", content: "antes" },
-      assistant({
-        blocks: [{ kind: "text", content: "previo", role: "analysis" }],
-      }),
-    ];
-    setState(
-      {
-        messages: prior,
-        live: live({ text: "Mira", primitives: [map], status: "streaming" }),
-      },
-      true,
-    );
+  it.each([
+    ["an unsupported trace", plotly({ data: [{ type: "heatmap", z: [[1]] }] })],
+    ["output that is not JSON", plotly(null, "no es json")],
+  ])("plotly_card_keeps_icon_for_%s", (_name, p) => {
+    setState({ messages: [assistant({ blocks: [p] })] });
+    render(<ChatPanel density="compact" />);
+    expect(screen.getByRole("button", { name: /Ampliar/ }).querySelector("svg[preserveAspectRatio='none']")).toBeNull();
+  });
+
+  it.each([
+    ["choropleth", /Mapa de barrios/, "choropleth-mock"],
+    ["point_map", /Mapa de anuncios/, "point-map-mock"],
+  ])("block_dialog_stays_on_same_block_when_stored_text_blocks_interleave_%s", async (_kind, card, mock) => {
+    const pick = (k: string) => ALL_KINDS.find((p) => p.kind === k)!;
+    const bar = pick("bar");
+    const text = (content: string): PrimitivePayload => ({ kind: "text", content, role: "analysis" });
+    // Live: streamed text is one block up front; stored: text blocks interleave with the figures.
+    setState({ live: live({ text: "Mira", primitives: [bar, pick("choropleth"), pick("point_map")] }) }, true);
     const { rerender } = render(<ChatPanel density="compact" />);
-    await act(async () => screen.getByRole("button", { name: /Mapa de barrios/ }).click());
-    expect(screen.getByRole("dialog", { name: /Rentabilidad bruta \(%\)/ })).toBeInTheDocument();
+    await act(async () => screen.getByRole("button", { name: card }).click());
+    expect(within(screen.getByRole("dialog")).getByTestId(mock)).toBeInTheDocument();
 
-    // Turn done, stored messages replace the live turn.
     setState({
       messages: [
-        ...prior,
         { role: "user", content: "¿Dónde invierto?" },
-        assistant({
-          blocks: [{ kind: "text", content: "Mira", role: "analysis" }, map],
-        }),
+        assistant({ blocks: [text("a"), bar, text("b"), pick("choropleth"), pick("point_map")] }),
       ],
-      live: null,
     });
     await act(async () => rerender(<ChatPanel density="compact" />));
-    const dialog = screen.getByRole("dialog", {
-      name: /Rentabilidad bruta \(%\)/,
-    });
-    expect(within(dialog).getByTestId("choropleth-mock")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByTestId(mock)).toBeInTheDocument();
   });
 
   it("compact_header_actions", () => {

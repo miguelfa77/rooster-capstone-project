@@ -15,19 +15,23 @@ const BLOCK = "min-w-0 max-w-full overflow-x-auto";
 
 /**
  * Full density: every block inline. Compact: text, KPIs and small tables inline, the rest as cards.
- * `pos` is the message position, which with the block index keys the open block dialog.
+ * `pos` is the message position; with the index among the non-text blocks it keys the open block
+ * dialog. Live primitives, stored `primitive_payloads` and the stored blocks without text share that
+ * order (agent/turn.py), so a dialog stays on the same block when the live turn is replaced.
  */
 export function Blocks({ items, density, pos }: { items: PrimitivePayload[]; density: Density; pos: number }) {
+  let figure = 0;
   return (
     <>
       {items.map((p, i) => {
+        const blockKey = p.kind === "text" ? undefined : `${pos}:${figure++}`;
         const inline = density === "full" || inlineInCompact(p);
         return (
           <div key={i} className={BLOCK} data-testid="message-block">
             {inline ? (
               <Primitive p={p} compact={density === "compact"} />
             ) : (
-              <CompactBlock p={p} blockKey={`${pos}:${i}`} />
+              <CompactBlock p={p} blockKey={blockKey} />
             )}
           </div>
         );

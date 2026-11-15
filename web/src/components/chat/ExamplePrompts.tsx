@@ -1,20 +1,19 @@
 "use client";
 
-import { isStreaming, useChatContext } from "@/lib/chat-context";
+import { useChatContext } from "@/lib/chat-context";
 import { useChatSurface } from "@/lib/chat-surface";
 
 /** Example questions; a click starts a new conversation with it and shows the chat beside the page. */
 export function ExamplePrompts({ items }: { items: readonly string[] }) {
   const chat = useChatContext();
   const { show } = useChatSurface();
-  const streaming = isStreaming(chat);
   return (
     <ul className="flex flex-wrap gap-2">
       {items.map((text) => (
         <li key={text} className="max-w-full">
           <button
             type="button"
-            disabled={streaming}
+            disabled={chat.busy}
             onClick={() => {
               void chat.startChat(text);
               show();

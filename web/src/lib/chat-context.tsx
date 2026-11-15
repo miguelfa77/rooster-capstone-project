@@ -26,8 +26,3 @@ export function useChatContext(): Chat {
   if (!chat) throw new Error("useChatContext must be used inside <ChatProvider>");
   return chat;
 }
-
-/** True while a send is running (stream and stored refetch); switching or starting conversations is disabled then. */
-export function isStreaming(chat: Chat): boolean {
-  return chat.busy;
-}
