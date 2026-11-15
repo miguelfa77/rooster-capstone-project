@@ -30,7 +30,7 @@ function SurfaceProbe() {
 }
 
 const router = vi.hoisted(() => ({ push: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/" }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
 const toast = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 

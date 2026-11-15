@@ -19,6 +19,20 @@
   white-space: nowrap;
 }
 
+/* The narrow chat column: smaller type, tighter cells, no minimum column widths. */
+.table.compact {
+  font-size: 13px;
+}
+
+.table.compact th,
+.table.compact td {
+  padding: 8px;
+}
+
+.table.compact th {
+  min-width: 0;
+}
+
 .table tbody tr:last-child td {
   border-bottom: none;
 }

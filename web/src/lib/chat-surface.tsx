@@ -3,7 +3,7 @@
 // Which chat surface is showing: the right sidebar (from 1024 px, while `prefs.chat_open` is not
 // false), the bottom sheet (below 1024 px) or the full-screen route `/chat/<id>`. All three render
 // the one chat state held by <ChatProvider>.
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useChatContext } from "./chat-context";
 import { conversationHref, isFullChatRoute, showConversation } from "./chat-navigation";
@@ -35,6 +35,7 @@ export function ChatSurfaceProvider({ children }: { children: ReactNode }) {
   const isDesktop = useIsDesktop();
   const pathname = usePathname();
   const router = useRouter();
+  const search = useSearchParams().toString();
   const { prefs, set } = usePreferences();
   const { state } = useChatContext();
   const [sheetWanted, setSheetOpen] = useState(false);
@@ -47,8 +48,8 @@ export function ChatSurfaceProvider({ children }: { children: ReactNode }) {
   // The last page that was not the full-screen chat, for "Volver".
   const previous = useRef<string | null>(null);
   useEffect(() => {
-    if (!onFullRoute) previous.current = pathname;
-  }, [pathname, onFullRoute]);
+    if (!onFullRoute) previous.current = search ? `${pathname}?${search}` : pathname;
+  }, [pathname, search, onFullRoute]);
 
   const openSidebar = useCallback(() => {
     if (!chatOpen) set({ chat_open: true });

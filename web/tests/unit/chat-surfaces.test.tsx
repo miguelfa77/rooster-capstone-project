@@ -12,9 +12,14 @@ import { PreferencesProvider } from "@/lib/use-preferences";
 
 const nav = vi.hoisted(() => ({
   pathname: "/",
+  search: "",
   router: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname, useRouter: () => nav.router }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => nav.pathname,
+  useRouter: () => nav.router,
+  useSearchParams: () => new URLSearchParams(nav.search),
+}));
 vi.mock("@/lib/session-actions", () => ({ signOutAction: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 vi.mock("@/components/map/ChoroplethMap", () => ({ default: () => <div data-testid="choropleth-mock" /> }));
@@ -62,6 +67,7 @@ const BASE: Record<string, Route> = {
 
 beforeEach(() => {
   nav.pathname = "/";
+  nav.search = "";
   media.desktop = true;
   localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
@@ -159,7 +165,6 @@ describe("ChatSidebar", () => {
     // No chat toggle (or floating button) while the chat is the page.
     expect(toggle()).toBeDisabled();
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
-    nav.pathname = "/chat";
   });
 
   it("sidebar_kept_on_chat_list_page", () => {
@@ -240,6 +245,85 @@ describe("Chat surfaces share one live turn", () => {
       stream.close();
     });
     nav.pathname = "/";
+  });
+});
+
+describe("Composer draft", () => {
+  it("draft_survives_surface_switches", async () => {
+    const { rerender } = render(
+      <Providers>
+        <App />
+      </Providers>,
+    );
+    fireEvent.change(within(sidebar()!).getByRole("textbox"), {
+      target: { value: "borrador" },
+    });
+
+    // Sidebar -> full screen.
+    nav.pathname = "/chat/c1";
+    routes({
+      ...BASE,
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
+    });
+    rerender(
+      <Providers>
+        <App page={<FullChat id="c1" />} />
+      </Providers>,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("borrador");
+
+    // Full screen -> phone sheet.
+    nav.pathname = "/";
+    media.desktop = false;
+    rerender(
+      <Providers>
+        <App />
+      </Providers>,
+    );
+    await act(async () => screen.getByRole("button", { name: "Abrir chat" }).click());
+    expect(await screen.findByRole("textbox")).toHaveValue("borrador");
+  });
+});
+
+describe("Full screen route navigation", () => {
+  it("new_conversation_on_full_route_replaces_url_with_chat", async () => {
+    nav.pathname = "/chat/c1";
+    routes({
+      ...BASE,
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
+    });
+    render(
+      <Providers>
+        <App page={<FullChat id="c1" />} />
+      </Providers>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /Nueva conversación/ })).toBeEnabled());
+    nav.router.replace.mockClear();
+    await act(async () => screen.getByRole("button", { name: /Nueva conversación/ }).click());
+    expect(nav.router.replace).toHaveBeenCalledWith("/chat");
+  });
+
+  it("back_keeps_previous_query_string", async () => {
+    nav.pathname = "/barrios";
+    nav.search = "orden=yield&q=a";
+    routes({
+      ...BASE,
+      "GET /api/rooster/conversations/c1": () => Response.json({ id: "c1", title: null, messages: [] }),
+    });
+    const { rerender } = render(
+      <Providers>
+        <App />
+      </Providers>,
+    );
+    nav.pathname = "/chat/c1";
+    nav.search = "";
+    rerender(
+      <Providers>
+        <App page={<FullChat id="c1" />} />
+      </Providers>,
+    );
+    await act(async () => screen.getByRole("button", { name: "Volver" }).click());
+    expect(nav.router.push).toHaveBeenCalledWith("/barrios?orden=yield&q=a");
   });
 });
 

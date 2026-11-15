@@ -45,10 +45,12 @@ type Props = {
   onExpand?: () => void;
   onClose?: () => void;
   onBack?: () => void;
+  /** Runs after a new conversation was started (the full-screen route leaves the old id's URL). */
+  onNewConversation?: () => void;
 };
 
 /** The one chat UI: header, history with the live turn, notice and composer. Fills its parent's height. */
-export function ChatPanel({ density, title = COPY.wordmark, onExpand, onClose, onBack }: Props) {
+export function ChatPanel({ density, title = COPY.wordmark, onExpand, onClose, onBack, onNewConversation }: Props) {
   const { state, busy, send, reset } = useChatContext();
   const { messages, live, notice, draft, loading } = state;
   const disabled = busy || loading;
@@ -60,7 +62,10 @@ export function ChatPanel({ density, title = COPY.wordmark, onExpand, onClose, o
       <ChatHeader
         density={density}
         title={title}
-        onNew={reset}
+        onNew={() => {
+          reset();
+          onNewConversation?.();
+        }}
         newDisabled={busy}
         onExpand={onExpand}
         onClose={onClose}

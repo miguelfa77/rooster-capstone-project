@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import { ComposerDraftProvider } from "./composer-draft";
 import { useChat, type Chat } from "./use-chat";
 import { useConversations } from "./use-conversations";
 
@@ -13,7 +14,11 @@ const ChatContext = createContext<Chat | null>(null);
 export function ChatProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const { refresh } = useConversations();
   const chat = useChat({ userId, onConversationsChanged: refresh });
-  return <ChatContext.Provider value={chat}>{children}</ChatContext.Provider>;
+  return (
+    <ChatContext.Provider value={chat}>
+      <ComposerDraftProvider>{children}</ComposerDraftProvider>
+    </ChatContext.Provider>
+  );
 }
 
 export function useChatContext(): Chat {

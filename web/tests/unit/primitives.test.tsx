@@ -63,7 +63,22 @@ describe("Primitive", () => {
     render(<Primitive p={payload("kpi")} />);
     expect(screen.getByText("Rentabilidad media en Valencia")).toBeInTheDocument();
     expect(screen.getByText("5,9")).toBeInTheDocument();
-    expect(screen.getByText("+0,3 pp")).toBeInTheDocument();
+    expect(screen.getByText("▲ +0,3 pp")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["+0,3 pp", "up", "▲ +0,3 pp"],
+    ["▲ 1,2", "up", "▲ 1,2"],
+    ["-0,4 pp", "down", "▼ -0,4 pp"],
+    ["−0,4 pp", "down", "▼ −0,4 pp"],
+    ["▼ 2", "down", "▼ 2"],
+    ["0,0 pp", "neutral", "0,0 pp"],
+    ["0", "neutral", "0"],
+    ["sin cambios", "neutral", "sin cambios"],
+  ])("kpi_delta_%s_is_%s", (delta, trend, text) => {
+    render(<Primitive p={{ ...payload("kpi"), delta }} />);
+    const el = screen.getByText(text);
+    expect(el).toHaveAttribute("data-trend", trend);
   });
 
   it("table_shows_headers_and_sorts_numeric_column", () => {

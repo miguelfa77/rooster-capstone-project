@@ -43,7 +43,7 @@ function sortRows(rows: Row[], sort: Sort): Row[] {
   });
 }
 
-export default function DataTable({ p }: { p: TablePayload }) {
+export default function DataTable({ p, compact = false }: { p: TablePayload; compact?: boolean }) {
   const rows = useMemo(() => parseRows(p.rows_json), [p.rows_json]);
   const columns: TableColumn[] = useMemo(
     () =>
@@ -68,7 +68,7 @@ export default function DataTable({ p }: { p: TablePayload }) {
 
   return (
     <div className={styles.scroll}>
-      <table className={styles.table}>
+      <table className={compact ? `${styles.table} ${styles.compact}` : styles.table}>
         <thead>
           <tr>
             {columns.map((c) => {

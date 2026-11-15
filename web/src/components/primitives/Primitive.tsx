@@ -29,7 +29,8 @@ const KNOWN_KINDS: ReadonlySet<string> = new Set<PrimitivePayload["kind"]>([
 ]);
 
 /** The single switch from a primitive payload to its component. */
-export default function Primitive({ p }: { p: PrimitivePayload }) {
+/** `compact` tightens tables for the narrow chat column. */
+export default function Primitive({ p, compact = false }: { p: PrimitivePayload; compact?: boolean }) {
   const kind: unknown = p.kind;
   useEffect(() => {
     if (typeof kind !== "string" || !KNOWN_KINDS.has(kind)) console.warn("Unknown primitive kind", kind);
@@ -41,7 +42,7 @@ export default function Primitive({ p }: { p: PrimitivePayload }) {
     case "kpi":
       return <KpiCard p={p} />;
     case "table":
-      return <DataTable p={p} />;
+      return <DataTable p={p} compact={compact} />;
     case "code":
       return <CodeOutput p={p} />;
     case "bar":

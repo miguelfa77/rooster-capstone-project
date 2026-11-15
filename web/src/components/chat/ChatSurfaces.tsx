@@ -27,6 +27,7 @@ export function ChatSurfaces({
         // On the full-screen route the chat is the page: no toggle.
         onToggleChat={s.onFullRoute ? undefined : s.toggle}
         chatOpen={s.isDesktop ? s.sidebarVisible : s.sheetOpen}
+        floatingChat={!s.isDesktop && !s.onFullRoute}
       >
         {children}
       </AppShell>

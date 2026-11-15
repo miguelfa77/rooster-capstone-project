@@ -3,6 +3,7 @@
 import { ArrowUpIcon } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { useComposerText } from "@/lib/composer-draft";
 import { COPY } from "@/lib/copy";
 
 const MAX_CHARS = 2000;
@@ -18,7 +19,7 @@ export default function Composer({
   draft?: { text: string } | null;
   onSend: (text: string) => void;
 }) {
-  const [text, setText] = useState(draft?.text ?? "");
+  const [text, setText] = useComposerText();
   const [seenDraft, setSeenDraft] = useState(draft);
   if (draft !== seenDraft) {
     setSeenDraft(draft);

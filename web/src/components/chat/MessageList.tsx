@@ -6,6 +6,7 @@ import { COPY } from "@/lib/copy";
 import type { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import AssistantMessage, { ASSISTANT, Blocks, type Density } from "./AssistantMessage";
+import { OpenBlockProvider } from "./BlockDialog";
 import FallbackCard from "./FallbackCard";
 import FollowUps from "./FollowUps";
 import ThinkingBox from "./ThinkingBox";
@@ -21,7 +22,17 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function LiveTurnView({ live, onFollowUp, density }: { live: LiveTurn; onFollowUp: (text: string) => void; density: Density }) {
+function LiveTurnView({
+  live,
+  onFollowUp,
+  density,
+  pos,
+}: {
+  live: LiveTurn;
+  onFollowUp: (text: string) => void;
+  density: Density;
+  pos: number;
+}) {
   const streaming = live.status === "streaming";
   const blocks = [
     ...(live.text ? [{ kind: "text" as const, content: live.text, role: "analysis" as const }] : []),
@@ -30,7 +41,7 @@ function LiveTurnView({ live, onFollowUp, density }: { live: LiveTurn; onFollowU
   return (
     <div className={ASSISTANT}>
       {streaming || live.thoughts.length > 0 ? <ThinkingBox thoughts={live.thoughts} hasText={live.text !== ""} /> : null}
-      <Blocks items={blocks} density={density} />
+      <Blocks items={blocks} density={density} pos={pos} />
       {live.error ? <FallbackCard reason={live.error.reason} suggestion={live.error.suggestion} /> : null}
       <FollowUps items={live.followUps} interactive={!streaming} onPick={onFollowUp} />
     </div>
@@ -112,25 +123,29 @@ export default function MessageList({
           density === "full" ? "mx-auto w-full max-w-3xl gap-5 px-4 py-6 sm:px-6" : "gap-4 px-3.5 py-4 text-sm",
         )}
       >
-        {messages.map((m, i) =>
-          m.role === "user" ? (
-            <UserBubble key={i} text={m.content} />
-          ) : (
-            <AssistantMessage
-              key={i}
-              message={m}
-              interactive={i === latestAssistant}
-              onFollowUp={onFollowUp}
-              density={density}
-            />
-          ),
-        )}
-        {live ? (
-          <>
-            {live.userText ? <UserBubble text={live.userText} /> : null}
-            <LiveTurnView live={live} onFollowUp={onFollowUp} density={density} />
-          </>
-        ) : null}
+        <OpenBlockProvider>
+          {messages.map((m, i) =>
+            m.role === "user" ? (
+              <UserBubble key={i} text={m.content} />
+            ) : (
+              <AssistantMessage
+                key={i}
+                message={m}
+                interactive={i === latestAssistant}
+                onFollowUp={onFollowUp}
+                density={density}
+                pos={i}
+              />
+            ),
+          )}
+          {live ? (
+            <>
+              {live.userText ? <UserBubble text={live.userText} /> : null}
+              {/* The stored messages will be [user, assistant] right after the history. */}
+              <LiveTurnView live={live} onFollowUp={onFollowUp} density={density} pos={messages.length + 1} />
+            </>
+          ) : null}
+        </OpenBlockProvider>
       </section>
     </div>
   );

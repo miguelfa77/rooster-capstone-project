@@ -43,7 +43,12 @@ export function FullChat({ id }: { id: string }) {
   return (
     // The viewport below the 56 px top bar; the message list scrolls inside.
     <div className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col">
-      <ChatPanel density="full" title={title} onBack={back} />
+      <ChatPanel
+        density="full"
+        title={title}
+        onBack={back}
+        onNewConversation={() => router.replace(conversationHref(null))}
+      />
     </div>
   );
 }
